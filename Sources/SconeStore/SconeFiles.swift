@@ -1,16 +1,8 @@
 import Foundation
 import SconeDomain
 
-/// Three files, split by who writes them and how much a loss costs.
-/// - `cached-speakers.json`: machine-written every sweep (throttled). Disposable.
-/// - `presets.json`: written when the person saves, renames, or deletes a preset.
-/// - `floorplan-positions.json`: written when the person drops a room.
-/// A cache write can never clobber user data because they never share a file.
 public struct FileSlot<Content: Codable & Equatable & Sendable>: Sendable {
     public let name: String
-    /// A disposable file that fails to decode is deleted. A user file that fails to decode is
-    /// renamed to `<name>.corrupt-<timestamp>` and the app starts with an alert, so a bad file is
-    /// never overwritten before anyone has read it.
     public let isDisposable: Bool
 }
 
@@ -28,20 +20,17 @@ extension FileSlot where Content == FloorplanPositionsFile {
 
 public struct CachedSpeakersFile: Codable, Equatable, Sendable {
     public var version = 1
-    /// Last-known form: every reachability is `.offline`.
     public var speakers: [Speaker]
     public var rf: RFPeerMatrix
 }
 
 public struct PresetsFile: Codable, Equatable, Sendable {
     public var version = 1
-    /// Order is the pill order.
     public var presets: [PresetPill]
 }
 
 public struct FloorplanPositionsFile: Codable, Equatable, Sendable {
     public var version = 1
-    /// Only rooms the person dragged. Inferred positions are recomputed, never stored.
     public var pins: [SpeakerUUID: RoomCoordinate]
 }
 
@@ -57,27 +46,68 @@ public struct LoadedFiles: Sendable {
     public let positions: FloorplanPositionsFile?
     public let quarantined: [String]
 
-    /// Last-known IPs, handed to `SonosHousehold` so a warm launch needs no multicast at all.
     public var seedIPs: [String] { cache?.speakers.map(\.reachability.ip) ?? [] }
 }
 
-/// Synchronous on purpose. Each file is a few KB, so reads at launch and atomic writes on the main
-/// actor cost about a millisecond and need no writer queue to keep them ordered.
 public struct SconeFiles: Sendable {
     public let directory: URL
 
     public init(directory: URL) { self.directory = directory }
 
     public func load<C>(_ slot: FileSlot<C>) -> LoadResult<C> {
-        fatalError("not implemented")
+        let url = fileURL(slot.name)
+        guard FileManager.default.fileExists(atPath: url.path) else { return .missing }
+        do {
+            let data = try Data(contentsOf: url)
+            return .loaded(try JSONDecoder().decode(C.self, from: data))
+        } catch {
+            return quarantine(slot, at: url)
+        }
     }
 
-    /// `Data.write(to:options: .atomic)`: temp file, then rename.
     public func save<C>(_ content: C, to slot: FileSlot<C>) throws {
-        fatalError("not implemented")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let data = try JSONEncoder().encode(content)
+        try data.write(to: fileURL(slot.name), options: .atomic)
     }
 
     public func loadAll() -> LoadedFiles {
-        fatalError("not implemented")
+        let cache = load(FileSlot.cachedSpeakers)
+        let presets = load(FileSlot.presets)
+        let positions = load(FileSlot.floorplanPositions)
+        var quarantined: [String] = []
+        func take<C>(_ result: LoadResult<C>) -> C? {
+            switch result {
+            case .missing:
+                return nil
+            case .loaded(let content):
+                return content
+            case .quarantined(let fileName):
+                quarantined.append(fileName)
+                return nil
+            }
+        }
+        return LoadedFiles(
+            cache: take(cache),
+            presets: take(presets),
+            positions: take(positions),
+            quarantined: quarantined)
+    }
+
+    private func fileURL(_ name: String) -> URL { directory.appending(path: name) }
+
+    private func quarantine<C>(_ slot: FileSlot<C>, at url: URL) -> LoadResult<C> {
+        if slot.isDisposable {
+            try? FileManager.default.removeItem(at: url)
+            return .missing
+        }
+        let fileName = "\(slot.name).corrupt-\(Int(Date().timeIntervalSince1970))"
+        let destination = fileURL(fileName)
+        do {
+            try FileManager.default.moveItem(at: url, to: destination)
+            return .quarantined(fileName: fileName)
+        } catch {
+            return .quarantined(fileName: slot.name)
+        }
     }
 }

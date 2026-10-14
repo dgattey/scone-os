@@ -14,63 +14,48 @@ public enum SconeAlert: Hashable, Sendable {
 }
 
 public enum HouseholdConnection: Hashable, Sendable {
-    /// No sweep has finished yet. The floorplan shows the cache.
     case searching
     case live
-    /// The last sweep found no speakers: away from home, or Wi-Fi off.
     case away(lastSeenAt: Date?)
 }
 
-/// The app's whole state and every transition on it. Pure: no I/O, no clock, no tasks. This is the
-/// reducer. `SconeStore` is the shell that feeds it events and runs the I/O it implies.
-///
-/// Each stored field has one writer, named in its comment. Everything a view reads that could be
-/// computed from these fields is computed, so nothing needs syncing.
 public struct SconeState: Equatable, Sendable {
     private struct InFlight: Equatable, Sendable {
         let ticket: CommandTicket
         let command: SonosCommand
     }
 
-    /// Every speaker ever seen, in last-known form (reachability always `.offline`). Writers: `init`, `absorb`.
     private var known: [SpeakerUUID: Speaker]
-    /// The latest sweep, nil before the first. Writer: `absorb`.
     public private(set) var live: HouseholdSnapshot?
-    /// Last non-empty RF matrix, live or cached. Writers: `init`, `absorb`.
     private var rf: RFPeerMatrix
-    /// Writers: `savePreset`, `renamePreset`, `deletePreset`.
     public private(set) var presets: [PresetPill]
-    /// Writers: `pin`, `unpin`.
     public private(set) var pins: [SpeakerUUID: RoomCoordinate]
-    /// Writers: `finish`, `report`, `dismissAlert`.
     public private(set) var alert: SconeAlert?
-    /// Commands sent and not yet returned. Projected onto `live` for display. Writers: `begin`, `finish`.
     private var inFlight: [InFlight] = []
     private var nextTicket = 0
-    /// Memo of `FloorplanLayout.infer(rooms:matrix:)`. Recomputed in `init` and `absorb`, only when the
-    /// room set or `rf` changed, because views read `floorplan` on every frame of a drag.
     private var inferred: [SpeakerUUID: RoomCoordinate]
 
     public init(loaded: LoadedFiles) {
         known = Dictionary(uniqueKeysWithValues: (loaded.cache?.speakers ?? []).map { ($0.id, $0) })
         rf = loaded.cache?.rf ?? .empty
-        presets = loaded.presets?.presets ?? []
+        presets = loaded.presets?.presets ?? Self.defaultHouseholdPresets()
         pins = loaded.positions?.pins ?? [:]
         alert = loaded.quarantined.first.map { .quarantined(fileName: $0) }
         inferred = FloorplanLayout.infer(rooms: known.keys.sorted(), matrix: rf)
     }
 
-    // MARK: Transitions
-
     public mutating func absorb(_ snapshot: HouseholdSnapshot) {
-        // TODO:
-        // for speaker in snapshot.speakers.values:
-        //   known[id] = speaker.with(reachability: .offline(lastKnownIP: speaker.reachability.ip, lastSeenAt: snapshot.observedAt))
-        // speakers absent from the snapshot keep their entry, so lastSeenAt stays at their last sighting
-        // live = snapshot
-        // if snapshot.rf != .empty { rf = snapshot.rf }
-        // if room set or rf changed { inferred = FloorplanLayout.infer(rooms: known.keys.sorted(), matrix: rf) }
-        fatalError("not implemented")
+        let previousRooms = Set(known.keys)
+        let previousRF = rf
+        for speaker in snapshot.speakers.values {
+            known[speaker.id] = speaker.with(
+                reachability: .offline(lastKnownIP: speaker.reachability.ip, lastSeenAt: snapshot.observedAt))
+        }
+        live = snapshot
+        if snapshot.rf != .empty { rf = snapshot.rf }
+        if Set(known.keys) != previousRooms || rf != previousRF {
+            inferred = FloorplanLayout.infer(rooms: known.keys.sorted(), matrix: rf)
+        }
     }
 
     public mutating func begin(_ command: SonosCommand) -> CommandTicket {
@@ -80,8 +65,6 @@ public struct SconeState: Equatable, Sendable {
         return ticket
     }
 
-    /// Dropping the projection here cannot flicker, because `SonosHousehold.send` only returns after
-    /// it yielded a snapshot reflecting the command, and `absorb` ran first.
     public mutating func finish(_ ticket: CommandTicket, with result: Result<CommandOutcome, SonosCommandError>) {
         guard let index = inFlight.firstIndex(where: { $0.ticket == ticket }) else { return }
         let command = inFlight.remove(at: index).command
@@ -95,23 +78,31 @@ public struct SconeState: Equatable, Sendable {
     public mutating func pin(_ room: SpeakerUUID, at coordinate: RoomCoordinate) { pins[room] = coordinate }
     public mutating func unpin(_ room: SpeakerUUID) { pins[room] = nil }
 
-    /// Captures the projected group, so a preset saved mid-regroup matches what the person sees.
     public mutating func savePreset(from group: GroupID, name: String?) {
         guard let captured = groups.first(where: { $0.id == group }) else { return }
         presets.append(PresetPill(capturing: captured, name: name))
     }
 
+    public mutating func createPreset(name: String, coordinator: SpeakerUUID, members: Set<SpeakerUUID>) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        presets.append(PresetPill(name: trimmed, coordinatorUUID: coordinator, memberUUIDs: members))
+    }
+
+    public func groupID(containing speaker: SpeakerUUID) -> GroupID? {
+        projected?.topology.group(of: speaker)
+    }
+
     public mutating func renamePreset(_ id: PresetID, to name: String) {
-        fatalError("not implemented")
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, let index = presets.firstIndex(where: { $0.id == id }) else { return }
+        presets[index] = presets[index].renamed(trimmed)
     }
 
     public mutating func deletePreset(_ id: PresetID) { presets.removeAll { $0.id == id } }
     public mutating func report(_ alert: SconeAlert) { self.alert = alert }
     public mutating func dismissAlert() { alert = nil }
 
-    // MARK: Derived reads
-
-    /// Live speakers overlay their last-known entries. Sorted by room name.
     public var speakers: [Speaker] {
         known.merging(live?.speakers ?? [:]) { _, live in live }.values.sorted { $0.roomName < $1.roomName }
     }
@@ -119,9 +110,16 @@ public struct SconeState: Equatable, Sendable {
     public var groups: [SonosGroup] { projected?.groups ?? [] }
 
     public var floorplan: [FloorplanNode] {
-        // TODO: for each speaker: coordinate = pins[id] ?? inferred[id]; placement accordingly;
-        // group = projected?.topology.group(of: id)
-        fatalError("not implemented")
+        let topology = projected?.topology
+        return speakers.map { speaker in
+            let pinned = pins[speaker.id]
+            let coordinate = pinned ?? inferred[speaker.id] ?? RoomCoordinate(clampingX: 0.5, y: 0.5)
+            return FloorplanNode(
+                speaker: speaker,
+                coordinate: coordinate,
+                placement: pinned == nil ? .inferred : .pinned,
+                group: topology?.group(of: speaker.id))
+        }
     }
 
     public var connection: HouseholdConnection {
@@ -130,12 +128,10 @@ public struct SconeState: Equatable, Sendable {
         return .away(lastSeenAt: known.values.compactMap(\.lastSeenAt).max())
     }
 
-    /// Uses the projection, so a tapped pill lights up before the speakers confirm.
     public func isActive(_ preset: PresetPill) -> Bool {
         projected.map { preset.target.isSatisfied(by: $0.topology) } ?? false
     }
 
-    /// The store writes whichever slice changed since its last write.
     public var persisted: PersistedSlices {
         PersistedSlices(
             cache: CachedSpeakersFile(speakers: known.values.sorted { $0.id < $1.id }, rf: rf),
@@ -154,6 +150,30 @@ public struct PersistedSlices: Equatable, Sendable {
     public let positions: FloorplanPositionsFile
 }
 
+extension SconeState {
+    private static func defaultHouseholdPresets() -> [PresetPill] {
+        func id(_ raw: String) -> SpeakerUUID {
+            guard let uuid = SpeakerUUID(rawValue: raw) else { preconditionFailure("invalid household id \(raw)") }
+            return uuid
+        }
+        let kitchen = id("RINCON_F0F6C1AAD22801400")
+        let dining = id("RINCON_F0F6C1C47CEA01400")
+        let living = id("RINCON_542A1B95A13A01400")
+        let bedroom = id("RINCON_542A1B5F088401400")
+        let guest = id("RINCON_542A1B5F08A001400")
+        let basement = id("RINCON_C4387523117601400")
+        return [
+            PresetPill(name: "Kitchen + Dining", coordinatorUUID: kitchen, memberUUIDs: [dining]),
+            PresetPill(name: "Main Floor", coordinatorUUID: living, memberUUIDs: [kitchen, dining]),
+            PresetPill(name: "Upstairs", coordinatorUUID: bedroom, memberUUIDs: [guest]),
+            PresetPill(
+                name: "Everywhere",
+                coordinatorUUID: living,
+                memberUUIDs: [kitchen, dining, bedroom, guest, basement]),
+        ]
+    }
+}
+
 private extension Speaker {
     var lastSeenAt: Date? {
         if case .offline(_, let at) = reachability { at } else { nil }
@@ -161,8 +181,6 @@ private extension Speaker {
 }
 
 extension HouseholdSnapshot {
-    /// The optimistic view of one in-flight command. Exhaustive on purpose: a new command case
-    /// does not compile until someone decides what it looks like before the speakers confirm.
     func projecting(_ command: SonosCommand) -> HouseholdSnapshot {
         switch command {
         case .group, .ungroup, .applyPreset:
@@ -176,11 +194,18 @@ extension HouseholdSnapshot {
         case .setVolume(let volume, .group(let group)):
             return replacing(status: (group, GroupStatus(playback: status(of: group).playback, volume: volume)))
         case .playPause(let desired, let group):
-            // TODO: .play turns .paused(np, e) into .playing(np, e, sampledAt: observedAt); .pause the reverse.
-            _ = (desired, group)
-            fatalError("not implemented")
+            let current = status(of: group)
+            let playback: PlaybackState
+            switch (desired, current.playback) {
+            case (.play, .paused(let nowPlaying, let elapsed)):
+                playback = .playing(nowPlaying, elapsed: elapsed, sampledAt: observedAt)
+            case (.pause, .playing(let nowPlaying, let elapsed, _)):
+                playback = .paused(nowPlaying, elapsed: elapsed)
+            case (.play, .playing), (.play, .stopped), (.pause, .paused), (.pause, .stopped):
+                return self
+            }
+            return replacing(status: (group, GroupStatus(playback: playback, volume: current.volume)))
         case .nextTrack, .previousTrack, .enqueueAndPlaySpotify:
-            // The next track's metadata is unknown until the coordinator reports it.
             return self
         }
     }

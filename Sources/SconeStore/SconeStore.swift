@@ -4,9 +4,6 @@ import SconeDomain
 import SonosProtocolBoundary
 import SpotifyBridge
 
-/// The imperative shell around `SconeState`. It owns the one state value, feeds it snapshots and
-/// command results, and writes whichever file slice changed after each transition. It holds no
-/// rules of its own.
 @MainActor
 @Observable
 public final class SconeStore {
@@ -27,15 +24,16 @@ public final class SconeStore {
         self.spotify = spotify
     }
 
-    /// Reads the three files before returning, so the first frame already shows the cached house.
     public static func live(spotify: SpotifyBridge) -> SconeStore {
         let files = SconeFiles(directory: URL.applicationSupportDirectory.appending(path: "SconeOS"))
         let loaded = files.loadAll()
         return SconeStore(
-            loaded: loaded, files: files, sonos: SonosHousehold(seedIPs: loaded.seedIPs), spotify: spotify)
+            loaded: loaded,
+            files: files,
+            sonos: SonosHousehold(seedIPs: mergedSeedIPs(cached: loaded.seedIPs)),
+            spotify: spotify)
     }
 
-    /// Call once from the root view's `.task`. Returns when that task is cancelled.
     public func run() async {
         for await snapshot in sonos.snapshots() {
             state.absorb(snapshot)
@@ -47,8 +45,6 @@ public final class SconeStore {
         Task { _ = await perform(command) }
     }
 
-    /// Reads what Spotify is playing, starts it on the group at the same position, then pauses
-    /// the source so the song does not play in two places.
     public func handOffSpotify(to group: GroupID) {
         Task {
             let context: SpotifyTrackContext
@@ -80,6 +76,41 @@ public final class SconeStore {
         persistChangedSlices()
     }
 
+    public func createPreset(name: String, coordinator: SpeakerUUID, members: Set<SpeakerUUID>) {
+        state.createPreset(name: name, coordinator: coordinator, members: members)
+        persistChangedSlices()
+    }
+
+    public func group(member: SpeakerUUID, onto targetSpeaker: SpeakerUUID) {
+        guard member != targetSpeaker,
+              let targetGroup = state.groupID(containing: targetSpeaker) else { return }
+        send(.group(member: member, intoCoordinator: targetGroup))
+    }
+
+    public func togglePlayOrHandOffSpotify(for group: SonosGroup) {
+        switch group.playback {
+        case .playing:
+            send(.playPause(.pause, group: group.id))
+        case .paused:
+            send(.playPause(.play, group: group.id))
+        case .stopped:
+            Task {
+                do throws(SpotifyBridgeError) {
+                    let context = try await spotify.currentContext()
+                    let result = await perform(
+                        .enqueueAndPlaySpotify(
+                            uri: context.uri,
+                            metadata: context.metadata,
+                            onCoordinator: group.id,
+                            startingAt: context.position))
+                    if case .success = result { await spotify.pauseSourcePlayback() }
+                } catch {
+                    _ = await perform(.playPause(.play, group: group.id))
+                }
+            }
+        }
+    }
+
     public func renamePreset(_ id: PresetID, to name: String) {
         state.renamePreset(id, to: name)
         persistChangedSlices()
@@ -104,12 +135,38 @@ public final class SconeStore {
         return result
     }
 
-    /// The only place files are written. User slices write immediately. The cache changes every
-    /// sweep (`lastSeenAt`), so it writes at most every 30 seconds.
+    package nonisolated static func mergedSeedIPs(cached: [String]) -> [String] {
+        var seen: Set<String> = []
+        return (cached + fallbackSeedIPs).filter { seen.insert($0).inserted }
+    }
+
+    private nonisolated static let fallbackSeedIPs = [
+        "192.168.68.58", "192.168.68.71", "192.168.68.73",
+        "192.168.68.90", "192.168.68.92", "192.168.68.95",
+    ]
+
     private func persistChangedSlices() {
-        // TODO: compare state.persisted to `written` per slice; save changed user slices now; save the
-        // cache when changed and lastCacheWrite is 30s old; update `written` for each slice saved.
-        // A save error raises an alert and leaves `written` unchanged so the next transition retries.
-        fatalError("not implemented")
+        let next = state.persisted
+        if next.presets != written.presets, save(next.presets, to: .presets) {
+            written = PersistedSlices(cache: written.cache, presets: next.presets, positions: written.positions)
+        }
+        if next.positions != written.positions, save(next.positions, to: .floorplanPositions) {
+            written = PersistedSlices(cache: written.cache, presets: written.presets, positions: next.positions)
+        }
+        let cacheIsDue = Date().timeIntervalSince(lastCacheWrite) >= 30
+        if next.cache != written.cache, cacheIsDue, save(next.cache, to: .cachedSpeakers) {
+            written = PersistedSlices(cache: next.cache, presets: written.presets, positions: written.positions)
+            lastCacheWrite = Date()
+        }
+    }
+
+    private func save<C>(_ content: C, to slot: FileSlot<C>) -> Bool {
+        do {
+            try files.save(content, to: slot)
+            return true
+        } catch {
+            state.report(.quarantined(fileName: slot.name))
+            return false
+        }
     }
 }
