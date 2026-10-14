@@ -1,7 +1,5 @@
 import Foundation
 
-/// A desired transport state, never a toggle. Sending `.play` twice leaves the group playing.
-/// Sending a toggle twice would undo itself, so a retried request could flip the music back off.
 public enum PlayPause: Hashable, Sendable {
     case play, pause
 }
@@ -9,8 +7,6 @@ public enum PlayPause: Hashable, Sendable {
 public enum PlaybackState: Hashable, Sendable {
     case stopped
     case paused(NowPlaying, elapsed: Duration)
-    /// `elapsed` was sampled at `sampledAt`. Views interpolate with `elapsed(at:)` in a
-    /// `TimelineView` instead of polling the speaker every second.
     case playing(NowPlaying, elapsed: Duration, sampledAt: Date)
 
     public var nowPlaying: NowPlaying? {
@@ -21,15 +17,22 @@ public enum PlaybackState: Hashable, Sendable {
     }
 
     public func elapsed(at now: Date) -> Duration? {
-        fatalError("not implemented")
+        switch self {
+        case .stopped:
+            return nil
+        case .paused(_, let elapsed):
+            return elapsed
+        case .playing(let nowPlaying, let elapsed, let sampledAt):
+            let advanced = elapsed + max(.zero, .seconds(now.timeIntervalSince(sampledAt)))
+            guard case .track(let track) = nowPlaying, let duration = track.duration else { return advanced }
+            return min(advanced, duration)
+        }
     }
 }
 
 public enum NowPlaying: Hashable, Sendable {
     case track(NowPlayingTrack)
-    /// `x-sonos-htastream:`, the Beam's HDMI ARC input.
     case tvAudio
-    /// Radio, line-in, or any source without a queue. `title` is the station or stream name.
     case stream(title: String?)
 }
 
@@ -37,13 +40,9 @@ public struct NowPlayingTrack: Hashable, Sendable {
     public let title: String
     public let artist: String?
     public let album: String?
-    /// Absolute. The boundary resolves the speaker-relative `/getaa?...` path against the coordinator.
     public let artworkURL: URL?
     public let duration: Duration?
-    /// 1-based queue index. nil when the coordinator is not playing from its queue, which is
-    /// exactly when next and previous have no meaning. Views disable skip buttons on nil.
     public let queuePosition: Int?
-    /// Set when the track URI is `x-sonos-spotify:`.
     public let spotifyURI: SpotifyURI?
 
     public init(

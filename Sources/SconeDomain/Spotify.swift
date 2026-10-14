@@ -1,20 +1,50 @@
 import Foundation
 
-/// A Spotify item Sonos can play. Shared by the bridge (which produces it) and the Sonos
-/// boundary (which encodes it as `x-sonos-spotify:` or `x-rincon-cpcontainer:`).
 public struct SpotifyURI: Hashable, Sendable, Codable, CustomStringConvertible {
     public enum Kind: String, Hashable, Sendable, Codable {
         case track, album, playlist
     }
 
     public let kind: Kind
-    /// 22-character base62 id.
     public let id: String
 
-    /// Accepts `spotify:track:<id>` and `https://open.spotify.com/track/<id>`. Rejects
-    /// `spotify:local:...`, episodes, and anything else Sonos cannot stream.
     public init?(_ string: String) {
-        fatalError("not implemented")
+        guard let parsed = Self.parseURI(string) ?? Self.parseOpenURL(string) else { return nil }
+        self.kind = parsed.kind
+        self.id = parsed.id
+    }
+
+    private static func parseURI(_ string: String) -> (kind: Kind, id: String)? {
+        let parts = string.split(separator: ":", omittingEmptySubsequences: false)
+        guard parts.count == 3, parts[0] == "spotify", let kind = Kind(rawValue: String(parts[1])) else { return nil }
+        let id = String(parts[2])
+        guard isPlayableID(id) else { return nil }
+        return (kind, id)
+    }
+
+    private static func parseOpenURL(_ string: String) -> (kind: Kind, id: String)? {
+        var text = string
+        if let query = text.firstIndex(of: "?") { text = String(text[..<query]) }
+        if let fragment = text.firstIndex(of: "#") { text = String(text[..<fragment]) }
+        let prefix = "https://open.spotify.com/"
+        guard text.hasPrefix(prefix) else { return nil }
+        var path = text.dropFirst(prefix.count)
+        if path.hasSuffix("/") { path.removeLast() }
+        let parts = path.split(separator: "/", omittingEmptySubsequences: false)
+        guard parts.count == 2, let kind = Kind(rawValue: String(parts[0])) else { return nil }
+        let id = String(parts[1])
+        guard isPlayableID(id) else { return nil }
+        return (kind, id)
+    }
+
+    private static func isPlayableID(_ id: String) -> Bool {
+        guard (15...30).contains(id.count) else { return false }
+        return id.allSatisfy { character in
+            switch character {
+            case "A"..."Z", "a"..."z", "0"..."9": true
+            default: false
+            }
+        }
     }
 
     public var description: String { "spotify:\(kind.rawValue):\(id)" }
@@ -36,11 +66,9 @@ public struct SpotifyTrackMetadata: Hashable, Sendable {
     }
 }
 
-/// What the person is listening to right now, ready to hand to a Sonos group.
 public struct SpotifyTrackContext: Hashable, Sendable {
     public let uri: SpotifyURI
     public let metadata: SpotifyTrackMetadata
-    /// Where the source player is, so the hand-off resumes mid-song instead of restarting it.
     public let position: Duration?
 
     public init(uri: SpotifyURI, metadata: SpotifyTrackMetadata, position: Duration?) {

@@ -1,13 +1,9 @@
-/// A read model for one live group, rebuilt from `HouseholdSnapshot` on every change.
-/// Nothing stores a `SonosGroup`, so its display name and member list cannot go stale.
 public struct SonosGroup: Identifiable, Hashable, Sendable {
     public let id: GroupID
     public let coordinator: Speaker
-    /// Excludes the coordinator. Sorted by short room name.
     public let members: [Speaker]
     public let playback: PlaybackState
     public let volume: DiscreteVolume
-    /// "Kitchen + Dining". See `RoomNaming.groupName`.
     public let displayName: String
 
     public var speakers: [Speaker] { [coordinator] + members }
@@ -25,23 +21,43 @@ public struct SonosGroup: Identifiable, Hashable, Sendable {
     }
 }
 
-/// Pure naming rules, table-tested with the household's real zone names.
 public enum RoomNaming {
-    /// Drops a trailing "Speaker" or "Soundbar". When `merged`, also drops a trailing "Room" so
-    /// group names stay short. Falls back to the input if nothing would remain.
-    ///
-    /// "Kitchen Speaker" -> "Kitchen". "Living Room Soundbar" -> "Living Room".
-    /// "Dining Room Speaker" merged -> "Dining".
     public static func shortName(_ zoneName: String, merged: Bool) -> String {
-        fatalError("not implemented")
+        var name = zoneName
+        if let stripped = stripping(name, suffix: " Speaker") ?? stripping(name, suffix: " Soundbar") {
+            name = stripped
+        }
+        if merged, let stripped = stripping(name, suffix: " Room") {
+            name = stripped
+        }
+        return name
     }
 
-    /// Coordinator first, then members by short name, joined with " + ".
-    /// - One room: its unmerged short name ("Living Room").
-    /// - Every online room in one group: "Everywhere".
-    /// - More than three rooms: "Kitchen + Dining + 2 more".
-    /// Duplicate short names keep their full zone names instead.
     public static func groupName(coordinator: String, members: [String], onlineRoomCount: Int) -> String {
-        fatalError("not implemented")
+        if members.isEmpty { return shortName(coordinator, merged: false) }
+        if onlineRoomCount > 1, 1 + members.count >= onlineRoomCount { return "Everywhere" }
+
+        let zones = [coordinator] + members
+        let mergedNames = zones.map { shortName($0, merged: true) }
+        var counts: [String: Int] = [:]
+        for name in mergedNames { counts[name, default: 0] += 1 }
+        func label(_ zone: String, _ mergedName: String) -> String {
+            counts[mergedName, default: 0] > 1 ? shortName(zone, merged: false) : mergedName
+        }
+
+        let coordinatorLabel = label(coordinator, mergedNames[0])
+        let memberLabels = zip(members, mergedNames.dropFirst()).map { zone, mergedName in
+            label(zone, mergedName)
+        }.sorted()
+        let labels = [coordinatorLabel] + memberLabels
+        if labels.count <= 3 { return labels.joined(separator: " + ") }
+        return "\(labels[0]) + \(labels[1]) + \(labels.count - 2) more"
+    }
+
+    private static func stripping(_ name: String, suffix: String) -> String? {
+        guard name.hasSuffix(suffix) else { return nil }
+        let stripped = String(name.dropLast(suffix.count))
+        guard !stripped.isEmpty else { return nil }
+        return stripped
     }
 }

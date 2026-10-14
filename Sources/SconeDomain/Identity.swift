@@ -1,19 +1,28 @@
 import Foundation
 
-/// A zone player's permanent identity, as advertised in the SSDP `USN` header and in
-/// `ZoneGroupTopology`, e.g. `RINCON_F0F6C1AAD22801400`. It survives reboots, DHCP changes,
-/// and regrouping, so it is the only speaker key SconeOS persists.
 public struct SpeakerUUID: Hashable, Comparable, Sendable, CustomStringConvertible {
     public let rawValue: String
 
-    /// `RINCON_` + 12 uppercase hex digits (the base MAC) + 5 decimal digits (`01400` on S2).
     public init?(rawValue: String) {
-        // TODO: match ^RINCON_[0-9A-F]{12}[0-9]{5}$. The boundary strips the `uuid:` prefix and
-        // the `::urn:...` suffix from SSDP USNs before calling this.
-        fatalError("not implemented")
+        let prefix = "RINCON_"
+        guard rawValue.count == 24, rawValue.hasPrefix(prefix) else { return nil }
+        let payload = rawValue.dropFirst(prefix.count)
+        guard payload.prefix(12).allSatisfy(Self.isUppercaseHex),
+              payload.dropFirst(12).allSatisfy(Self.isASCIIDigit) else { return nil }
+        self.rawValue = rawValue
     }
 
-    /// The base MAC. The telemetry parser resolves `ath_rincon` radio MACs (base or base+1) against it.
+    private static func isUppercaseHex(_ character: Character) -> Bool {
+        switch character {
+        case "0"..."9", "A"..."F": true
+        default: false
+        }
+    }
+
+    private static func isASCIIDigit(_ character: Character) -> Bool {
+        character.isASCII && character.isNumber
+    }
+
     package var macHex: Substring { rawValue.dropFirst("RINCON_".count).prefix(12) }
 
     public var description: String { rawValue }
@@ -36,8 +45,6 @@ extension SpeakerUUID: Codable {
     }
 }
 
-/// Lets `[SpeakerUUID: RoomCoordinate]` encode as a JSON object keyed by RINCON id
-/// instead of Swift's default alternating key/value array.
 extension SpeakerUUID: CodingKeyRepresentable {
     public var codingKey: any CodingKey { StringKey(stringValue: rawValue) }
     public init?<T: CodingKey>(codingKey: T) { self.init(rawValue: codingKey.stringValue) }
@@ -50,13 +57,6 @@ private struct StringKey: CodingKey {
     init?(intValue: Int) { return nil }
 }
 
-/// A group is identified by its coordinator.
-///
-/// The wire ID (`RINCON_F0F6C1AAD22801400:3965225496`) is reminted whenever a member leaves, so the
-/// boundary drops the numeric suffix and keeps only the coordinator. Only the package can mint a
-/// `GroupID`, and it only does so from a parsed topology. That makes a `GroupID` proof that its
-/// speaker coordinates a group, which is what coordinator-only actions (transport, group volume,
-/// queue) require. Passing a grouped member to those actions returns UPnP fault 500 on the wire.
 public struct GroupID: Hashable, Comparable, Sendable, CustomStringConvertible {
     public let coordinator: SpeakerUUID
 

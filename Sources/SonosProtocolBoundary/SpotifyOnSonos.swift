@@ -1,41 +1,119 @@
 import Foundation
 import SconeDomain
 
-/// How a Spotify URI becomes something a Sonos queue accepts. The PoC did not exercise any of
-/// this, so it is the first thing to prototype against the household.
 enum SpotifyOnSonos {
-    /// The household's linked Spotify account. `serialNumber` is the `sn=` query value and is
-    /// specific to this household. `regionToken` goes into DIDL `<desc>` (`SA_RINCON2311_X_#Svc2311-0-Token`
-    /// in the US, a different service number elsewhere).
     struct Account: Sendable, Hashable {
         let serviceID: Int
         let serialNumber: Int
         let regionToken: String
     }
 
-    /// Reads an existing `x-sonos-spotify:` item from favorites (`ContentDirectory` Browse of `FV:2`)
-    /// or the queue and lifts `sid`, `sn`, and the `<desc>` token from it. Cached for the session.
+    static let householdDefault = Account(
+        serviceID: 12, serialNumber: 3, regionToken: "SA_RINCON3079_X_#Svc3079-0-Token")
+
     static func discoverAccount(using client: SOAPClient, coordinator: SpeakerUUID, at endpoint: URL)
         async throws(SonosCommandError) -> Account
     {
-        fatalError("not implemented")
+        for objectID in ["FV:2", "Q:0"] {
+            let response: XMLNode
+            do {
+                response = try await client.call(browse(objectID), on: coordinator, at: endpoint)
+            } catch {
+                switch error {
+                case .speakerRejected: continue
+                default: throw error
+                }
+            }
+            if let account = account(in: decoded(response.value("Result"))) { return account }
+        }
+        return householdDefault
     }
 
-    /// Tracks: `x-sonos-spotify:spotify%3atrack%3a<id>?sid=<sid>&flags=8224&sn=<sn>`.
-    /// Albums and playlists: `x-rincon-cpcontainer:` with the container prefix for that kind.
     static func enqueueURI(for uri: SpotifyURI, account: Account) -> String {
-        fatalError("not implemented")
+        let query = "sid=\(account.serviceID)&flags=8224&sn=\(account.serialNumber)"
+        switch uri.kind {
+        case .track:
+            return "x-sonos-spotify:spotify%3Atrack%3A\(uri.id)?\(query)"
+        case .album:
+            return "x-rincon-cpcontainer:0004206cspotify%3Aalbum%3A\(uri.id)?\(query)"
+        case .playlist:
+            return "x-rincon-cpcontainer:0006206cspotify%3Aplaylist%3A\(uri.id)?\(query)"
+        }
     }
 
     static func didl(for metadata: SpotifyTrackMetadata, uri: SpotifyURI, account: Account) -> String {
-        fatalError("not implemented")
+        let album = metadata.album.map { "<upnp:album>\(xmlEscaped($0))</upnp:album>" } ?? ""
+        return """
+        <DIDL-Lite xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:upnp="urn:schemas-upnp-org:metadata-1-0/upnp/" \
+        xmlns="urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/"><item id="00032020spotify%3A\(uri.kind.rawValue)%3A\(uri.id)" \
+        parentID="0004206cspotify%3Aalbum%3A0" restricted="true"><dc:title>\(xmlEscaped(metadata.title))</dc:title>\
+        <dc:creator>\(xmlEscaped(metadata.artist))</dc:creator>\(album)\
+        <upnp:class>object.item.audioItem.musicTrack</upnp:class><desc id="cdudn" \
+        nameSpace="urn:schemas-rinconnetworks-com:metadata-1-0/">\(xmlEscaped(account.regionToken))</desc></item></DIDL-Lite>
+        """
     }
 
-    /// `AddURIToQueue` with `EnqueueAsNext=1` after the current position, then `Seek(TRACK_NR,
-    /// FirstTrackNumberEnqueued)`, `Play`, and `Seek(REL_TIME)` when `startingAt` is set.
     static func requests(
         uri: String, didl: String, currentQueuePosition: Int?, startingAt: Duration?
     ) -> [SOAPRequest] {
-        fatalError("not implemented")
+        let position = (currentQueuePosition ?? 0) + 1
+        var requests = [
+            SOAPRequest(service: .avTransport, action: "AddURIToQueue", arguments: [
+                ("InstanceID", "0"),
+                ("EnqueuedURI", uri),
+                ("EnqueuedURIMetaData", didl),
+                ("DesiredFirstTrackNumberEnqueued", String(position)),
+                ("EnqueueAsNext", "1"),
+            ]),
+            TransportService.seek(toTrack: position),
+            TransportService.transport(.play),
+        ]
+        if let startingAt { requests.append(TransportService.seek(to: startingAt)) }
+        return requests
+    }
+
+    private static func browse(_ objectID: String) -> SOAPRequest {
+        SOAPRequest(service: .contentDirectory, action: "Browse", arguments: [
+            ("ObjectID", objectID),
+            ("BrowseFlag", "BrowseDirectChildren"),
+            ("Filter", "*"),
+            ("StartingIndex", "0"),
+            ("RequestedCount", "100"),
+            ("SortCriteria", ""),
+        ])
+    }
+
+    private static func account(in blob: String) -> Account? {
+        guard blob.lowercased().contains("x-sonos-spotify:") else { return nil }
+        guard let sid = firstCapture(#"[?&]sid=(\d+)"#, in: blob).flatMap(Int.init),
+              let serial = firstCapture(#"[?&]sn=(\d+)"#, in: blob).flatMap(Int.init) else { return nil }
+        return Account(serviceID: sid, serialNumber: serial, regionToken: regionToken(in: blob) ?? householdDefault.regionToken)
+    }
+
+    private static func regionToken(in blob: String) -> String? {
+        if let root = try? XMLNode.parse(Data(blob.utf8)),
+           let desc = root.descendants("desc").first?.text, desc.contains("SA_RINCON") {
+            return desc
+        }
+        guard let range = blob.range(of: #"SA_RINCON[^<"\s]+"#, options: .regularExpression) else { return nil }
+        return String(blob[range])
+    }
+
+    private static func decoded(_ text: String) -> String {
+        guard !text.contains("<"), text.contains("&lt;") else { return text }
+        return text
+            .replacingOccurrences(of: "&lt;", with: "<")
+            .replacingOccurrences(of: "&gt;", with: ">")
+            .replacingOccurrences(of: "&quot;", with: "\"")
+            .replacingOccurrences(of: "&apos;", with: "'")
+            .replacingOccurrences(of: "&amp;", with: "&")
+    }
+
+    private static func firstCapture(_ pattern: String, in text: String) -> String? {
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
+        let range = NSRange(text.startIndex..., in: text)
+        guard let match = regex.firstMatch(in: text, range: range),
+              let slice = Range(match.range(at: 1), in: text) else { return nil }
+        return String(text[slice])
     }
 }

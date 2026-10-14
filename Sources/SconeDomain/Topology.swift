@@ -1,8 +1,3 @@
-/// Who is grouped with whom, among visible speakers present in the latest sweep.
-///
-/// Stored as member -> coordinator, with each coordinator mapping to itself. A dictionary key
-/// cannot repeat, so no speaker can sit in two groups. The initializer rejects a value that does
-/// not map to itself, so no group can point at a missing coordinator.
 public struct Topology: Hashable, Sendable {
     private let coordinatorOf: [SpeakerUUID: SpeakerUUID]
 
@@ -17,74 +12,116 @@ public struct Topology: Hashable, Sendable {
 
     public var speakers: Set<SpeakerUUID> { Set(coordinatorOf.keys) }
 
-    /// Members exclude the coordinator.
     public var groups: [GroupID: Set<SpeakerUUID>] {
-        fatalError("not implemented")
+        var membersByCoordinator: [SpeakerUUID: Set<SpeakerUUID>] = [:]
+        for (speaker, coordinator) in coordinatorOf {
+            var members = membersByCoordinator[coordinator] ?? []
+            if speaker != coordinator { members.insert(speaker) }
+            membersByCoordinator[coordinator] = members
+        }
+        return Dictionary(uniqueKeysWithValues: membersByCoordinator.map { coordinator, members in
+            (GroupID(coordinator: coordinator), members)
+        })
     }
 
     public func group(of speaker: SpeakerUUID) -> GroupID? {
         coordinatorOf[speaker].map(GroupID.init(coordinator:))
     }
 
-    /// Total: a step that cannot apply (unknown speaker, join into a non-coordinator) returns `self`.
-    ///
-    /// When a coordinator with members leaves, Sonos picks the remaining members' new coordinator.
-    /// This simulation picks the lowest UUID. Callers verify targets with `isSatisfied(by:)`, which
-    /// never depends on that choice.
     public func applying(_ step: TopologyStep) -> Topology {
-        // TODO:
-        // .makeStandalone(s): if s coordinates others, remap them to min(others); coordinatorOf[s] = s
-        // .join(m, c): guard coordinatorOf[c] == c, m != c, m present; promote as above if m
-        //   coordinates others; coordinatorOf[m] = c
-        fatalError("not implemented")
+        switch step {
+        case .makeStandalone(let speaker):
+            guard coordinatorOf[speaker] != nil else { return self }
+            return Topology(coordinatorOf: coordinatorMap(makingStandalone: speaker)) ?? self
+        case .join(let member, coordinator: let coordinator):
+            guard coordinatorOf[coordinator] == coordinator, member != coordinator, coordinatorOf[member] != nil else {
+                return self
+            }
+            var map = coordinatorMap(makingStandalone: member)
+            map[member] = coordinator
+            return Topology(coordinatorOf: map) ?? self
+        }
+    }
+
+    private func coordinatorMap(makingStandalone speaker: SpeakerUUID) -> [SpeakerUUID: SpeakerUUID] {
+        var map = coordinatorOf
+        let members = map.keys.filter { $0 != speaker && map[$0] == speaker }
+        if let promoted = members.min() {
+            for member in members { map[member] = promoted }
+        }
+        map[speaker] = speaker
+        return map
     }
 }
 
-/// One SOAP call's worth of regrouping. The boundary maps these one-to-one onto
-/// `BecomeCoordinatorOfStandaloneGroup` and `SetAVTransportURI(x-rincon:<coordinator>)`, both sent to `member`.
 public enum TopologyStep: Hashable, Sendable {
     case makeStandalone(SpeakerUUID)
     case join(SpeakerUUID, coordinator: SpeakerUUID)
 }
 
-/// A desired end state, not a sequence of moves. Every topology command reduces to one, which
-/// is what makes them idempotent: planning against a topology that already satisfies the target
-/// yields no steps.
 public enum TopologyTarget: Hashable, Sendable {
-    /// `group(member:intoCoordinator:)`. Joins an existing group and fails if it has dissolved.
     case memberOf(GroupID, member: SpeakerUUID)
-    /// `ungroup(member:)`. The speaker shares a group with nobody.
     case standalone(SpeakerUUID)
-    /// `applyPreset`. The coordinator leads exactly these members. The coordinator leaves its
-    /// current group if needed, and speakers in its group that are not in the preset are released.
     case exactGroup(coordinator: SpeakerUUID, members: Set<SpeakerUUID>)
 
-    /// `absent` holds speakers that are offline right now. The boundary passes the plan's
-    /// `skipped` set when verifying a partial application. Preset pills pass nothing, so a pill only
-    /// lights up when every room is actually there.
     public func isSatisfied(by topology: Topology, ignoring absent: Set<SpeakerUUID> = []) -> Bool {
-        fatalError("not implemented")
+        switch self {
+        case .memberOf(let group, let member):
+            if absent.contains(member) { return topology.group(of: group.coordinator) == group }
+            return topology.group(of: member) == group
+        case .standalone(let speaker):
+            if absent.contains(speaker) { return true }
+            guard topology.group(of: speaker)?.coordinator == speaker else { return false }
+            return topology.groups[GroupID(coordinator: speaker), default: []].isEmpty
+        case .exactGroup(let coordinator, let members):
+            guard topology.group(of: coordinator)?.coordinator == coordinator else { return false }
+            let required = members.subtracting(absent).subtracting([coordinator])
+            guard required.isSubset(of: topology.speakers) else { return false }
+            let actual = topology.groups[GroupID(coordinator: coordinator), default: []]
+            let extras = actual.subtracting(members).subtracting(absent)
+            return required.isSubset(of: actual) && extras.isEmpty
+        }
     }
 
-    /// Pure. Invariants, checked by property tests over generated topologies:
-    /// - applying every planned step yields a topology where `isSatisfied(by:ignoring: skipped)` holds;
-    /// - planning again from that result yields `.steps([], skipped:)`.
     public func plan(from topology: Topology) -> TopologyPlan {
-        // TODO for .exactGroup(c, M):
-        //   guard topology.speakers.contains(c) else .impossible(.coordinatorMissing(c))
-        //   skipped = M - topology.speakers
-        //   steps = []
-        //   if group(of: c) != c                         -> .makeStandalone(c)
-        //   for x in current members of c not in M        -> .makeStandalone(x)   // c keeps its queue
-        //   for m in (M ∩ present) where group(of: m) != c -> .join(m, coordinator: c)
-        // .memberOf(g, m): guard coordinator still coordinates, else .impossible(.groupDissolved(g))
-        // .standalone(s): absent -> skipped; already alone -> []; otherwise [.makeStandalone(s)]
-        fatalError("not implemented")
+        switch self {
+        case .memberOf(let group, let member):
+            guard topology.group(of: group.coordinator) == group else {
+                return .impossible(.groupDissolved(group))
+            }
+            if !topology.speakers.contains(member) { return .steps([], skipped: [member]) }
+            if topology.group(of: member) == group { return .steps([], skipped: []) }
+            return .steps([.join(member, coordinator: group.coordinator)], skipped: [])
+        case .standalone(let speaker):
+            if !topology.speakers.contains(speaker) { return .steps([], skipped: [speaker]) }
+            if isSatisfied(by: topology) { return .steps([], skipped: []) }
+            return .steps([.makeStandalone(speaker)], skipped: [])
+        case .exactGroup(let coordinator, let members):
+            guard topology.speakers.contains(coordinator) else {
+                return .impossible(.coordinatorMissing(coordinator))
+            }
+            let desired = members.subtracting([coordinator])
+            let skipped = desired.subtracting(topology.speakers)
+            var steps: [TopologyStep] = []
+            if topology.group(of: coordinator) != GroupID(coordinator: coordinator) {
+                steps.append(.makeStandalone(coordinator))
+            }
+            let currentMembers = topology.groups[GroupID(coordinator: coordinator), default: []]
+            for extra in currentMembers.subtracting(desired).sorted() {
+                steps.append(.makeStandalone(extra))
+            }
+            let joining = desired.intersection(topology.speakers)
+                .filter { topology.group(of: $0) != GroupID(coordinator: coordinator) }
+                .sorted()
+            for member in joining {
+                steps.append(.join(member, coordinator: coordinator))
+            }
+            return .steps(steps, skipped: skipped)
+        }
     }
 }
 
 public enum TopologyPlan: Hashable, Sendable {
-    /// Empty `steps` means the target already holds.
     case steps([TopologyStep], skipped: Set<SpeakerUUID>)
     case impossible(TopologyPlanFailure)
 }

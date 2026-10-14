@@ -5,13 +5,10 @@ public struct PresetID: Hashable, Sendable, Codable {
     public init() { rawValue = UUID() }
 }
 
-/// A saved arrangement, keyed by speakers, never by `GroupID`. Wire group IDs are reminted on
-/// every ungroup, so a preset holding one would stop matching after the first change.
 public struct PresetPill: Identifiable, Hashable, Sendable, Codable {
     public let id: PresetID
     public let name: String
     public let coordinatorUUID: SpeakerUUID
-    /// Never contains `coordinatorUUID`. Every initializer, decoding included, removes it.
     public let memberUUIDs: Set<SpeakerUUID>
 
     public init(
@@ -24,7 +21,6 @@ public struct PresetPill: Identifiable, Hashable, Sendable, Codable {
         self.memberUUIDs = Set(memberUUIDs).subtracting([coordinatorUUID])
     }
 
-    /// The name defaults to the group's display name, so saving "Kitchen + Dining" takes one tap.
     public init(capturing group: SonosGroup, name: String? = nil) {
         let trimmed = name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         self.init(
@@ -50,5 +46,13 @@ public struct PresetPill: Identifiable, Hashable, Sendable, Codable {
             name: try c.decode(String.self, forKey: .name),
             coordinatorUUID: try c.decode(SpeakerUUID.self, forKey: .coordinatorUUID),
             memberUUIDs: try c.decode([SpeakerUUID].self, forKey: .memberUUIDs))
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(name, forKey: .name)
+        try container.encode(coordinatorUUID, forKey: .coordinatorUUID)
+        try container.encode(memberUUIDs.sorted(), forKey: .memberUUIDs)
     }
 }
