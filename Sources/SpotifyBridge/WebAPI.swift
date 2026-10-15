@@ -7,6 +7,9 @@ import IOKit
 import SystemConfiguration
 #endif
 
+@_silgen_name("gethostuuid")
+private func _scone_gethostuuid(_ uuid: UnsafeMutablePointer<UInt8>, _ wait: UnsafePointer<timespec>) -> Int32
+
 enum PKCE {
     static func makeVerifier() -> String {
         var bytes = [UInt8](repeating: 0, count: 64)
@@ -86,7 +89,7 @@ public struct TokenVault: Sendable {
     private let fallbackKeys: [SymmetricKey]
 
     private static let stableMachineIdentity: String = {
-        let user = NSUserName()
+        let user = resolvedHostUserName()
         #if os(macOS)
         let entry = IORegistryEntryFromPath(kIOMainPortDefault, "IOService:/")
         if entry != 0 {
@@ -101,11 +104,31 @@ public struct TokenVault: Sendable {
             }
         }
         #endif
+        var ts = timespec(tv_sec: 0, tv_nsec: 0)
+        var uuidBytes = [UInt8](repeating: 0, count: 16)
+        if _scone_gethostuuid(&uuidBytes, &ts) == 0 {
+            let uuidString = NSUUID(uuidBytes: uuidBytes).uuidString
+            if !uuidString.isEmpty {
+                return "\(uuidString).\(user)"
+            }
+        }
         return "mac.\(user)"
     }()
 
+    private static func resolvedHostUserName() -> String {
+        #if targetEnvironment(simulator)
+        if let hostHome = ProcessInfo.processInfo.environment["SIMULATOR_HOST_HOME"], !hostHome.isEmpty {
+            let last = URL(fileURLWithPath: hostHome).lastPathComponent
+            if !last.isEmpty {
+                return last
+            }
+        }
+        #endif
+        return NSUserName()
+    }
+
     private static func legacyHostCandidates() -> [String] {
-        let user = NSUserName()
+        let user = resolvedHostUserName()
         var hosts: [String] = [
             ProcessInfo.processInfo.hostName,
             "localhost",
@@ -164,6 +187,21 @@ public struct TokenVault: Sendable {
     ) {
         self.service = service
         self.vaultFileURL = directory.appending(path: "spotify-vault.enc")
+        #if targetEnvironment(simulator)
+        if !FileManager.default.fileExists(atPath: self.vaultFileURL.path),
+           let hostHome = ProcessInfo.processInfo.environment["SIMULATOR_HOST_HOME"],
+           !hostHome.isEmpty {
+            let hostVaults = [
+                URL(fileURLWithPath: hostHome).appending(path: "Library/Application Support/Sconeos/spotify-vault.enc"),
+                URL(fileURLWithPath: hostHome).appending(path: ".sconeos/spotify-vault.enc"),
+            ]
+            for hostVault in hostVaults where FileManager.default.fileExists(atPath: hostVault.path) {
+                try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+                try? FileManager.default.copyItem(at: hostVault, to: self.vaultFileURL)
+                break
+            }
+        }
+        #endif
 
         let primaryMaterial = Data("Sconeos.TokenVault.\(service).\(Self.stableMachineIdentity)".utf8)
         self.derivedKey = HKDF<SHA256>.deriveKey(

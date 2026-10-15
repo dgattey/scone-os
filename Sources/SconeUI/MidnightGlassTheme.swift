@@ -330,15 +330,18 @@ struct SconeOrganicGlazeCrownShape: Shape {
 struct SconeBrandEmblem: View {
     @Environment(\.colorScheme) private var colorScheme
     var size: CGFloat = 26
+    var showContainer: Bool = true
 
     var body: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: size * 0.226, style: .continuous)
-                .fill(backgroundGradient)
-                .overlay(
-                    RoundedRectangle(cornerRadius: size * 0.226, style: .continuous)
-                        .strokeBorder(borderStroke, lineWidth: max(0.75, size * 0.03))
-                )
+            if showContainer {
+                RoundedRectangle(cornerRadius: size * 0.226, style: .continuous)
+                    .fill(backgroundGradient)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: size * 0.226, style: .continuous)
+                            .strokeBorder(borderStroke, lineWidth: max(0.75, size * 0.03))
+                    )
+            }
 
             ZStack {
                 Rectangle()

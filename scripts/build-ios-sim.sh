@@ -85,10 +85,9 @@ if [[ -f "$ROOT/build/icon-1024-light.png" && ( ! -f "$APP/AppIcon60x60@2x.png" 
   sips -z 180 180 "$ROOT/build/icon-1024-light.png" --out "$APP/AppIcon60x60@3x.png" >/dev/null 2>&1 || true
 fi
 
-if [[ ! -f "$APP/Info.plist" ]]; then
-  cat > "$APP/Info.plist" <<'PLIST'
+cat > "$APP/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0//EN/PropertyList-1.0.dtd">
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
   <key>CFBundleDevelopmentRegion</key>
@@ -131,7 +130,6 @@ if [[ ! -f "$APP/Info.plist" ]]; then
 </dict>
 </plist>
 PLIST
-fi
 
 codesign --force --sign - "$APP" >/dev/null 2>&1
 

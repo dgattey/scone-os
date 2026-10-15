@@ -223,7 +223,14 @@ public struct SconeRootView: View {
     @State private var appliedLaunch = false
     @State private var dockSelectedGroupID: GroupID?
 
-    public init() {}
+    public init() {
+        let initialTab: AppTab = switch LaunchView.requestedCompactTab() {
+        case "rooms": .rooms
+        case "settings", "spotify": .settings
+        default: .map
+        }
+        _activeTab = State(initialValue: initialTab)
+    }
 
     private var dockEligibleGroups: [SonosGroup] {
         deduplicatedActiveHubGroups(from: store.state.groups)
@@ -238,17 +245,28 @@ public struct SconeRootView: View {
             return viewedGroup
         }
         let eligible = dockEligibleGroups
-        guard !eligible.isEmpty else { return nil }
-        if let dockSelectedGroupID, let matched = eligible.first(where: { $0.id == dockSelectedGroupID }) {
-            return matched
+        if !eligible.isEmpty {
+            if let dockSelectedGroupID, let matched = eligible.first(where: { $0.id == dockSelectedGroupID }) {
+                return matched
+            }
+            if let playing = eligible.first(where: { playbackIsActive($0.playback) }) {
+                return playing
+            }
+            if let pausedWithTrack = eligible.first(where: { playbackHasSession($0.playback) }) {
+                return pausedWithTrack
+            }
+            return eligible.first
         }
-        if let playing = eligible.first(where: { playbackIsActive($0.playback) }) {
-            return playing
+        if isCompactLayout {
+            if let dockSelectedGroupID, let matched = store.state.groups.first(where: { $0.id == dockSelectedGroupID }) {
+                return matched
+            }
+            return store.state.groups.first(where: { $0.playback.nowPlaying != nil })
+                ?? store.state.groups.first(where: { $0.speakers.count > 1 })
+                ?? store.state.groups.first(where: { $0.speakers.contains { !$0.bondedSatellites.isEmpty } })
+                ?? store.state.groups.first
         }
-        if let pausedWithTrack = eligible.first(where: { playbackHasSession($0.playback) }) {
-            return pausedWithTrack
-        }
-        return eligible.first
+        return nil
     }
 
     private var isCompactLayout: Bool {
@@ -310,134 +328,87 @@ public struct SconeRootView: View {
 
     private var tabRoot: some View {
         TabView(selection: $activeTab) {
-            NavigationStack(path: $mapPath) {
-                ZStack {
-                    MidnightBackground()
-                    HomePane(
-                        showInlinePresets: true,
-                        onSelectGroup: { groupID in
-                            selection = .group(groupID)
-                            mapPath = [groupID]
-                        }
-                    )
+            compactTabStack(
+                title: store.state.networkName ?? "Sconeos",
+                path: $mapPath,
+                onOpenDockGroup: { groupID in
+                    selection = .group(groupID)
+                    mapPath = [groupID]
                 }
-                .navigationDestination(for: GroupID.self) { groupID in
-                    ZStack {
-                        MidnightBackground()
-                        if let group = store.state.groups.first(where: { $0.id == groupID }) {
-                            GroupDetailView(group: group)
-                        }
-                    }
-                    .navigationTitle(
-                        store.state.groups.first(where: { $0.id == groupID })?.displayName ?? "Room"
-                    )
-                    #if os(iOS)
-                    .navigationBarTitleDisplayMode(.inline)
-                    #endif
-                }
-                #if os(iOS)
-                .navigationBarTitleDisplayMode(.inline)
-                #endif
-                .toolbar {
-                    sharedCompactToolbar(title: store.state.networkName ?? "Sconeos")
-                }
-                .safeAreaInset(edge: .bottom) {
-                    sharedBottomDock { groupID in
+            ) {
+                HomePane(
+                    showInlinePresets: true,
+                    onSelectGroup: { groupID in
                         selection = .group(groupID)
                         mapPath = [groupID]
                     }
-                }
+                )
             }
             .tabItem {
                 Label("Home Map", systemImage: "map.fill")
             }
             .tag(AppTab.map)
 
-            NavigationStack(path: $roomsPath) {
-                ZStack {
-                    MidnightBackground()
-                    List {
+            compactTabStack(
+                title: "Rooms",
+                path: $roomsPath,
+                onOpenDockGroup: { groupID in
+                    selection = .group(groupID)
+                    roomsPath = [groupID]
+                }
+            ) {
+                List {
+                    Section {
+                        ForEach(store.state.groups) { group in
+                            let isSelected = (selection == .group(group.id))
+                            Button {
+                                selection = .group(group.id)
+                                roomsPath = [group.id]
+                            } label: {
+                                SidebarGroupRow(group: group, isSelected: isSelected)
+                            }
+                            .buttonStyle(.plain)
+                            .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
+                            .listRowBackground(MidnightGlass.cardFill)
+                        }
+                    }
+                    .textCase(nil)
+
+                    if !offlineSpeakers.isEmpty {
                         Section {
-                            ForEach(store.state.groups) { group in
-                                let isSelected = (selection == .group(group.id))
-                                Button {
-                                    selection = .group(group.id)
-                                    roomsPath = [group.id]
-                                } label: {
-                                    SidebarGroupRow(group: group, isSelected: isSelected)
-                                }
-                                .buttonStyle(.plain)
-                                .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
-                                .listRowBackground(MidnightGlass.cardFill)
+                            ForEach(offlineSpeakers) { speaker in
+                                SidebarOfflineRow(speaker: speaker)
+                                    .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
+                                    .listRowBackground(MidnightGlass.cardFill)
                             }
                         } header: {
-                            Text("Active Rooms")
+                            Text("Offline")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(MidnightGlass.secondaryText)
                         }
-
-                        if !offlineSpeakers.isEmpty {
-                            Section {
-                                ForEach(offlineSpeakers) { speaker in
-                                    SidebarOfflineRow(speaker: speaker)
-                                        .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
-                                        .listRowBackground(MidnightGlass.cardFill)
-                                }
-                            } header: {
-                                Text("Offline")
-                            }
-                        }
+                        .textCase(nil)
                     }
-                    .scrollContentBackground(.hidden)
                 }
-                .navigationDestination(for: GroupID.self) { groupID in
-                    ZStack {
-                        MidnightBackground()
-                        if let group = store.state.groups.first(where: { $0.id == groupID }) {
-                            GroupDetailView(group: group)
-                        }
-                    }
-                    .navigationTitle(
-                        store.state.groups.first(where: { $0.id == groupID })?.displayName ?? "Room"
-                    )
-                    #if os(iOS)
-                    .navigationBarTitleDisplayMode(.inline)
-                    #endif
-                }
+                .scrollContentBackground(.hidden)
                 #if os(iOS)
-                .navigationBarTitleDisplayMode(.inline)
+                .listStyle(.insetGrouped)
                 #endif
-                .toolbar {
-                    sharedCompactToolbar(title: "Rooms")
-                }
-                .safeAreaInset(edge: .bottom) {
-                    sharedBottomDock { groupID in
-                        selection = .group(groupID)
-                        roomsPath = [groupID]
-                    }
-                }
             }
             .tabItem {
                 Label("Rooms", systemImage: "hifispeaker.2.fill")
             }
             .tag(AppTab.rooms)
 
-            NavigationStack {
-                ZStack {
-                    MidnightBackground()
-                    SconeSettingsView(onConnectSpotify: triggerSpotifyConnect)
+            compactTabStack(
+                title: "Settings",
+                path: nil,
+                onOpenDockGroup: { groupID in
+                    selection = .group(groupID)
+                    activeTab = .map
+                    mapPath = [groupID]
                 }
-                #if os(iOS)
-                .navigationBarTitleDisplayMode(.inline)
-                #endif
-                .toolbar {
-                    sharedCompactToolbar(title: "Settings")
-                }
-                .safeAreaInset(edge: .bottom) {
-                    sharedBottomDock { groupID in
-                        selection = .group(groupID)
-                        activeTab = .map
-                        mapPath = [groupID]
-                    }
-                }
+            ) {
+                SconeSettingsView(onConnectSpotify: triggerSpotifyConnect)
             }
             .tabItem {
                 Label("Settings", systemImage: "gearshape.fill")
@@ -446,45 +417,82 @@ public struct SconeRootView: View {
         }
     }
 
-    @ToolbarContentBuilder
-    private func sharedCompactToolbar(title: String) -> some ToolbarContent {
-        ToolbarItem(placement: .navigation) {
-            HStack(spacing: 8) {
-                SconeBrandEmblem(size: 26)
-                Text(title)
-                    .font(.headline.weight(.semibold))
-                    .foregroundStyle(MidnightGlass.primaryText)
+    @ViewBuilder
+    private func compactTabStack<Content: View>(
+        title: String,
+        path: Binding<[GroupID]>?,
+        onOpenDockGroup: @escaping (GroupID) -> Void,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        if let path {
+            NavigationStack(path: path) {
+                compactTabBody(title: title, onOpenDockGroup: onOpenDockGroup, content: content)
+                    .navigationDestination(for: GroupID.self) { groupID in
+                        ZStack {
+                            MidnightBackground()
+                            if let group = store.state.groups.first(where: { $0.id == groupID }) {
+                                GroupDetailView(group: group)
+                            }
+                        }
+                        .navigationTitle(
+                            store.state.groups.first(where: { $0.id == groupID })?.displayName ?? "Room"
+                        )
+                        #if os(iOS)
+                        .navigationBarTitleDisplayMode(.inline)
+                        #endif
+                    }
             }
-        }
-        ToolbarItem(placement: .primaryAction) {
-            Text(store.state.speakerCountSummary)
-                .font(.caption2.weight(.semibold))
-                .foregroundStyle(MidnightGlass.secondaryText)
-                .padding(.horizontal, 9)
-                .padding(.vertical, 4)
-                .background(Capsule().fill(MidnightGlass.cardFill))
-                .overlay(Capsule().strokeBorder(MidnightGlass.cardBorder, lineWidth: 1))
+        } else {
+            NavigationStack {
+                compactTabBody(title: title, onOpenDockGroup: onOpenDockGroup, content: content)
+            }
         }
     }
 
-    @ViewBuilder
-    private func sharedBottomDock(onOpenGroup: @escaping (GroupID) -> Void) -> some View {
-        if let group = activeDockGroup {
-            NowPlayingDock(
-                group: group,
-                eligibleGroups: dockEligibleGroups,
-                onSelectDockGroup: {
-                    dockSelectedGroupID = $0
-                    if case .group = selection {
-                        selection = .group($0)
+    private func compactTabBody<Content: View>(
+        title: String,
+        onOpenDockGroup: @escaping (GroupID) -> Void,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        ZStack {
+            MidnightBackground()
+            content()
+        }
+        .navigationTitle(title)
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
+        .toolbar {
+            ToolbarItem(placement: .navigation) {
+                SconeBrandEmblem(size: 24, showContainer: false)
+            }
+            ToolbarItem(placement: .primaryAction) {
+                Text(store.state.speakerCountSummary)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(MidnightGlass.secondaryText)
+                    .padding(.horizontal, 4)
+            }
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if let group = activeDockGroup {
+                NowPlayingDock(
+                    group: group,
+                    eligibleGroups: dockEligibleGroups,
+                    onSelectDockGroup: {
+                        dockSelectedGroupID = $0
+                        if case .group = selection {
+                            selection = .group($0)
+                        }
+                    },
+                    onOpen: {
+                        onOpenDockGroup(group.id)
                     }
-                },
-                onOpen: {
-                    onOpenGroup(group.id)
-                }
-            )
-            .padding(.horizontal, 12)
-            .padding(.bottom, 8)
+                )
+                .padding(.horizontal, 16)
+                .padding(.top, 4)
+                .padding(.bottom, 12)
+                .background(Color.clear)
+            }
         }
     }
 
@@ -524,41 +532,46 @@ public struct SconeRootView: View {
     }
 
     private var sidebar: some View {
-        List {
-            let isHomeSelected = (selection == .home || selection == nil)
-            sidebarBrandHeaderRow
-                .onTapGesture {
-                    selection = .home
-                }
-                .listRowInsets(EdgeInsets(top: 6, leading: 10, bottom: 6, trailing: 10))
-                .listRowSeparator(.hidden)
-                .listRowBackground(sidebarRowBackground(selected: isHomeSelected))
+        VStack(spacing: 0) {
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 4) {
+                    let isHomeSelected = (selection == .home || selection == nil)
+                    sidebarBrandHeaderRow
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(sidebarRowBackground(selected: isHomeSelected))
+                        .contentShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+                        .onTapGesture {
+                            selection = .home
+                        }
 
-            ForEach(store.state.groups) { group in
-                let isSelected = (selection == .group(group.id))
-                SidebarGroupRow(group: group, isSelected: isSelected)
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        selection = .group(group.id)
+                    ForEach(store.state.groups) { group in
+                        let isSelected = (selection == .group(group.id))
+                        SidebarGroupRow(group: group, isSelected: isSelected)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 5)
+                            .background(sidebarRowBackground(selected: isSelected))
+                            .contentShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+                            .onTapGesture {
+                                selection = .group(group.id)
+                            }
                     }
-                    .listRowInsets(EdgeInsets(top: 5, leading: 10, bottom: 5, trailing: 10))
-                    .listRowSeparator(.hidden)
-                    .listRowBackground(sidebarRowBackground(selected: isSelected))
+
+                    ForEach(offlineSpeakers) { speaker in
+                        SidebarOfflineRow(speaker: speaker)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 5)
+                    }
+                }
+                .padding(.horizontal, 14)
+                .padding(.top, 10)
+                .padding(.bottom, 12)
             }
 
-            ForEach(offlineSpeakers) { speaker in
-                SidebarOfflineRow(speaker: speaker)
-                    .listRowInsets(EdgeInsets(top: 5, leading: 10, bottom: 5, trailing: 10))
-                    .listRowSeparator(.hidden)
-                    .listRowBackground(Color.clear)
-            }
-        }
-        .listStyle(.sidebar)
-        .scrollContentBackground(.hidden)
-        .safeAreaInset(edge: .bottom) {
-            SidebarSpotifyFooter(onConnect: triggerSpotifyConnect)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 10)
+            SpotifySidebarCard(inSidebarFooter: true, onConnect: triggerSpotifyConnect)
+                .padding(.horizontal, 14)
+                .padding(.top, 6)
+                .padding(.bottom, 16)
         }
     }
 
@@ -571,8 +584,6 @@ public struct SconeRootView: View {
                     RoundedRectangle(cornerRadius: 11, style: .continuous)
                         .strokeBorder(MidnightGlass.gold.opacity(0.45), lineWidth: 1)
                 )
-                .padding(.horizontal, 4)
-                .padding(.vertical, 1)
         } else {
             Color.clear
         }
@@ -593,30 +604,18 @@ public struct SconeRootView: View {
             Group {
                 switch selection {
                 case .home, nil:
-                    HomePane(
-                        onSelectGroup: { groupID in
-                            selection = .group(groupID)
-                        }
-                    )
+                    HomePane(onSelectGroup: { selection = .group($0) })
                 case .group(let id):
                     if let group = store.state.groups.first(where: { $0.id == id }) {
                         GroupDetailView(group: group)
                     } else {
-                        HomePane(
-                            onSelectGroup: { groupID in
-                                selection = .group(groupID)
-                            }
-                        )
+                        HomePane(onSelectGroup: { selection = .group($0) })
                     }
                 case .speaker(let id):
                     if let speaker = store.state.speakers.first(where: { $0.id == id }) {
                         OfflineSpeakerDetail(speaker: speaker)
                     } else {
-                        HomePane(
-                            onSelectGroup: { groupID in
-                                selection = .group(groupID)
-                            }
-                        )
+                        HomePane(onSelectGroup: { selection = .group($0) })
                     }
                 }
             }
@@ -792,135 +791,33 @@ private struct HomePane: View {
 
 struct SconeSettingsView: View {
     @Environment(SconeStore.self) private var store
-    @Environment(SpotifyBridge.self) private var spotify
     var onConnectSpotify: () -> Void
 
     var body: some View {
         List {
             Section {
-                HStack(spacing: 14) {
-                    SconeBrandEmblem(size: 46)
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text("Sconeos")
-                            .font(.headline.weight(.bold))
+                SpotifySidebarCard(inSidebarFooter: false, onConnect: onConnectSpotify)
+                    .listRowInsets(EdgeInsets(top: 10, leading: 14, bottom: 10, trailing: 14))
+                    .listRowBackground(MidnightGlass.cardFill)
+            } header: {
+                Text("Spotify")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(MidnightGlass.secondaryText)
+            }
+            .textCase(nil)
+
+            Section {
+                if let networkName = store.state.networkName, !networkName.isEmpty {
+                    HStack {
+                        Text("Household")
                             .foregroundStyle(MidnightGlass.primaryText)
-                        Text(store.state.networkAndSpeakerSummary)
+                        Spacer()
+                        Text(networkName)
                             .font(.subheadline)
                             .foregroundStyle(MidnightGlass.secondaryText)
                     }
-                    Spacer()
-                }
-                .padding(.vertical, 4)
-                .listRowBackground(MidnightGlass.cardFill)
-            }
-
-            Section {
-                switch spotify.authorization {
-                case .connected(let displayName):
-                    HStack(spacing: 12) {
-                        Image(systemName: "checkmark.circle.fill")
-                            .font(.title3)
-                            .foregroundStyle(Color.green)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(displayName.isEmpty ? "Connected to Spotify" : displayName)
-                                .font(.body.weight(.semibold))
-                                .foregroundStyle(MidnightGlass.primaryText)
-                            Text("Track metadata, album artwork, queue & Sonos handoff")
-                                .font(.caption)
-                                .foregroundStyle(MidnightGlass.secondaryText)
-                        }
-                        Spacer()
-                        Button("Disconnect", role: .destructive) {
-                            spotify.disconnect()
-                        }
-                        .font(.caption.weight(.semibold))
-                    }
-                    .padding(.vertical, 4)
-                    .listRowBackground(MidnightGlass.cardFill)
-
-                case .notConnected:
-                    VStack(alignment: .leading, spacing: 10) {
-                        HStack(spacing: 10) {
-                            Circle()
-                                .fill(MidnightGlass.gold)
-                                .frame(width: 9, height: 9)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("Spotify Account")
-                                    .font(.body.weight(.semibold))
-                                    .foregroundStyle(MidnightGlass.primaryText)
-                                Text("Sign in for track metadata, album artwork, live queue & one-tap Sonos handoff.")
-                                    .font(.caption)
-                                    .foregroundStyle(MidnightGlass.secondaryText)
-                            }
-                        }
-                        Button(action: onConnectSpotify) {
-                            HStack {
-                                Text("Connect Spotify")
-                                    .font(.subheadline.weight(.bold))
-                                Spacer()
-                                Image(systemName: "arrow.up.right.circle.fill")
-                                    .font(.body.weight(.semibold))
-                            }
-                            .foregroundStyle(MidnightGlass.ink)
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 10)
-                            .background(
-                                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                    .fill(MidnightGlass.gold)
-                            )
-                        }
-                        .buttonStyle(.plain)
-                    }
-                    .padding(.vertical, 4)
                     .listRowBackground(MidnightGlass.cardFill)
                 }
-            } header: {
-                Text("Spotify")
-            }
-
-            Section {
-                ForEach(store.state.speakers) { speaker in
-                    HStack(spacing: 12) {
-                        SpeakerSilhouetteView(
-                            model: speaker.model,
-                            isOnline: speaker.reachability.isOnline,
-                            isPlaying: false,
-                            size: 32
-                        )
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(RoomNaming.shortName(speaker.roomName, merged: false))
-                                .font(.body.weight(.medium))
-                                .foregroundStyle(MidnightGlass.primaryText)
-                            if !speaker.bondedSatellites.isEmpty {
-                                Text("\(speaker.model.displayName) + \(speaker.bondedSatellites.count) surrounds")
-                                    .font(.caption)
-                                    .foregroundStyle(MidnightGlass.secondaryText)
-                            } else {
-                                Text(speaker.model.displayName)
-                                    .font(.caption)
-                                    .foregroundStyle(MidnightGlass.secondaryText)
-                            }
-                        }
-                        Spacer()
-                        if let battery = speaker.model.battery {
-                            SpeakerBatteryBadge(battery: battery)
-                        }
-                        if !speaker.reachability.isOnline {
-                            OfflinePill()
-                        } else {
-                            Text("\(speaker.volume.percent)%")
-                                .font(.caption.monospacedDigit())
-                                .foregroundStyle(MidnightGlass.secondaryText)
-                        }
-                    }
-                    .padding(.vertical, 2)
-                    .listRowBackground(MidnightGlass.cardFill)
-                }
-            } header: {
-                Text("Sonos Household (\(store.state.speakerCountSummary))")
-            }
-
-            Section {
                 HStack {
                     Text("Version")
                         .foregroundStyle(MidnightGlass.primaryText)
@@ -932,9 +829,15 @@ struct SconeSettingsView: View {
                 .listRowBackground(MidnightGlass.cardFill)
             } header: {
                 Text("About")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(MidnightGlass.secondaryText)
             }
+            .textCase(nil)
         }
         .scrollContentBackground(.hidden)
+        #if os(iOS)
+        .listStyle(.insetGrouped)
+        #endif
     }
 }
 

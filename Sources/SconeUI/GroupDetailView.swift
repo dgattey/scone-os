@@ -6,15 +6,6 @@ struct GroupDetailView: View {
     @Environment(SconeStore.self) private var store
     var group: SonosGroup
 
-    private var hasActivePlaybackSession: Bool {
-        switch group.playback {
-        case .playing, .paused:
-            true
-        case .stopped:
-            false
-        }
-    }
-
     private var ungroupedSpeakers: [Speaker] {
         let currentIDs = Set(group.speakers.map(\.id))
         return store.state.speakers.filter { $0.reachability.isOnline && !currentIDs.contains($0.id) }
@@ -65,7 +56,7 @@ struct GroupDetailView: View {
                         .buttonStyle(PressableStyle())
                     }
 
-                    if !hasActivePlaybackSession {
+                    if !playbackHasSession(group.playback) {
                         Button {
                             store.togglePlayOrHandOffSpotify(for: group)
                         } label: {
@@ -124,47 +115,7 @@ struct GroupDetailView: View {
                         onVolume: { store.send(.setVolume($0, for: .speaker(speaker.id))) }
                     )
                     .contextMenu {
-                        let shortName = RoomNaming.shortName(speaker.roomName, merged: false)
-                        Button {
-                            store.togglePlayOrHandOffSpotify(for: group)
-                        } label: {
-                            Label(
-                                playbackIsActive(group.playback) ? "Pause" : "Play",
-                                systemImage: playbackIsActive(group.playback) ? "pause.fill" : "play.fill"
-                            )
-                        }
-                        Button {
-                            store.handOffSpotify(to: group.id)
-                        } label: {
-                            Label("Play from Spotify", systemImage: "dot.radiowaves.left.and.right")
-                        }
-                        if !ungroupedSpeakers.isEmpty {
-                            Menu {
-                                ForEach(ungroupedSpeakers) { other in
-                                    Button("Group with \(RoomNaming.shortName(other.roomName, merged: false))") {
-                                        store.group(member: other.id, onto: speaker.id)
-                                    }
-                                }
-                            } label: {
-                                Label("Group with…", systemImage: "hifispeaker.2.fill")
-                            }
-                        }
-                        if group.speakers.count > 1 {
-                            Button(role: .destructive) {
-                                store.ungroupSpeaker(speaker.id)
-                            } label: {
-                                Label("Disconnect \(shortName)", systemImage: "xmark.circle")
-                            }
-                        }
-                        Divider()
-                        Button {
-                            store.toggleMute(for: speaker.id)
-                        } label: {
-                            Label(
-                                speaker.volume == .v0 ? "Unmute \(shortName)" : "Mute \(shortName)",
-                                systemImage: speaker.volume == .v0 ? "speaker.wave.2.fill" : "speaker.slash.fill"
-                            )
-                        }
+                        SpeakerGroupContextMenu(group: group, speaker: speaker)
                     }
                 }
             }
