@@ -10,18 +10,15 @@ export default function HomePage() {
     <main className={styles.page}>
       <div className={styles.heroUnit}>
         <div className={styles.photoColumn}>
-          <div className={styles.frameOuter}>
-            <div className={styles.frameScreen}>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src="/sconeos-preview.png"
-                alt="Sconeos floorplan map and multi-room speaker controls on macOS"
-                width={2368}
-                height={1616}
-                fetchPriority="high"
-              />
-            </div>
-          </div>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/sconeos-preview.png"
+            alt="Sconeos floorplan map and multi-room speaker controls on macOS"
+            width={2560}
+            height={1680}
+            fetchPriority="high"
+            className={styles.windowPreview}
+          />
         </div>
 
         <div className={styles.downloadColumn}>
