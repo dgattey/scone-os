@@ -93,6 +93,23 @@ mkdir -p "$MACOS_DIR" "$RESOURCES_DIR" "$FRAMEWORKS_DIR"
 cp "$BINARY" "$MACOS_DIR/Sconeos"
 chmod +x "$MACOS_DIR/Sconeos"
 
+# Strip any absolute build-machine / Xcode toolchain LC_RPATH entries that SwiftPM embeds
+# (e.g. /Applications/Xcode_26.5.app/.../usr/lib/swift-6.2/macosx on CI runners), keeping
+# only bundle-relative (@executable_path / @loader_path) or /usr/lib/swift paths. Otherwise
+# XprotectService logs an rPathCmd failure on client Macs that lack that exact Xcode path.
+while IFS= read -r rpath; do
+  [[ -z "$rpath" ]] && continue
+  case "$rpath" in
+    @executable_path*|@loader_path*|/usr/lib/swift*) ;;
+    *)
+      install_name_tool -delete_rpath "$rpath" "$MACOS_DIR/Sconeos" 2>/dev/null || true
+      ;;
+  esac
+done < <(otool -l "$MACOS_DIR/Sconeos" | awk '/cmd LC_RPATH/{f=1;next} f && /path /{print $2; f=0}')
+if ! otool -l "$MACOS_DIR/Sconeos" | awk '/cmd LC_RPATH/{f=1;next} f && /path /{print $2; f=0}' | grep -Fxq '@executable_path/../Frameworks'; then
+  install_name_tool -add_rpath '@executable_path/../Frameworks' "$MACOS_DIR/Sconeos" 2>/dev/null || true
+fi
+
 for bundle in "$BIN_DIR"/*.bundle; do
   [[ -d "$bundle" ]] || continue
   cp -R "$bundle" "$MACOS_DIR/"
@@ -216,6 +233,10 @@ for nested in "$MACOS_DIR"/*.bundle; do
   [[ -d "$nested" ]] || continue
   csign "$nested"
 done
+
+# Strip any quarantine / provenance extended attributes before signing so nothing stale
+# or inherited from artifact downloads gets sealed or packaged.
+xattr -cr "$APP" 2>/dev/null || true
 
 # Sign Sparkle inside-out (XPC services, helper, Updater.app, then the framework). Never --deep:
 # it corrupts the XPC signatures. Order matters so the outer signature seals valid inner ones.

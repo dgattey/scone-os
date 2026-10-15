@@ -199,6 +199,18 @@
   margin: 0;
 }
 
+.commandSnippet {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.78rem;
+  color: #f3c677;
+  overflow-x: auto;
+}
+
 .manualSteps {
   margin: 0;
   padding-left: 1.25rem;
