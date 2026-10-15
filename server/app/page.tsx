@@ -14,8 +14,8 @@ export default function HomePage() {
           <img
             src="/sconeos-preview.png"
             alt="Sconeos floorplan map and multi-room speaker controls on macOS"
-            width={2560}
-            height={1680}
+            width={2232}
+            height={1480}
             fetchPriority="high"
             className={styles.windowPreview}
           />

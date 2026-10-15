@@ -15,15 +15,7 @@ if [[ ! -f "$ROOT/sparkle-public-key.txt" ]]; then
   exit 1
 fi
 
-if [[ -n "${SCONEOS_SIGN_IDENTITY:-}" && "${SCONEOS_SIGN_IDENTITY}" != "-" ]]; then
-  SIGN_ID="$SCONEOS_SIGN_IDENTITY"
-else
-  SIGN_ID="$(resolve_sign_identity)"
-fi
-if [[ "$SIGN_ID" == "-" ]]; then
-  echo "package-release: no self-signed identity — run scripts/setup-self-signed-cert.sh first." >&2
-  exit 1
-fi
+SIGN_ID="${SCONEOS_SIGN_IDENTITY:-$(resolve_sign_identity)}"
 
 WORK="$ROOT/dist/release"
 STAGE="$WORK/stage"
