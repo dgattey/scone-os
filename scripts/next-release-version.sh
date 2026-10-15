@@ -4,7 +4,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-APPCAST="${SCONEOS_APPCAST_PATH:-$ROOT/dist/release/appcast.xml}"
+APPCAST="${SCONEOS_APPCAST_PATH:-$ROOT/server/public/appcast.xml}"
 VERSION_FILE="$ROOT/VERSION"
 BASE="${SCONEOS_RELEASE_BASE_URL:-https://sconeos.gattey.com}"
 
