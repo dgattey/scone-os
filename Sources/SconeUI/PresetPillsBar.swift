@@ -46,7 +46,7 @@ struct PresetPillsBar: View {
     }
 
     private var pillsRow: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 8) {
             if store.state.speakers.filter(\.reachability.isOnline).count > 1 {
                 Button {
                     if isEverywhereActive, let group = store.state.groups.first {
@@ -137,17 +137,17 @@ struct PresetPillsBar: View {
             Button {
                 creating = true
             } label: {
-                HStack(spacing: 5) {
+                HStack(spacing: 6) {
                     Image(systemName: "plus")
-                        .font(.system(size: 11.5, weight: .bold))
+                        .font(.system(size: 13.5, weight: .bold))
                     if store.state.presets.isEmpty {
                         Text("New Preset")
-                            .font(.caption.weight(.semibold))
+                            .font(.system(size: 13.5, weight: .semibold))
                     }
                 }
                 .foregroundStyle(MidnightGlass.gold)
-                .padding(.horizontal, store.state.presets.isEmpty ? 11 : 9)
-                .frame(height: inToolbar ? 28 : 32)
+                .padding(.horizontal, store.state.presets.isEmpty ? 14 : 11)
+                .frame(minWidth: inToolbar ? 34 : 36, minHeight: inToolbar ? 34 : 36)
                 .background(Capsule().fill(MidnightGlass.cardFill))
                 .overlay(Capsule().strokeBorder(MidnightGlass.cardBorder, lineWidth: 1))
             }
@@ -160,8 +160,8 @@ struct PresetPillsBar: View {
             }
         }
         .fixedSize(horizontal: inToolbar, vertical: false)
-        .padding(.horizontal, inToolbar ? 4 : 20)
-        .padding(.vertical, inToolbar ? 2 : 8)
+        .padding(.horizontal, inToolbar ? 6 : 20)
+        .padding(.vertical, inToolbar ? 3 : 8)
     }
 }
 
@@ -174,18 +174,18 @@ private struct PresetPillLabel: View {
     @State private var isHovered = false
 
     var body: some View {
-        HStack(spacing: 5) {
+        HStack(spacing: 6.5) {
             if let systemImage {
                 Image(systemName: systemImage)
-                    .font(.system(size: compact ? 10.5 : 11, weight: .semibold))
+                    .font(.system(size: compact ? 12.5 : 13, weight: .semibold))
             }
             Text(title)
-                .font((compact ? Font.footnote : Font.subheadline).weight(.semibold))
+                .font(.system(size: compact ? 13.5 : 14, weight: .semibold))
                 .lineLimit(1)
         }
         .foregroundStyle(active ? MidnightGlass.ink : MidnightGlass.primaryText)
-        .padding(.horizontal, compact ? 11 : 14)
-        .frame(height: compact ? 28 : 32)
+        .padding(.horizontal, compact ? 14 : 16)
+        .frame(height: compact ? 34 : 36)
         .background {
             Capsule().fill(isHovered && !active ? MidnightGlass.cardElevatedFill : MidnightGlass.cardFill)
             if active {

@@ -670,6 +670,43 @@ public struct AcousticCurveSegment: Hashable, Sendable {
     }
 }
 
+public enum MapDropTarget: Hashable, Sendable {
+    case speaker(SpeakerUUID)
+    case musicHub(GroupID)
+}
+
+package enum FloorplanDragHitTesting {
+    package static let defaultDropRadius: CGFloat = 96
+
+    package static func nearestTarget(
+        to point: CGPoint,
+        excluding draggedID: SpeakerUUID,
+        draggedGroup: GroupID?,
+        displayPoints: [SpeakerUUID: CGPoint],
+        hubLocations: [GroupID: CGPoint],
+        dropRadius: CGFloat = defaultDropRadius
+    ) -> MapDropTarget? {
+        var best: MapDropTarget?
+        var bestDistance = dropRadius
+
+        for (groupID, hubCenter) in hubLocations where groupID != draggedGroup {
+            let distance = hypot(hubCenter.x - point.x, hubCenter.y - point.y)
+            if distance <= bestDistance {
+                bestDistance = distance
+                best = .musicHub(groupID)
+            }
+        }
+        for (speakerID, center) in displayPoints where speakerID != draggedID {
+            let distance = hypot(center.x - point.x, center.y - point.y)
+            if distance <= bestDistance {
+                bestDistance = distance
+                best = .speaker(speakerID)
+            }
+        }
+        return best
+    }
+}
+
 public enum AcousticCurveRouter {
     public static func nodeObstacleRect(center: CGPoint, hasSatellites: Bool = false) -> CGRect {
         let width: CGFloat = hasSatellites ? 198 : 142
@@ -1207,17 +1244,19 @@ public enum AcousticCurveRouter {
         bandFrame: CGRect,
         edgeInset: CGFloat
     ) -> Bool {
-        let safeContainer = bandFrame.insetBy(dx: edgeInset - 1, dy: edgeInset - 1)
+        let safeContainer = bandFrame.insetBy(dx: max(0, edgeInset - 4), dy: max(0, edgeInset - 4))
+        let minClearanceX = min(minGapX * 0.25, 6)
+        let minClearanceY = min(minGapY * 0.25, 6)
         var allRects: [(rect: CGRect, padded: CGRect)] = []
         for r in rooms {
             let rect = nodeObstacleRect(center: r.center, hasSatellites: r.hasSatellites)
             if !safeContainer.contains(rect) { return true }
-            allRects.append((rect, rect.insetBy(dx: -(minGapX * 0.5 - 0.5), dy: -(minGapY * 0.5 - 0.5))))
+            allRects.append((rect, rect.insetBy(dx: -minClearanceX, dy: -minClearanceY)))
         }
         for (_, hCenter) in hubs {
             let rect = musicHubRect(center: hCenter)
             if !safeContainer.contains(rect) { return true }
-            allRects.append((rect, rect.insetBy(dx: -(minGapX * 0.5 - 0.5), dy: -(minGapY * 0.5 - 0.5))))
+            allRects.append((rect, rect.insetBy(dx: -minClearanceX, dy: -minClearanceY)))
         }
         guard allRects.count > 1 else { return false }
         for i in 0..<(allRects.count - 1) {
@@ -1262,8 +1301,11 @@ public enum AcousticCurveRouter {
         let safeMinY = bandFrame.minY + minTopOffset
         let safeMaxY = bandFrame.maxY - edgeInset
 
+        let fixedItems = rooms.filter(\.isFixed)
+        let movableRooms = rooms.filter { !$0.isFixed }
+
         // Sort rooms by preferred row (top vs bottom) then X so spatial intent is preserved
-        let sortedRooms = rooms.sorted { lhs, rhs in
+        let sortedRooms = movableRooms.sorted { lhs, rhs in
             if abs(lhs.center.y - rhs.center.y) > 48 {
                 return lhs.center.y < rhs.center.y
             }
@@ -1337,7 +1379,7 @@ public enum AcousticCurveRouter {
             + CGFloat(max(0, rows.count - 1)) * rowGapY
         var cursorY = safeMinY + max(0, (availableH - totalUsedH) * 0.5)
 
-        var outRooms: [SpeakerUUID: CGPoint] = [:]
+        var outRooms: [SpeakerUUID: CGPoint] = Dictionary(uniqueKeysWithValues: fixedItems.map { ($0.id, $0.center) })
         var outHubs: [GroupID: CGPoint] = [:]
 
         for row in rows {

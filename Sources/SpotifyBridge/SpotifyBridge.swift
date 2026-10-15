@@ -134,11 +134,16 @@ public final class SpotifyBridge {
     }
 
     public func currentContext() async throws(SpotifyBridgeError) -> SpotifyTrackContext {
+        try await currentContext(forceRefresh: false)
+    }
+
+    public func currentContext(forceRefresh: Bool) async throws(SpotifyBridgeError) -> SpotifyTrackContext {
         guard let token = try await validAccessToken() else {
             throw .notConnected
         }
+        let minAge: TimeInterval = forceRefresh ? 0 : 4.0
         do {
-            guard let context = try await WebAPI.currentlyPlaying(accessToken: token) else {
+            guard let context = try await WebAPI.currentlyPlaying(accessToken: token, minCacheAge: minAge) else {
                 throw SpotifyBridgeError.nothingPlaying
             }
             return context
@@ -146,7 +151,7 @@ public final class SpotifyBridge {
             guard let refreshed = try await forceRefreshAccessToken() else {
                 throw .notConnected
             }
-            guard let context = try await WebAPI.currentlyPlaying(accessToken: refreshed) else {
+            guard let context = try await WebAPI.currentlyPlaying(accessToken: refreshed, minCacheAge: minAge) else {
                 throw .nothingPlaying
             }
             return context
@@ -160,12 +165,56 @@ public final class SpotifyBridge {
     public func pauseSourcePlayback() async {
         if let token = try? await validAccessToken() {
             await WebAPI.pause(accessToken: token)
+            await SpotifyAPIClient.shared.invalidateShortCache()
         }
     }
 
     public func resumeSourcePlayback() async -> Bool {
         guard let token = try? await validAccessToken() else { return false }
-        return await WebAPI.resume(accessToken: token)
+        let ok = await WebAPI.resume(accessToken: token)
+        if ok {
+            await SpotifyAPIClient.shared.invalidateShortCache()
+        }
+        return ok
+    }
+
+    public func playOnSonosGroup(
+        coordinatorRoomName: String,
+        memberRoomNames: [String],
+        context: SpotifyTrackContext?
+    ) async -> Bool {
+        guard let token = try? await validAccessToken() else { return false }
+
+        // 1. If Spotify's active device already matches this group's coordinator, resume directly.
+        if SpotifyDeviceMatcher.matches(deviceName: context?.deviceName, roomName: coordinatorRoomName) {
+            if await WebAPI.resume(accessToken: token, deviceID: context?.deviceID) {
+                await SpotifyAPIClient.shared.invalidateShortCache()
+                return true
+            }
+        }
+
+        // 2. Query /v1/me/player/devices for a Spotify Connect target matching the group coordinator.
+        let devices = await WebAPI.availableDevices(accessToken: token)
+        if let coordDevice = devices.first(where: {
+            SpotifyDeviceMatcher.matches(deviceName: $0.name, roomName: coordinatorRoomName)
+        }) {
+            if coordDevice.isActive {
+                if await WebAPI.resume(accessToken: token, deviceID: coordDevice.id) {
+                    await SpotifyAPIClient.shared.invalidateShortCache()
+                    return true
+                }
+            } else if !coordDevice.isRestricted, let deviceID = coordDevice.id {
+                if await WebAPI.transferPlayback(deviceID: deviceID, play: true, accessToken: token) {
+                    if context?.isPlaying == false {
+                        _ = await WebAPI.resume(accessToken: token, deviceID: deviceID)
+                    }
+                    await SpotifyAPIClient.shared.invalidateShortCache()
+                    return true
+                }
+            }
+        }
+
+        return false
     }
 
     private func startBackgroundRefreshLoop() {
