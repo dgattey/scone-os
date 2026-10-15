@@ -72,12 +72,10 @@ public struct FloorLevel: Hashable, Sendable, Codable, Comparable, Identifiable 
     }
 
     private static func explicitFloorNumber(in lowered: String) -> Int? {
-        guard let range = lowered.range(of: #"(?:floor|level)\s*(\d+)"#, options: .regularExpression) else {
+        guard let match = lowered.firstMatch(of: /(?:floor|level)\s*(\d+)/) else {
             return nil
         }
-        let match = lowered[range]
-        let digits = match.filter(\.isNumber)
-        return Int(digits)
+        return Int(match.1)
     }
 }
 

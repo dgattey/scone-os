@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import os
 import SconeDomain
 
 enum Discovery {
@@ -52,19 +53,15 @@ enum Discovery {
                 }
             }
 
-            let ssdpThread = Thread {
+            Task.detached(priority: .utility) {
                 listen(channel: channel, yield: yieldURL)
             }
-            ssdpThread.name = "sonos-ssdp"
-            ssdpThread.start()
 
-            let probeThread = Thread {
+            Task.detached(priority: .utility) {
                 probeLocalSubnets(channel: channel, yield: yieldURL)
                 channel.close()
                 continuation.finish()
             }
-            probeThread.name = "sonos-subnet-probe"
-            probeThread.start()
 
             continuation.onTermination = { _ in channel.close() }
         }
@@ -163,10 +160,10 @@ enum Discovery {
 
     private static func rinconID(in header: String) -> SpeakerUUID? {
         let upper = header.uppercased()
-        guard let range = upper.range(of: #"RINCON_[0-9A-F]{12}[0-9]{5}"#, options: .regularExpression) else {
+        guard let match = upper.firstMatch(of: /RINCON_[0-9A-F]{12}[0-9]{5}/) else {
             return nil
         }
-        return SpeakerUUID(rawValue: String(upper[range]))
+        return SpeakerUUID(rawValue: String(match.0))
     }
 
     private static func baseURL(location: String) -> URL? {
@@ -243,42 +240,41 @@ enum Discovery {
     }
 }
 
-private final class InterruptibleSocket: @unchecked Sendable {
-    private let lock = NSLock()
-    private var fd: Int32 = -1
-    private var closed = false
+private final class InterruptibleSocket: Sendable {
+    private struct State: Sendable {
+        var fd: Int32 = -1
+        var closed = false
+    }
+
+    private let state = OSAllocatedUnfairLock(initialState: State())
 
     var isClosed: Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        return closed
+        state.withLock { $0.closed }
     }
 
     func adopt(_ socketFD: Int32) -> Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        if closed { return false }
-        fd = socketFD
-        return true
+        state.withLock { state in
+            if state.closed { return false }
+            state.fd = socketFD
+            return true
+        }
     }
 
     func close() {
-        lock.lock()
-        let current = fd
-        fd = -1
-        closed = true
-        lock.unlock()
+        let current = state.withLock { state -> Int32 in
+            let existing = state.fd
+            state.fd = -1
+            state.closed = true
+            return existing
+        }
         if current >= 0 { Darwin.close(current) }
     }
 }
 
-private final class SeenURLSet: @unchecked Sendable {
-    private let lock = NSLock()
-    private var seen = Set<String>()
+private final class SeenURLSet: Sendable {
+    private let seen = OSAllocatedUnfairLock(initialState: Set<String>())
 
     func insert(_ value: String) -> Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        return seen.insert(value).inserted
+        seen.withLock { $0.insert(value).inserted }
     }
 }

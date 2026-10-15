@@ -3,32 +3,39 @@ import Foundation
 import SconeDomain
 
 public enum NetworkDebugLog {
-    private static let lock = NSLock()
+    private static let writer = NetworkDebugLogWriter()
 
     public static func write(_ message: String) {
-        lock.lock()
-        defer { lock.unlock() }
-        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-            ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support")
-        let dir = support.appendingPathComponent("Sconeos", isDirectory: true)
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        let file = dir.appendingPathComponent("network-debug.log")
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        let timestamp = formatter.string(from: Date())
+        let timestamp = Date().ISO8601Format(.iso8601(timeZone: .gmt, includingFractionalSeconds: true))
         let pid = ProcessInfo.processInfo.processIdentifier
         let ppid = Darwin.getppid()
         let bundleID = Bundle.main.bundleIdentifier ?? "nil"
         let line = "[\(timestamp)] [pid=\(pid) ppid=\(ppid) bundle=\(bundleID)] \(message)\n"
+        Task.detached(priority: .background) {
+            await writer.append(line)
+        }
+    }
+}
+
+private actor NetworkDebugLogWriter {
+    private let fileURL: URL = {
+        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support")
+        let dir = support.appendingPathComponent("Sconeos", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir.appendingPathComponent("network-debug.log")
+    }()
+
+    func append(_ line: String) {
         guard let data = line.data(using: .utf8) else { return }
-        if FileManager.default.fileExists(atPath: file.path) {
-            if let handle = try? FileHandle(forWritingTo: file) {
+        if FileManager.default.fileExists(atPath: fileURL.path) {
+            if let handle = try? FileHandle(forWritingTo: fileURL) {
                 defer { try? handle.close() }
                 _ = try? handle.seekToEnd()
                 try? handle.write(contentsOf: data)
             }
         } else {
-            try? data.write(to: file, options: .atomic)
+            try? data.write(to: fileURL, options: .atomic)
         }
     }
 }
@@ -161,13 +168,13 @@ struct SOAPClient: Sendable {
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         let node = try? XMLNode.parse(data)
         if status == 500 {
-            let code = node?.descendants("errorCode").first?.text ?? "500"
-            let description = node?.descendants("errorDescription").first?.text ?? ""
+            let code = node?.firstDescendant("errorCode")?.text ?? "500"
+            let description = node?.firstDescendant("errorDescription")?.text ?? ""
             let detail = description.isEmpty ? "\(request.action) \(code)" : "\(request.action) \(code) \(description)"
             throw .speakerRejected(detail: detail)
         }
         guard (200..<300).contains(status), let node else { throw failure }
-        guard let body = node.descendants(request.action + "Response").first else {
+        guard let body = node.firstDescendant(request.action + "Response") else {
             throw .speakerRejected(detail: "\(request.action) missing response")
         }
         return body
@@ -206,15 +213,32 @@ struct XMLNode: Sendable {
 
     func child(_ name: String) -> XMLNode? { children.first { $0.name == name } }
 
+    func firstDescendant(_ name: String) -> XMLNode? {
+        for child in children {
+            if child.name == name { return child }
+            if let found = child.firstDescendant(name) { return found }
+        }
+        return nil
+    }
+
     func descendants(_ name: String) -> [XMLNode] {
-        children.flatMap { child in
-            (child.name == name ? [child] : []) + child.descendants(name)
+        var result: [XMLNode] = []
+        collectDescendants(name, into: &result)
+        return result
+    }
+
+    private func collectDescendants(_ name: String, into result: inout [XMLNode]) {
+        for child in children {
+            if child.name == name {
+                result.append(child)
+            }
+            child.collectDescendants(name, into: &result)
         }
     }
 
     func value(_ name: String) -> String {
         if let child = child(name) { return child.text }
-        return descendants(name).first?.text ?? ""
+        return firstDescendant(name)?.text ?? ""
     }
 
     func attribute(_ name: String) -> String? {

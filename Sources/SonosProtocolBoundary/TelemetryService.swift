@@ -28,9 +28,9 @@ enum TelemetryService {
 
     static func parseDeviceDescription(_ data: Data) throws -> (modelNumber: String, displayName: String) {
         let root = try XMLNode.parse(data)
-        let modelNumber = modelCode(root.descendants("modelNumber").first?.text ?? "")
-        let display = root.descendants("displayName").first?.text ?? ""
-        let modelName = root.descendants("modelName").first?.text ?? ""
+        let modelNumber = modelCode(root.firstDescendant("modelNumber")?.text ?? "")
+        let display = root.firstDescendant("displayName")?.text ?? ""
+        let modelName = root.firstDescendant("modelName")?.text ?? ""
         let name = modelName.isEmpty ? display : modelName
         guard !modelNumber.isEmpty || !name.isEmpty else {
             throw ProtocolParseError(description: "device description has no model")
@@ -44,20 +44,22 @@ enum TelemetryService {
         var peers: [SpeakerUUID: (from: Int, to: Int)] = [:]
         var satelliteMAC: String?
         var links: [SpeakerUUID: Int] = [:]
-        for rawLine in text.split(whereSeparator: \.isNewline) {
-            let line = String(rawLine)
-            if let value = firstCapture(#"Noise Floor:\s*(-?\d+)\s*dBm"#, in: line).flatMap(Int.init) {
+        for line in text.split(whereSeparator: \.isNewline) {
+            if let match = line.firstMatch(of: /(?i)Noise Floor:\s*(-?\d+)\s*dBm/),
+               let value = Int(match.1) {
                 if value != 0, noiseFloor == nil { noiseFloor = value }
                 continue
             }
             if rssi == nil, !line.contains("AVG"),
-               let value = firstCapture(#"RSSI:\s*(-?\d+)\s*dBm"#, in: line).flatMap(Int.init), value != 0 {
+               let match = line.firstMatch(of: /(?i)RSSI:\s*(-?\d+)\s*dBm/),
+               let value = Int(match.1), value != 0 {
                 rssi = value
                 continue
             }
-            if let parts = captures(#"Node\s+([0-9A-Fa-f:]+)\s*-\s*FROM\s+(-?\d+)\s*:\s*TO\s+(-?\d+)"#, in: line),
-               parts.count == 3, let from = Int(parts[1]), let to = Int(parts[2]),
-               let peer = resolveMAC(parts[0], resolve: resolve) {
+            if let match = line.firstMatch(of: /(?i)Node\s+([0-9A-Fa-f:]+)\s*-\s*FROM\s+(-?\d+)\s*:\s*TO\s+(-?\d+)/),
+               let from = Int(match.2),
+               let to = Int(match.3),
+               let peer = resolveMAC(String(match.1), resolve: resolve) {
                 if let existing = peers[peer] {
                     peers[peer] = (max(existing.from, from), max(existing.to, to))
                 } else {
@@ -66,12 +68,14 @@ enum TelemetryService {
                 satelliteMAC = nil
                 continue
             }
-            if let mac = firstCapture(#"(?:Satellite\s+\d+:|Client\s+Node)\s*([0-9A-Fa-f:]+)"#, in: line) {
-                satelliteMAC = mac
+            if let match = line.firstMatch(of: /(?i)(?:Satellite\s+\d+:|Client\s+Node)\s*([0-9A-Fa-f:]+)/) {
+                satelliteMAC = String(match.1)
                 continue
             }
-            if let average = firstCapture(#"RSSI AVG:?\s*(-?\d+)"#, in: line).flatMap(Int.init),
-               let mac = satelliteMAC, let id = resolveMAC(mac, resolve: resolve) {
+            if let match = line.firstMatch(of: /(?i)RSSI AVG:?\s*(-?\d+)/),
+               let average = Int(match.1),
+               let mac = satelliteMAC,
+               let id = resolveMAC(mac, resolve: resolve) {
                 links[id] = max(links[id] ?? average, average)
             }
         }
@@ -99,8 +103,8 @@ enum TelemetryService {
 
     private static func modelCode(_ raw: String) -> String {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let range = trimmed.range(of: #"S\d+"#, options: .regularExpression) else { return trimmed }
-        return String(trimmed[range])
+        guard let match = trimmed.firstMatch(of: /S\d+/) else { return trimmed }
+        return String(match.0)
     }
 
     // Radio MACs are the base MAC or base+1, so resolve matches the last octet within one.
@@ -111,21 +115,5 @@ enum TelemetryService {
         guard let last = UInt8(hex.suffix(2), radix: 16), last > 0 else { return nil }
         let shifted = String(hex.dropLast(2)) + String(format: "%02X", last - 1)
         return resolve(shifted)
-    }
-
-    private static func firstCapture(_ pattern: String, in text: String) -> String? {
-        captures(pattern, in: text)?.first
-    }
-
-    private static func captures(_ pattern: String, in text: String) -> [String]? {
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else { return nil }
-        let range = NSRange(text.startIndex..., in: text)
-        guard let match = regex.firstMatch(in: text, range: range) else { return nil }
-        var values: [String] = []
-        for index in 1..<match.numberOfRanges {
-            guard let slice = Range(match.range(at: index), in: text) else { return nil }
-            values.append(String(text[slice]))
-        }
-        return values
     }
 }

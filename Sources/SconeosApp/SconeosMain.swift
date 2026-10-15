@@ -149,7 +149,8 @@ struct SconeosApp: App {
                     let parts = rawSize.split(separator: "x").compactMap { Double($0) }
                     if parts.count == 2 {
                         let targetSize = NSSize(width: parts[0], height: parts[1])
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                        Task { @MainActor in
+                            try? await Task.sleep(for: .milliseconds(150))
                             for window in NSApp.windows where window.frame.width > 300 {
                                 window.setContentSize(targetSize)
                             }
