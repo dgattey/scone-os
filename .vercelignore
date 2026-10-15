@@ -1,0 +1,12 @@
+.build
+.derivedData*
+.swiftpm
+.cert
+build
+dist
+Sources
+Tests
+scripts
+*.xcodeproj
+node_modules
+.next
