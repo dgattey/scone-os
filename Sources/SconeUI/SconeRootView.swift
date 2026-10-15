@@ -462,6 +462,17 @@ public struct SconeRootView: View {
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
+        .toolbar {
+            ToolbarItem(placement: .navigation) {
+                SconeBrandEmblem(size: 24, showContainer: false)
+            }
+            ToolbarItem(placement: .primaryAction) {
+                Text(store.state.speakerCountSummary)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(MidnightGlass.secondaryText)
+                    .padding(.horizontal, 4)
+            }
+        }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if let group = activeDockGroup {
                 NowPlayingDock(
@@ -796,26 +807,25 @@ struct SconeSettingsView: View {
             .textCase(nil)
 
             Section {
-                HStack(spacing: 14) {
-                    SconeBrandEmblem(size: 44)
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(store.state.networkName ?? "Sconeos")
-                            .font(.headline.weight(.bold))
+                if let networkName = store.state.networkName, !networkName.isEmpty {
+                    HStack {
+                        Text("Household")
                             .foregroundStyle(MidnightGlass.primaryText)
-                        Text(store.state.speakerCountSummary)
+                        Spacer()
+                        Text(networkName)
                             .font(.subheadline)
                             .foregroundStyle(MidnightGlass.secondaryText)
                     }
-                    Spacer()
-                    Text("v0.1.0")
-                        .font(.caption.weight(.semibold).monospacedDigit())
-                        .foregroundStyle(MidnightGlass.secondaryText)
-                        .padding(.horizontal, 9)
-                        .padding(.vertical, 4)
-                        .background(Capsule().fill(MidnightGlass.subtleFill))
-                        .overlay(Capsule().strokeBorder(MidnightGlass.cardBorder, lineWidth: 0.75))
+                    .listRowBackground(MidnightGlass.cardFill)
                 }
-                .padding(.vertical, 4)
+                HStack {
+                    Text("Version")
+                        .foregroundStyle(MidnightGlass.primaryText)
+                    Spacer()
+                    Text("0.1.0")
+                        .font(.subheadline.monospacedDigit())
+                        .foregroundStyle(MidnightGlass.secondaryText)
+                }
                 .listRowBackground(MidnightGlass.cardFill)
             } header: {
                 Text("About")
