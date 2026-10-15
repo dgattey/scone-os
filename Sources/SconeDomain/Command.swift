@@ -6,15 +6,18 @@ public enum SonosCommand: Hashable, Sendable {
     case playPause(PlayPause, group: GroupID)
     case nextTrack(group: GroupID)
     case previousTrack(group: GroupID)
+    case seekToQueueTrack(number: Int, group: GroupID)
     case enqueueAndPlaySpotify(
         uri: SpotifyURI, metadata: SpotifyTrackMetadata, onCoordinator: GroupID, startingAt: Duration? = nil)
+    case savePresets([PresetPill])
+    case setSystemName(String)
 
     public var topologyTarget: TopologyTarget? {
         switch self {
         case .group(let member, let group): .memberOf(group, member: member)
         case .ungroup(let member): .standalone(member)
         case .applyPreset(let preset): preset.target
-        case .setVolume, .playPause, .nextTrack, .previousTrack, .enqueueAndPlaySpotify: nil
+        case .setVolume, .playPause, .nextTrack, .previousTrack, .seekToQueueTrack, .enqueueAndPlaySpotify, .savePresets, .setSystemName: nil
         }
     }
 }

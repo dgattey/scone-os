@@ -25,43 +25,145 @@ public struct SconeState: Equatable, Sendable {
         let command: SonosCommand
     }
 
+    private struct VolumeOverride: Equatable, Sendable {
+        let volume: DiscreteVolume
+        let expiresAt: Date
+    }
+
+    private struct ClusterTopologyKey: Equatable, Sendable {
+        struct Entry: Equatable, Sendable {
+            let id: SpeakerUUID
+            let roomName: String
+            let level: FloorLevel
+            let coordinate: RoomCoordinate
+            let placement: Placement
+        }
+        let entries: [Entry]
+        let rf: RFPeerMatrix
+    }
+
     private var known: [SpeakerUUID: Speaker]
     public private(set) var live: HouseholdSnapshot?
     private var rf: RFPeerMatrix
     public private(set) var presets: [PresetPill]
+    public private(set) var networkName: String?
     public private(set) var pins: [SpeakerUUID: RoomCoordinate]
     public private(set) var alert: SconeAlert?
     private var inFlight: [InFlight] = []
+    private var volumeOverrides: [VolumeTarget: VolumeOverride] = [:]
     private var nextTicket = 0
     private var inferred: [SpeakerUUID: RoomCoordinate]
+    private var cachedFloorMap: [SpeakerUUID: FloorLevel]
+    private var cachedProjected: HouseholdSnapshot?
+    private var cachedClusterKey: ClusterTopologyKey?
+    public private(set) var speakers: [Speaker] = []
+    public private(set) var floorplan: [FloorplanNode] = []
+    public private(set) var floorplanRoomClusters: [FloorplanRoomCluster] = []
 
-    public init(loaded: LoadedFiles) {
-        known = Dictionary(uniqueKeysWithValues: (loaded.cache?.speakers ?? []).map { ($0.id, $0) })
-        rf = loaded.cache?.rf ?? .empty
-        presets = loaded.presets?.presets ?? Self.defaultHouseholdPresets()
+    public init(loaded: LoadedFiles, initialPresets: [PresetPill] = []) {
+        let initialKnown = Dictionary(uniqueKeysWithValues: (loaded.cache?.speakers ?? []).map { ($0.id, $0) })
+        let initialRF = loaded.cache?.rf ?? .empty
+        let initialSpeakers = Array(initialKnown.values)
+        known = initialKnown
+        rf = initialRF
+        presets = initialPresets
+        networkName = loaded.cache?.networkName
         pins = loaded.positions?.pins ?? [:]
         alert = loaded.quarantined.first.map { .quarantined(fileName: $0) }
-        inferred = FloorplanLayout.infer(rooms: known.keys.sorted(), matrix: rf)
+        inferred = FloorplanLayout.infer(speakers: initialSpeakers, matrix: initialRF)
+        cachedFloorMap = FloorplanLayout.classifyFloors(speakers: initialSpeakers, matrix: initialRF)
+        recomputeDerivedState()
     }
 
-    public mutating func absorb(_ snapshot: HouseholdSnapshot) {
-        let previousRooms = Set(known.keys)
-        let previousRF = rf
+    public var hasActiveVolumeOverrides: Bool {
+        !volumeOverrides.isEmpty
+    }
+
+    public func hasExpiredVolumeOverrides(at now: Date = Date()) -> Bool {
+        volumeOverrides.values.contains { now >= $0.expiresAt }
+    }
+
+    public mutating func setOptimisticVolume(
+        _ volume: DiscreteVolume,
+        for target: VolumeTarget,
+        now: Date = Date(),
+        ttl: TimeInterval = 1.5
+    ) {
+        volumeOverrides[target] = VolumeOverride(
+            volume: volume,
+            expiresAt: now.addingTimeInterval(ttl)
+        )
+        recomputeDerivedState()
+    }
+
+    public func needsFloorplanReinference(for snapshot: HouseholdSnapshot) -> (speakers: [Speaker], rf: RFPeerMatrix)? {
+        var nextKnown = known
         for speaker in snapshot.speakers.values {
-            known[speaker.id] = speaker.with(
+            nextKnown[speaker.id] = speaker.with(
                 reachability: .offline(lastKnownIP: speaker.reachability.ip, lastSeenAt: snapshot.observedAt))
         }
-        live = snapshot
-        if snapshot.rf != .empty { rf = snapshot.rf }
-        if Set(known.keys) != previousRooms || rf != previousRF {
-            inferred = FloorplanLayout.infer(rooms: known.keys.sorted(), matrix: rf)
+        let nextRF = snapshot.rf != .empty ? snapshot.rf : rf
+        if Set(nextKnown.keys) != Set(known.keys)
+            || nextKnown.mapValues(\.roomName) != known.mapValues(\.roomName)
+            || nextRF != rf {
+            return (Array(nextKnown.values), nextRF)
         }
+        return nil
+    }
+
+    public mutating func absorb(
+        _ snapshot: HouseholdSnapshot,
+        precomputedLayout: (inferred: [SpeakerUUID: RoomCoordinate], floors: [SpeakerUUID: FloorLevel])? = nil
+    ) {
+        let prevActiveGroups: Set<GroupID> = Set(
+            (live?.groups ?? []).compactMap { group in
+                if case .stopped = group.playback { return nil }
+                return group.id
+            }
+        )
+        let sanitizedSnapshot = snapshot.sanitizingPlaybackSessions(preferredGroupIDs: prevActiveGroups)
+        let now = max(Date(), sanitizedSnapshot.observedAt)
+        volumeOverrides = volumeOverrides.filter { target, override in
+            guard now < override.expiresAt else { return false }
+            switch target {
+            case .speaker(let id):
+                return sanitizedSnapshot.speakers[id]?.volume != override.volume
+            case .group(let groupID):
+                return sanitizedSnapshot.status(of: groupID).volume != override.volume
+            }
+        }
+
+        let previousRooms = Set(known.keys)
+        let previousNames = known.mapValues(\.roomName)
+        let previousRF = rf
+        for speaker in sanitizedSnapshot.speakers.values {
+            known[speaker.id] = speaker.with(
+                reachability: .offline(lastKnownIP: speaker.reachability.ip, lastSeenAt: sanitizedSnapshot.observedAt))
+        }
+        live = sanitizedSnapshot
+        if let sonosPresets = sanitizedSnapshot.presets {
+            presets = sonosPresets
+        }
+        if let net = sanitizedSnapshot.networkName, !net.isEmpty {
+            networkName = net
+        }
+        if sanitizedSnapshot.rf != .empty { rf = sanitizedSnapshot.rf }
+        if let precomputedLayout {
+            inferred = precomputedLayout.inferred
+            cachedFloorMap = precomputedLayout.floors
+        } else if Set(known.keys) != previousRooms || known.mapValues(\.roomName) != previousNames || rf != previousRF {
+            let knownSpeakers = Array(known.values)
+            inferred = FloorplanLayout.infer(speakers: knownSpeakers, matrix: rf)
+            cachedFloorMap = FloorplanLayout.classifyFloors(speakers: knownSpeakers, matrix: rf)
+        }
+        recomputeDerivedState()
     }
 
     public mutating func begin(_ command: SonosCommand) -> CommandTicket {
         let ticket = CommandTicket(value: nextTicket)
         nextTicket += 1
         inFlight.append(InFlight(ticket: ticket, command: command))
+        recomputeDerivedState()
         return ticket
     }
 
@@ -73,10 +175,20 @@ public struct SconeState: Equatable, Sendable {
         case .success(.partiallyApplied(let unreachable)): alert = .partiallyApplied(command, unreachable: unreachable)
         case .failure(let error): alert = .commandFailed(command, error)
         }
+        recomputeDerivedState()
     }
 
-    public mutating func pin(_ room: SpeakerUUID, at coordinate: RoomCoordinate) { pins[room] = coordinate }
-    public mutating func unpin(_ room: SpeakerUUID) { pins[room] = nil }
+    public mutating func pin(_ room: SpeakerUUID, at coordinate: RoomCoordinate) {
+        guard pins[room] != coordinate else { return }
+        pins[room] = coordinate
+        recomputeDerivedState()
+    }
+
+    public mutating func unpin(_ room: SpeakerUUID) {
+        guard pins[room] != nil else { return }
+        pins[room] = nil
+        recomputeDerivedState()
+    }
 
     public mutating func savePreset(from group: GroupID, name: String?) {
         guard let captured = groups.first(where: { $0.id == group }) else { return }
@@ -90,7 +202,7 @@ public struct SconeState: Equatable, Sendable {
     }
 
     public func groupID(containing speaker: SpeakerUUID) -> GroupID? {
-        projected?.topology.group(of: speaker)
+        cachedProjected?.topology.group(of: speaker)
     }
 
     public mutating func renamePreset(_ id: PresetID, to name: String) {
@@ -99,28 +211,43 @@ public struct SconeState: Equatable, Sendable {
         presets[index] = presets[index].renamed(trimmed)
     }
 
+    public mutating func updatePreset(_ id: PresetID, from group: SonosGroup) {
+        guard let index = presets.firstIndex(where: { $0.id == id }) else { return }
+        presets[index] = presets[index].updated(
+            coordinatorUUID: group.coordinator.id,
+            memberUUIDs: group.members.map(\.id)
+        )
+    }
+
     public mutating func deletePreset(_ id: PresetID) { presets.removeAll { $0.id == id } }
+    public mutating func renameSystem(to name: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        networkName = trimmed
+    }
     public mutating func report(_ alert: SconeAlert) { self.alert = alert }
     public mutating func dismissAlert() { alert = nil }
 
-    public var speakers: [Speaker] {
-        known.merging(live?.speakers ?? [:]) { _, live in live }.values.sorted { $0.roomName < $1.roomName }
+    public var totalSpeakerCount: Int {
+        speakers.reduce(0) { $0 + 1 + $1.bondedSatellites.count }
     }
 
-    public var groups: [SonosGroup] { projected?.groups ?? [] }
+    public var speakerCountSummary: String {
+        let count = totalSpeakerCount
+        let noun = count == 1 ? "speaker" : "speakers"
+        return "\(count) \(noun)"
+    }
 
-    public var floorplan: [FloorplanNode] {
-        let topology = projected?.topology
-        return speakers.map { speaker in
-            let pinned = pins[speaker.id]
-            let coordinate = pinned ?? inferred[speaker.id] ?? RoomCoordinate(clampingX: 0.5, y: 0.5)
-            return FloorplanNode(
-                speaker: speaker,
-                coordinate: coordinate,
-                placement: pinned == nil ? .inferred : .pinned,
-                group: topology?.group(of: speaker.id))
+    public var networkAndSpeakerSummary: String {
+        let count = totalSpeakerCount
+        let noun = count == 1 ? "speaker" : "speakers"
+        if let net = networkName, !net.isEmpty {
+            return "\(net) · \(count) \(noun)"
         }
+        return "\(count) \(noun)"
     }
+
+    public var groups: [SonosGroup] { cachedProjected?.groups ?? [] }
 
     public var connection: HouseholdConnection {
         guard let live else { return .searching }
@@ -129,49 +256,95 @@ public struct SconeState: Equatable, Sendable {
     }
 
     public func isActive(_ preset: PresetPill) -> Bool {
-        projected.map { preset.target.isSatisfied(by: $0.topology) } ?? false
+        guard let projected = cachedProjected else { return false }
+        let expectedRooms = Set([preset.coordinatorUUID]).union(preset.memberUUIDs)
+        if expectedRooms.count == 1 {
+            let groupID = GroupID(coordinator: preset.coordinatorUUID)
+            guard projected.topology.groups[groupID] == [] else { return false }
+            switch projected.status(of: groupID).playback {
+            case .playing, .paused:
+                return true
+            case .stopped:
+                return false
+            }
+        }
+        if preset.target.isSatisfied(by: projected.topology) { return true }
+        return projected.topology.groups.contains { coordinator, members in
+            Set([coordinator.coordinator]).union(members) == expectedRooms
+        }
     }
 
     public var persisted: PersistedSlices {
         PersistedSlices(
-            cache: CachedSpeakersFile(speakers: known.values.sorted { $0.id < $1.id }, rf: rf),
-            presets: PresetsFile(presets: presets),
+            cache: CachedSpeakersFile(
+                speakers: known.values.sorted { $0.id < $1.id },
+                rf: rf,
+                networkName: networkName
+            ),
             positions: FloorplanPositionsFile(pins: pins))
     }
 
-    private var projected: HouseholdSnapshot? {
-        live.map { live in inFlight.reduce(live) { $0.projecting($1.command) } }
+    private mutating func recomputeDerivedState() {
+        let projectedSnapshot: HouseholdSnapshot? = live.map { liveSnap in
+            let afterInFlight = inFlight.reduce(liveSnap) { $0.projecting($1.command) }
+            return volumeOverrides.reduce(afterInFlight) { acc, entry in
+                acc.projecting(.setVolume(entry.value.volume, for: entry.key))
+            }
+        }
+        cachedProjected = projectedSnapshot
+
+        let mergedSpeakers = known
+            .merging(projectedSnapshot?.speakers ?? live?.speakers ?? [:]) { _, liveSpk in liveSpk }
+            .values
+            .sorted { $0.roomName < $1.roomName }
+        speakers = mergedSpeakers
+
+        let topology = projectedSnapshot?.topology
+        let computedFloorplan = mergedSpeakers.map { speaker in
+            let pinned = pins[speaker.id]
+            let coordinate = pinned ?? inferred[speaker.id] ?? RoomCoordinate(clampingX: 0.5, y: 0.5)
+            let level = cachedFloorMap[speaker.id] ?? FloorLevel.classify(roomName: speaker.roomName)
+            return FloorplanNode(
+                speaker: speaker,
+                level: level,
+                coordinate: coordinate,
+                placement: pinned == nil ? .inferred : .pinned,
+                group: topology?.group(of: speaker.id))
+        }
+        floorplan = computedFloorplan
+
+        let nextClusterKey = ClusterTopologyKey(
+            entries: computedFloorplan.map {
+                ClusterTopologyKey.Entry(
+                    id: $0.id,
+                    roomName: $0.speaker.roomName,
+                    level: $0.level,
+                    coordinate: $0.coordinate,
+                    placement: $0.placement
+                )
+            },
+            rf: rf
+        )
+        if cachedClusterKey == nextClusterKey, !floorplanRoomClusters.isEmpty {
+            let nodesByID = Dictionary(uniqueKeysWithValues: computedFloorplan.map { ($0.id, $0) })
+            floorplanRoomClusters = floorplanRoomClusters.map { cluster in
+                FloorplanRoomCluster(
+                    id: cluster.id,
+                    title: cluster.title,
+                    level: cluster.level,
+                    nodes: cluster.nodes.map { nodesByID[$0.id] ?? $0 }
+                )
+            }
+        } else {
+            cachedClusterKey = nextClusterKey
+            floorplanRoomClusters = FloorplanLayout.clusterRooms(nodes: computedFloorplan, matrix: rf)
+        }
     }
 }
 
 public struct PersistedSlices: Equatable, Sendable {
     public let cache: CachedSpeakersFile
-    public let presets: PresetsFile
     public let positions: FloorplanPositionsFile
-}
-
-extension SconeState {
-    private static func defaultHouseholdPresets() -> [PresetPill] {
-        func id(_ raw: String) -> SpeakerUUID {
-            guard let uuid = SpeakerUUID(rawValue: raw) else { preconditionFailure("invalid household id \(raw)") }
-            return uuid
-        }
-        let kitchen = id("RINCON_F0F6C1AAD22801400")
-        let dining = id("RINCON_F0F6C1C47CEA01400")
-        let living = id("RINCON_542A1B95A13A01400")
-        let bedroom = id("RINCON_542A1B5F088401400")
-        let guest = id("RINCON_542A1B5F08A001400")
-        let basement = id("RINCON_C4387523117601400")
-        return [
-            PresetPill(name: "Kitchen + Dining", coordinatorUUID: kitchen, memberUUIDs: [dining]),
-            PresetPill(name: "Main Floor", coordinatorUUID: living, memberUUIDs: [kitchen, dining]),
-            PresetPill(name: "Upstairs", coordinatorUUID: bedroom, memberUUIDs: [guest]),
-            PresetPill(
-                name: "Everywhere",
-                coordinatorUUID: living,
-                memberUUIDs: [kitchen, dining, bedroom, guest, basement]),
-        ]
-    }
 }
 
 private extension Speaker {
@@ -205,7 +378,7 @@ extension HouseholdSnapshot {
                 return self
             }
             return replacing(status: (group, GroupStatus(playback: playback, volume: current.volume)))
-        case .nextTrack, .previousTrack, .enqueueAndPlaySpotify:
+        case .nextTrack, .previousTrack, .seekToQueueTrack, .enqueueAndPlaySpotify, .savePresets, .setSystemName:
             return self
         }
     }

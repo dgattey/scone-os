@@ -70,10 +70,26 @@ public struct SpotifyTrackContext: Hashable, Sendable {
     public let uri: SpotifyURI
     public let metadata: SpotifyTrackMetadata
     public let position: Duration?
+    public let contextTitle: String?
+    public let contextURI: String?
+    public let deviceName: String?
+    public let upNext: [QueueItem]
 
-    public init(uri: SpotifyURI, metadata: SpotifyTrackMetadata, position: Duration?) {
+    public init(
+        uri: SpotifyURI,
+        metadata: SpotifyTrackMetadata,
+        position: Duration?,
+        contextTitle: String? = nil,
+        contextURI: String? = nil,
+        deviceName: String? = nil,
+        upNext: [QueueItem] = []
+    ) {
         self.uri = uri
         self.metadata = metadata
         self.position = position
+        self.contextTitle = contextTitle
+        self.contextURI = contextURI
+        self.deviceName = deviceName
+        self.upNext = upNext
     }
 }

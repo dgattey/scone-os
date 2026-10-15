@@ -7,75 +7,53 @@ struct DiscreteVolumeControl: View {
     var onChange: (DiscreteVolume) -> Void
 
     @State private var optimistic: DiscreteVolume?
+    @State private var isEditing = false
+    @State private var lastCommitAt: Date = .distantPast
+    @State private var lastTickAt: Date = .distantPast
 
     private var shown: DiscreteVolume { optimistic ?? volume }
 
-    private static var steps: [DiscreteVolume] {
-        DiscreteVolume.allCases.filter { $0 != .v0 }
+    private var sliderBinding: Binding<Double> {
+        Binding(
+            get: { Double(shown.percent) },
+            set: { rawValue in
+                let snapped = DiscreteVolume(snappingPercent: Int(rawValue.rounded()))
+                commit(snapped)
+            }
+        )
     }
 
     var body: some View {
-        HStack(spacing: compact ? 6 : 10) {
-            stepButton(systemName: "minus", delta: -1, enabled: shown > .v0)
-            GeometryReader { proxy in
-                ribBar(in: proxy.size)
-            }
+        HStack(spacing: compact ? 8 : 10) {
+            stepButton(systemName: "speaker.minus.fill", delta: -1, enabled: shown > .v0)
+            Slider(
+                value: sliderBinding,
+                in: 0...100,
+                onEditingChanged: { editing in
+                    isEditing = editing
+                }
+            )
+            .tint(MidnightGlass.gold)
+            .controlSize(compact ? .small : .regular)
             .frame(maxWidth: .infinity)
-            .frame(height: compact ? 22 : 30)
-            .layoutPriority(1)
+            stepButton(systemName: "speaker.plus.fill", delta: 1, enabled: shown < .v100)
             Text("\(shown.percent)%")
-                .font((compact ? Font.caption2 : Font.subheadline).weight(.semibold))
+                .font((compact ? Font.caption : Font.subheadline).weight(.semibold))
                 .monospacedDigit()
-                .foregroundStyle(Color.white.opacity(0.92))
+                .foregroundStyle(MidnightGlass.primaryText.opacity(0.88))
                 .contentTransition(.numericText())
-                .frame(width: compact ? 36 : 46, alignment: .trailing)
-            stepButton(systemName: "plus", delta: 1, enabled: shown < .v100)
+                .animation(.snappy(duration: 0.16), value: shown.percent)
+                .frame(width: compact ? 36 : 44, alignment: .trailing)
         }
-        .accessibilityElement(children: .ignore)
+        .accessibilityElement(children: .combine)
         .accessibilityLabel("Volume")
         .accessibilityValue("\(shown.percent) percent")
-        .accessibilityAdjustableAction { direction in
-            switch direction {
-            case .increment:
-                commit(shown.stepped(by: 1))
-            case .decrement:
-                commit(shown.stepped(by: -1))
-            @unknown default:
-                break
+        .onChange(of: volume) { _, newValue in
+            guard !isEditing else { return }
+            if newValue == optimistic || Date().timeIntervalSince(lastCommitAt) > 1.2 {
+                optimistic = nil
             }
         }
-        .onChange(of: volume) { _, _ in
-            optimistic = nil
-        }
-    }
-
-    private func ribBar(in size: CGSize) -> some View {
-        HStack(spacing: compact ? 2 : 3) {
-            ForEach(Self.steps, id: \.self) { step in
-                let filled = step <= shown
-                Capsule(style: .continuous)
-                    .fill(Color.white.opacity(0.08))
-                    .overlay {
-                        if filled {
-                            Capsule(style: .continuous)
-                                .fill(
-                                    LinearGradient(
-                                        colors: [MidnightGlass.copper, MidnightGlass.gold],
-                                        startPoint: .bottom,
-                                        endPoint: .top))
-                        }
-                    }
-                    .shadow(color: step == shown ? MidnightGlass.gold.opacity(0.9) : .clear, radius: 4)
-                    .frame(height: step == shown ? size.height : size.height * 0.72)
-                    .frame(maxHeight: .infinity, alignment: .center)
-            }
-        }
-        .contentShape(Rectangle())
-        .highPriorityGesture(
-            DragGesture(minimumDistance: 0)
-                .onChanged { value in
-                    commit(detent(at: value.location.x, width: size.width))
-                })
     }
 
     private func stepButton(systemName: String, delta: Int, enabled: Bool) -> some View {
@@ -83,28 +61,25 @@ struct DiscreteVolumeControl: View {
             commit(shown.stepped(by: delta))
         } label: {
             Image(systemName: systemName)
-                .font(.system(size: compact ? 11 : 13, weight: .bold))
-                .foregroundStyle(Color.white.opacity(enabled ? 0.92 : 0.28))
-                .frame(width: compact ? 26 : 32, height: compact ? 26 : 32)
-                .background(Circle().fill(.ultraThinMaterial))
-                .overlay(Circle().strokeBorder(Color.white.opacity(0.16), lineWidth: 1))
+                .font(.system(size: compact ? 11 : 12, weight: .semibold))
+                .foregroundStyle(MidnightGlass.primaryText.opacity(enabled ? 0.88 : 0.28))
+                .frame(width: compact ? 24 : 28, height: compact ? 24 : 28)
+                .background(Circle().fill(MidnightGlass.subtleFill))
+                .overlay(Circle().strokeBorder(MidnightGlass.cardBorder, lineWidth: 0.75))
         }
         .buttonStyle(PressableStyle())
         .disabled(!enabled)
     }
 
-    private func detent(at x: CGFloat, width: CGFloat) -> DiscreteVolume {
-        let steps = Self.steps
-        guard width > 1, !steps.isEmpty else { return .v0 }
-        if x <= 1 { return .v0 }
-        let index = min(steps.count - 1, max(0, Int((x / width) * CGFloat(steps.count))))
-        return steps[index]
-    }
-
     private func commit(_ next: DiscreteVolume) {
         guard next != shown else { return }
+        let now = Date()
         optimistic = next
+        lastCommitAt = now
         onChange(next)
-        acousticTick()
+        if now.timeIntervalSince(lastTickAt) >= 0.055 {
+            lastTickAt = now
+            acousticTick()
+        }
     }
 }

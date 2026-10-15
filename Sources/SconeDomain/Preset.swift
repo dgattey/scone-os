@@ -3,6 +3,7 @@ import Foundation
 public struct PresetID: Hashable, Sendable, Codable {
     public let rawValue: UUID
     public init() { rawValue = UUID() }
+    public init(rawValue: UUID) { self.rawValue = rawValue }
 }
 
 public struct PresetPill: Identifiable, Hashable, Sendable, Codable {
@@ -30,6 +31,10 @@ public struct PresetPill: Identifiable, Hashable, Sendable, Codable {
     }
 
     public func renamed(_ name: String) -> PresetPill {
+        PresetPill(id: id, name: name, coordinatorUUID: coordinatorUUID, memberUUIDs: memberUUIDs)
+    }
+
+    public func updated(coordinatorUUID: SpeakerUUID, memberUUIDs: some Sequence<SpeakerUUID>) -> PresetPill {
         PresetPill(id: id, name: name, coordinatorUUID: coordinatorUUID, memberUUIDs: memberUUIDs)
     }
 

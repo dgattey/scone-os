@@ -22,10 +22,6 @@ enum Discovery {
 
     static let bonjourServiceType = "_sonos._tcp"
 
-    private static let fallbackHosts = [
-        "192.168.68.58", "192.168.68.71", "192.168.68.73", "192.168.68.90", "192.168.68.92", "192.168.68.95",
-    ]
-
     static func parse(ssdpResponse datagram: Data) -> SSDPSighting? {
         guard let text = String(data: datagram, encoding: .utf8) ?? String(data: datagram, encoding: .isoLatin1) else {
             return nil
@@ -49,21 +45,119 @@ enum Discovery {
     static func seeds() -> AsyncStream<URL> {
         AsyncStream { continuation in
             let channel = InterruptibleSocket()
-            let thread = Thread {
-                var seen = Set<String>()
-                func yield(_ url: URL) {
-                    if seen.insert(url.absoluteString).inserted { continuation.yield(url) }
+            let dedup = SeenURLSet()
+            let yieldURL: @Sendable (URL) -> Void = { url in
+                if dedup.insert(url.absoluteString) {
+                    continuation.yield(url)
                 }
-                for host in fallbackHosts {
-                    if let url = URL(string: "http://\(host):1400") { yield(url) }
-                }
-                listen(channel: channel, yield: yield)
+            }
+
+            let ssdpThread = Thread {
+                listen(channel: channel, yield: yieldURL)
+            }
+            ssdpThread.name = "sonos-ssdp"
+            ssdpThread.start()
+
+            let probeThread = Thread {
+                probeLocalSubnets(channel: channel, yield: yieldURL)
                 channel.close()
                 continuation.finish()
             }
-            thread.name = "sonos-ssdp"
-            thread.start()
+            probeThread.name = "sonos-subnet-probe"
+            probeThread.start()
+
             continuation.onTermination = { _ in channel.close() }
+        }
+    }
+
+    static func activeSubnetPrefixes() -> [String] {
+        var prefixes: [String] = []
+        var seen = Set<String>()
+        var ifaddrPointer: UnsafeMutablePointer<ifaddrs>?
+        guard getifaddrs(&ifaddrPointer) == 0, let first = ifaddrPointer else { return [] }
+        defer { freeifaddrs(first) }
+
+        var cursor: UnsafeMutablePointer<ifaddrs>? = first
+        while let current = cursor {
+            defer { cursor = current.pointee.ifa_next }
+            let flags = Int32(current.pointee.ifa_flags)
+            guard (flags & IFF_UP) != 0, (flags & IFF_LOOPBACK) == 0,
+                  let addr = current.pointee.ifa_addr,
+                  addr.pointee.sa_family == sa_family_t(AF_INET) else { continue }
+            var hostname = [CChar](repeating: 0, count: Int(NI_MAXHOST))
+            guard getnameinfo(
+                addr, socklen_t(MemoryLayout<sockaddr_in>.size),
+                &hostname, socklen_t(hostname.count),
+                nil, 0, NI_NUMERICHOST
+            ) == 0 else { continue }
+            let bytes = hostname.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }
+            let ip = String(decoding: bytes, as: UTF8.self)
+            let octets = ip.split(separator: ".")
+            guard octets.count == 4,
+                  !ip.hasPrefix("169.254."),
+                  !ip.hasPrefix("127.") else { continue }
+            let prefix = "\(octets[0]).\(octets[1]).\(octets[2])"
+            if seen.insert(prefix).inserted {
+                prefixes.append(prefix)
+            }
+        }
+        return prefixes
+    }
+
+    private static func probeLocalSubnets(channel: InterruptibleSocket, yield: @Sendable (URL) -> Void) {
+        let prefixes = activeSubnetPrefixes()
+        let batchSize = 64
+        for prefix in prefixes {
+            var hostStart = 1
+            while hostStart <= 254 {
+                if channel.isClosed { return }
+                let hostEnd = min(hostStart + batchSize - 1, 254)
+                var fds: [(fd: Int32, host: String)] = []
+                for hostNum in hostStart...hostEnd {
+                    let host = "\(prefix).\(hostNum)"
+                    var address = sockaddr_in()
+                    address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+                    address.sin_family = sa_family_t(AF_INET)
+                    address.sin_port = UInt16(1400).bigEndian
+                    guard Darwin.inet_pton(AF_INET, host, &address.sin_addr) == 1 else { continue }
+                    let fd = Darwin.socket(AF_INET, SOCK_STREAM, IPPROTO_TCP)
+                    guard fd >= 0 else { continue }
+                    let currentFlags = Darwin.fcntl(fd, F_GETFL, 0)
+                    _ = Darwin.fcntl(fd, F_SETFL, currentFlags | O_NONBLOCK)
+                    var noSigPipe: Int32 = 1
+                    Darwin.setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe, socklen_t(MemoryLayout.size(ofValue: noSigPipe)))
+                    let rc = withUnsafePointer(to: &address) { pointer in
+                        pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { sock in
+                            Darwin.connect(fd, sock, socklen_t(MemoryLayout<sockaddr_in>.size))
+                        }
+                    }
+                    if rc == 0 {
+                        Darwin.close(fd)
+                        if let url = URL(string: "http://\(host):1400") { yield(url) }
+                    } else if errno == EINPROGRESS {
+                        fds.append((fd, host))
+                    } else {
+                        Darwin.close(fd)
+                    }
+                }
+                if !fds.isEmpty {
+                    var pollFDs = fds.map { pollfd(fd: $0.fd, events: Int16(POLLOUT), revents: 0) }
+                    let ready = Darwin.poll(&pollFDs, nfds_t(pollFDs.count), 180)
+                    if ready > 0 {
+                        for index in pollFDs.indices where (pollFDs[index].revents & Int16(POLLOUT)) != 0 {
+                            var socketError: Int32 = 0
+                            var errorLen = socklen_t(MemoryLayout<Int32>.size)
+                            if Darwin.getsockopt(pollFDs[index].fd, SOL_SOCKET, SO_ERROR, &socketError, &errorLen) == 0,
+                               socketError == 0 {
+                                let host = fds[index].host
+                                if let url = URL(string: "http://\(host):1400") { yield(url) }
+                            }
+                        }
+                    }
+                    for item in fds { Darwin.close(item.fd) }
+                }
+                hostStart = hostEnd + 1
+            }
         }
     }
 
@@ -126,6 +220,9 @@ enum Discovery {
         }
         send(host: "239.255.255.250")
         send(host: "255.255.255.255")
+        for prefix in activeSubnetPrefixes() {
+            send(host: "\(prefix).255")
+        }
         send(host: "239.255.255.250")
 
         let deadline = Date().addingTimeInterval(1.5)
@@ -151,6 +248,12 @@ private final class InterruptibleSocket: @unchecked Sendable {
     private var fd: Int32 = -1
     private var closed = false
 
+    var isClosed: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return closed
+    }
+
     func adopt(_ socketFD: Int32) -> Bool {
         lock.lock()
         defer { lock.unlock() }
@@ -166,5 +269,16 @@ private final class InterruptibleSocket: @unchecked Sendable {
         closed = true
         lock.unlock()
         if current >= 0 { Darwin.close(current) }
+    }
+}
+
+private final class SeenURLSet: @unchecked Sendable {
+    private let lock = NSLock()
+    private var seen = Set<String>()
+
+    func insert(_ value: String) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return seen.insert(value).inserted
     }
 }

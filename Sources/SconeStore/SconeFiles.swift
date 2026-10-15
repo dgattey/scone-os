@@ -10,27 +10,23 @@ extension FileSlot where Content == CachedSpeakersFile {
     public static var cachedSpeakers: Self { Self(name: "cached-speakers.json", isDisposable: true) }
 }
 
-extension FileSlot where Content == PresetsFile {
-    public static var presets: Self { Self(name: "presets.json", isDisposable: false) }
-}
-
 extension FileSlot where Content == FloorplanPositionsFile {
     public static var floorplanPositions: Self { Self(name: "floorplan-positions.json", isDisposable: false) }
 }
 
 public struct CachedSpeakersFile: Codable, Equatable, Sendable {
-    public var version = 1
     public var speakers: [Speaker]
     public var rf: RFPeerMatrix
-}
+    public var networkName: String?
 
-public struct PresetsFile: Codable, Equatable, Sendable {
-    public var version = 1
-    public var presets: [PresetPill]
+    public init(speakers: [Speaker], rf: RFPeerMatrix, networkName: String? = nil) {
+        self.speakers = speakers
+        self.rf = rf
+        self.networkName = networkName
+    }
 }
 
 public struct FloorplanPositionsFile: Codable, Equatable, Sendable {
-    public var version = 1
     public var pins: [SpeakerUUID: RoomCoordinate]
 }
 
@@ -42,9 +38,18 @@ public enum LoadResult<Content: Sendable>: Sendable {
 
 public struct LoadedFiles: Sendable {
     public let cache: CachedSpeakersFile?
-    public let presets: PresetsFile?
     public let positions: FloorplanPositionsFile?
     public let quarantined: [String]
+
+    public init(
+        cache: CachedSpeakersFile? = nil,
+        positions: FloorplanPositionsFile? = nil,
+        quarantined: [String] = []
+    ) {
+        self.cache = cache
+        self.positions = positions
+        self.quarantined = quarantined
+    }
 
     public var seedIPs: [String] { cache?.speakers.map(\.reachability.ip) ?? [] }
 }
@@ -53,6 +58,27 @@ public struct SconeFiles: Sendable {
     public let directory: URL
 
     public init(directory: URL) { self.directory = directory }
+
+    public static func migrateLegacyDirectoryIfNeeded(from legacyDir: URL, to targetDir: URL) {
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: legacyDir.path) else { return }
+        try? fm.createDirectory(at: targetDir, withIntermediateDirectories: true)
+        for fileName in ["cached-speakers.json", "floorplan-positions.json", "spotify-vault.enc"] {
+            let src = legacyDir.appending(path: fileName)
+            let dst = targetDir.appending(path: fileName)
+            guard fm.fileExists(atPath: src.path) else { continue }
+            if !fm.fileExists(atPath: dst.path) {
+                try? fm.copyItem(at: src, to: dst)
+            } else if let srcAttrs = try? fm.attributesOfItem(atPath: src.path),
+                      let dstAttrs = try? fm.attributesOfItem(atPath: dst.path),
+                      let srcDate = srcAttrs[.modificationDate] as? Date,
+                      let dstDate = dstAttrs[.modificationDate] as? Date,
+                      srcDate > dstDate {
+                try? fm.removeItem(at: dst)
+                try? fm.copyItem(at: src, to: dst)
+            }
+        }
+    }
 
     public func load<C>(_ slot: FileSlot<C>) -> LoadResult<C> {
         let url = fileURL(slot.name)
@@ -71,9 +97,13 @@ public struct SconeFiles: Sendable {
         try data.write(to: fileURL(slot.name), options: .atomic)
     }
 
+    public nonisolated func saveAsync<C>(_ content: C, to slot: FileSlot<C>) async throws {
+        try await SconeFilesWriter.shared.write(content, to: slot, in: self)
+    }
+
     public func loadAll() -> LoadedFiles {
+        try? FileManager.default.removeItem(at: fileURL("presets.json"))
         let cache = load(FileSlot.cachedSpeakers)
-        let presets = load(FileSlot.presets)
         let positions = load(FileSlot.floorplanPositions)
         var quarantined: [String] = []
         func take<C>(_ result: LoadResult<C>) -> C? {
@@ -89,7 +119,6 @@ public struct SconeFiles: Sendable {
         }
         return LoadedFiles(
             cache: take(cache),
-            presets: take(presets),
             positions: take(positions),
             quarantined: quarantined)
     }
@@ -109,5 +138,13 @@ public struct SconeFiles: Sendable {
         } catch {
             return .quarantined(fileName: slot.name)
         }
+    }
+}
+
+private actor SconeFilesWriter {
+    static let shared = SconeFilesWriter()
+
+    func write<C>(_ content: C, to slot: FileSlot<C>, in files: SconeFiles) throws {
+        try files.save(content, to: slot)
     }
 }

@@ -4,7 +4,7 @@ import SconeDomain
 public actor SonosHousehold {
     public struct Configuration: Sendable {
         public var sweepInterval: Duration = .seconds(2)
-        public var telemetryInterval: Duration = .seconds(30)
+        public var telemetryInterval: Duration = .seconds(60)
         public var offlineAfter: Duration = .seconds(10)
         public var convergenceTimeout: Duration = .seconds(8)
         public init() {}
@@ -28,20 +28,32 @@ public actor SonosHousehold {
     private var spotifyAccount: SpotifyOnSonos.Account?
 
     private var models: [SpeakerUUID: DeviceFacts] = [:]
+    private var modelsByHost: [String: DeviceFacts] = [:]
     private var radios: [SpeakerUUID: TelemetryService.RadioStatus] = [:]
     private var batteries: [SpeakerUUID: BatteryTelemetry] = [:]
     private var volumes: [SpeakerUUID: DiscreteVolume] = [:]
     private var groupVolumes: [SpeakerUUID: DiscreteVolume] = [:]
     private var playback: [SpeakerUUID: PlaybackState] = [:]
+    private var lastActiveGroupIDs: Set<GroupID> = []
     private var lastParsed: TopologyService.Parsed?
     private var cachedSpeakers: [SpeakerUUID: Speaker] = [:]
     private var missingSince: [SpeakerUUID: Date] = [:]
     private var lastTelemetry: Date?
+    private var lastTelemetryMemberCount: Int = 0
     private var unreachableSince: Date?
+    private var householdPresets: [PresetPill]?
+    private var householdNetworkName: String?
+    private var cachedQueueKey: [SpeakerUUID: String] = [:]
+    private var cachedQueueAt: [SpeakerUUID: Date] = [:]
+    private var cachedQueueItems: [SpeakerUUID: [QueueItem]] = [:]
+
+    private static let presetsVariableName = "Sconeos_Presets_v1"
+    private static let systemNameVariableName = "Sconeos_SystemName"
 
     public init(seedIPs: [String], configuration: Configuration = Configuration()) {
         self.configuration = configuration
         self.addressBook = AddressBook(seedIPs: seedIPs)
+        NetworkDebugLog.write("SonosHousehold.init seedIPs=\(seedIPs) executable=\(Bundle.main.executablePath ?? "nil")")
     }
 
     public nonisolated func snapshots() -> AsyncStream<HouseholdSnapshot> {
@@ -61,6 +73,10 @@ public actor SonosHousehold {
         let result: Result<CommandOutcome, SonosCommandError>
         if let target = command.topologyTarget {
             result = await topologyLane.run { await self.topologyOutcome(target) }
+        } else if case .savePresets(let presets) = command {
+            result = await topologyLane.run { await self.savePresetsOutcome(presets) }
+        } else if case .setSystemName(let name) = command {
+            result = await topologyLane.run { await self.setSystemNameOutcome(name) }
         } else {
             result = await lane(for: laneSpeaker(for: command)).run { await self.commandOutcome(command) }
         }
@@ -111,19 +127,28 @@ public actor SonosHousehold {
         guard generation == sweepGeneration else { return }
         guard let parsed = await fetchTopology() else {
             guard generation == sweepGeneration else { return }
+            NetworkDebugLog.write("sweepOnce gen=\(generation): fetchTopology returned nil (all seeds + discovery unreachable)")
             noteUnreachable()
             return
         }
         guard generation == sweepGeneration else { return }
+        if unreachableSince != nil || lastParsed == nil {
+            let rooms = parsed.members.values.map { "\($0.roomName)@\($0.endpoint.host ?? "?")" }.sorted().joined(separator: ", ")
+            NetworkDebugLog.write("sweepOnce gen=\(generation): topology ONLINE with \(parsed.members.count) speakers: [\(rooms)]")
+        }
         unreachableSince = nil
         addressBook.absorb(parsed)
         lastParsed = parsed
         await refreshTransport(parsed)
-        let due = telemetryDue
+        let due = telemetryDue || parsed.members.count != lastTelemetryMemberCount
         await refreshDescriptions(parsed, force: due)
         if due {
             await refreshRadiosAndBatteries(parsed)
             lastTelemetry = Date()
+            lastTelemetryMemberCount = parsed.members.count
+        }
+        if due || householdPresets == nil || householdNetworkName == nil {
+            await refreshHouseholdProperties(parsed)
         }
         guard generation == sweepGeneration else { return }
         rememberAbsence(parsed, now: Date())
@@ -231,8 +256,15 @@ public actor SonosHousehold {
 
     private func refreshDescriptions(_ parsed: TopologyService.Parsed, force: Bool) async {
         await withTaskGroup(of: Void.self) { group in
-            for (id, member) in parsed.members where force || models[id] == nil {
-                group.addTask { await self.readDescription(id, endpoint: member.endpoint) }
+            for (id, member) in parsed.members {
+                if models[id] == nil {
+                    group.addTask { await self.readDescription(id, endpoint: member.endpoint) }
+                }
+                for satellite in member.satellites {
+                    if let satEndpoint = satellite.endpoint, models[satellite.id] == nil {
+                        group.addTask { await self.readDescription(satellite.id, endpoint: satEndpoint) }
+                    }
+                }
             }
         }
     }
@@ -242,7 +274,8 @@ public actor SonosHousehold {
         await withTaskGroup(of: Void.self) { group in
             for (id, member) in parsed.members {
                 group.addTask { await self.readRadio(id, endpoint: member.endpoint, resolve: resolve) }
-                if self.models[id]?.modelNumber == "S17" {
+                if let modelNumber = self.models[id]?.modelNumber,
+                   SpeakerModel.isBatteryCapable(modelNumber: modelNumber) {
                     group.addTask { await self.readBattery(id, endpoint: member.endpoint) }
                 }
             }
@@ -250,9 +283,17 @@ public actor SonosHousehold {
     }
 
     private func readDescription(_ id: SpeakerUUID, endpoint: URL) async {
+        let host = endpoint.host ?? endpoint.absoluteString
+        if let cached = models[id] ?? modelsByHost[host] {
+            models[id] = cached
+            modelsByHost[host] = cached
+            return
+        }
         guard let data = try? await client.get("/xml/device_description.xml", at: endpoint),
               let facts = try? TelemetryService.parseDeviceDescription(data) else { return }
-        models[id] = DeviceFacts(modelNumber: facts.modelNumber, displayName: facts.displayName)
+        let deviceFacts = DeviceFacts(modelNumber: facts.modelNumber, displayName: facts.displayName)
+        models[id] = deviceFacts
+        modelsByHost[host] = deviceFacts
     }
 
     private func readRadio(
@@ -300,7 +341,16 @@ public actor SonosHousehold {
         for (id, member) in parsed.members {
             let radio = radios[id]
             let satellites = member.satellites.map { satellite in
-                BondedSatellite(id: satellite.id, role: satellite.role, linkQuality: radio?.satelliteLinkQuality[satellite.id])
+                let satFacts = models[satellite.id]
+                return BondedSatellite(
+                    id: satellite.id,
+                    parentID: id,
+                    role: satellite.role,
+                    modelNumber: satFacts?.modelNumber,
+                    displayName: satFacts?.displayName,
+                    isOnline: satellite.endpoint != nil,
+                    linkQuality: radio?.satelliteLinkQuality[satellite.id]
+                )
             }
             let facts = models[id]
             let speaker = Speaker(
@@ -312,13 +362,28 @@ public actor SonosHousehold {
                     satellites: satellites,
                     battery: batteries[id]),
                 reachability: .online(ip: member.endpoint.host ?? "", rssi: radio?.rssi, noiseFloor: radio?.noiseFloor),
-                volume: volumes[id] ?? .v0)
+                volume: volumes[id] ?? .v0,
+                bondedSatellites: satellites)
             speakers[id] = speaker
             cachedSpeakers[id] = speaker
         }
         let limit = seconds(configuration.offlineAfter)
         for (id, since) in missingSince where now.timeIntervalSince(since) < limit {
             if speakers[id] == nil, let cached = cachedSpeakers[id] { speakers[id] = cached }
+        }
+        for (id, zoneName) in parsed.vanishedNames where speakers[id] == nil {
+            let facts = models[id]
+            speakers[id] = Speaker(
+                id: id,
+                roomName: zoneName,
+                model: TelemetryService.model(
+                    number: facts?.modelNumber ?? "",
+                    displayName: facts?.displayName ?? zoneName,
+                    satellites: [],
+                    battery: batteries[id]),
+                reachability: .offline(lastKnownIP: "", lastSeenAt: now),
+                volume: volumes[id] ?? .v0,
+                bondedSatellites: [])
         }
 
         var status: [GroupID: GroupStatus] = [:]
@@ -337,8 +402,28 @@ public actor SonosHousehold {
                 matrix.record(id, peer.peer, from: peer.from, to: peer.to)
             }
         }
-        return HouseholdSnapshot(
-            observedAt: now, speakers: speakers, topology: parsed.topology, groupStatus: status, rf: matrix)
+        let snapshot = HouseholdSnapshot(
+            observedAt: now,
+            speakers: speakers,
+            topology: parsed.topology,
+            groupStatus: status,
+            rf: matrix,
+            presets: householdPresets,
+            networkName: householdNetworkName,
+            preferredGroupIDs: lastActiveGroupIDs)
+        var nextActive: Set<GroupID> = []
+        for group in snapshot.groups {
+            if case .stopped = group.playback { continue }
+            nextActive.insert(group.id)
+            playback[group.id.coordinator] = group.playback
+        }
+        for coordinator in coordinators {
+            if let group = parsed.topology.group(of: coordinator), !nextActive.contains(group) {
+                playback[coordinator] = .stopped
+            }
+        }
+        lastActiveGroupIDs = nextActive
+        return snapshot
     }
 
     private func publish(_ snapshot: HouseholdSnapshot) {
@@ -352,10 +437,7 @@ public actor SonosHousehold {
     }
 
     private func sameHouse(_ lhs: HouseholdSnapshot, _ rhs: HouseholdSnapshot) -> Bool {
-        guard lhs.speakers == rhs.speakers, lhs.topology == rhs.topology, lhs.rf == rhs.rf else { return false }
-        let groups = Set(lhs.topology.speakers.compactMap { lhs.topology.group(of: $0) })
-            .union(rhs.topology.speakers.compactMap { rhs.topology.group(of: $0) })
-        return groups.allSatisfy { lhs.status(of: $0) == rhs.status(of: $0) }
+        lhs.isSemanticallyEquivalent(to: rhs)
     }
 
     private func applyTopology(_ target: TopologyTarget) async throws(SonosCommandError) -> CommandOutcome {
@@ -373,6 +455,12 @@ public actor SonosHousehold {
                 let action = TopologyService.request(for: step)
                 let endpoint = try endpoint(for: action.target)
                 _ = try await client.call(action.request, on: action.target, at: endpoint)
+                if case .delegateCoordination(let oldCoord, let newCoord, false) = step {
+                    if let existingPlayback = playback[oldCoord] {
+                        playback[newCoord] = existingPlayback
+                    }
+                    playback[oldCoord] = .stopped
+                }
             }
             let parsed = try await waitForTopology(target, ignoring: skipped)
             addressBook.absorb(parsed)
@@ -409,39 +497,170 @@ public actor SonosHousehold {
             return try await skipNext(group)
         case .previousTrack(let group):
             return try await skipPrevious(group)
+        case .seekToQueueTrack(let number, let group):
+            return try await seekToQueueTrack(number, group: group)
         case .enqueueAndPlaySpotify(let uri, let metadata, let group, let startingAt):
             return try await enqueueSpotify(uri, metadata: metadata, group: group, startingAt: startingAt)
+        case .savePresets(let presets):
+            return try await writePresetsToSonos(presets)
+        case .setSystemName(let name):
+            return try await writeSystemNameToSonos(name)
+        }
+    }
+
+    private func savePresetsOutcome(_ presets: [PresetPill]) async -> Result<CommandOutcome, SonosCommandError> {
+        do { return .success(try await writePresetsToSonos(presets)) } catch { return .failure(error) }
+    }
+
+    private func setSystemNameOutcome(_ name: String) async -> Result<CommandOutcome, SonosCommandError> {
+        do { return .success(try await writeSystemNameToSonos(name)) } catch { return .failure(error) }
+    }
+
+    private func writeSystemNameToSonos(_ name: String) async throws(SonosCommandError) -> CommandOutcome {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return .alreadySatisfied }
+        householdNetworkName = trimmed
+        publishAssembled()
+        guard let targetEndpoint = lastParsed?.members.values.first?.endpoint ?? addressBook.seeds.first else {
+            return .applied
+        }
+        let req = SOAPRequest(
+            service: .systemProperties,
+            action: "SetString",
+            arguments: [
+                ("VariableName", Self.systemNameVariableName),
+                ("StringValue", trimmed),
+            ]
+        )
+        _ = try? await client.call(req, at: targetEndpoint)
+        return .applied
+    }
+
+    private func writePresetsToSonos(_ presets: [PresetPill]) async throws(SonosCommandError) -> CommandOutcome {
+        householdPresets = presets
+        publishAssembled()
+        guard let targetEndpoint = lastParsed?.members.values.first?.endpoint ?? addressBook.seeds.first else {
+            return .applied
+        }
+        guard let data = try? JSONEncoder().encode(presets),
+              let jsonString = String(data: data, encoding: .utf8) else {
+            return .applied
+        }
+        let req = SOAPRequest(
+            service: .systemProperties,
+            action: "SetString",
+            arguments: [
+                ("VariableName", Self.presetsVariableName),
+                ("StringValue", jsonString),
+            ]
+        )
+        _ = try await client.call(req, at: targetEndpoint)
+        return .applied
+    }
+
+    private func refreshHouseholdProperties(_ parsed: TopologyService.Parsed) async {
+        guard let endpoint = parsed.members.values.first?.endpoint else { return }
+        let validSpeakerIDs = Set(parsed.members.keys)
+
+        // 1. Query native Sonos Saved Groups (`areas`) via Muse WebSocket API on port 1443
+        let museAreas = await SonosMuseClient.fetchAreas(at: endpoint, validSpeakers: validSpeakerIDs)
+
+        // 2. Read any Sconeos custom presets stored in SystemProperties:1
+        var storedCustomPresets: [PresetPill]?
+        let getPresetsReq = SOAPRequest(
+            service: .systemProperties,
+            action: "GetString",
+            arguments: [("VariableName", Self.presetsVariableName)]
+        )
+        if let node = try? await client.call(getPresetsReq, at: endpoint) {
+            let raw = node.value("StringValue").trimmingCharacters(in: .whitespacesAndNewlines)
+            if let data = raw.data(using: .utf8),
+               let decoded = try? JSONDecoder().decode([PresetPill].self, from: data) {
+                storedCustomPresets = decoded
+            }
+        }
+
+        if let museAreas {
+            var combined = museAreas
+            var seenNames = Set(museAreas.map { $0.name.lowercased() })
+            var seenIDs = Set(museAreas.map(\.id))
+            if let storedCustomPresets {
+                for custom in storedCustomPresets {
+                    let lower = custom.name.lowercased()
+                    if !seenNames.contains(lower),
+                       !seenIDs.contains(custom.id) {
+                        combined.append(custom)
+                        seenNames.insert(lower)
+                        seenIDs.insert(custom.id)
+                    }
+                }
+            }
+            householdPresets = combined
+        } else if let storedCustomPresets {
+            householdPresets = storedCustomPresets
+        } else {
+            householdPresets = []
+        }
+
+        // 3. Resolve Sonos system name from SystemProperties:1 if set (real data or nil)
+        if householdNetworkName == nil {
+            let getNameReq = SOAPRequest(
+                service: .systemProperties,
+                action: "GetString",
+                arguments: [("VariableName", Self.systemNameVariableName)]
+            )
+            if let node = try? await client.call(getNameReq, at: endpoint) {
+                let stored = node.value("StringValue").trimmingCharacters(in: .whitespacesAndNewlines)
+                if !stored.isEmpty {
+                    householdNetworkName = stored
+                }
+            }
         }
     }
 
     private func setSpeakerVolume(_ volume: DiscreteVolume, speaker: SpeakerUUID) async throws(SonosCommandError) -> CommandOutcome {
-        try await refreshBook(anchor: speaker)
-        let endpoint = try endpoint(for: speaker)
-        let current = try await self.volume(of: speaker, at: endpoint)
-        volumes[speaker] = current
-        if current == volume {
-            publishAssembled()
+        if volumes[speaker] == volume, addressBook.endpoint(for: speaker) != nil {
             return .alreadySatisfied
         }
-        _ = try await client.call(TransportService.setVolume(volume), on: speaker, at: endpoint)
-        volumes[speaker] = await readBackVolume(speaker, at: endpoint, fallback: volume)
+        let targetEndpoint: URL
+        if let cached = addressBook.endpoint(for: speaker) {
+            targetEndpoint = cached
+        } else {
+            try await refreshBook(anchor: speaker)
+            targetEndpoint = try endpoint(for: speaker)
+        }
+        do {
+            _ = try await client.call(TransportService.setVolume(volume), on: speaker, at: targetEndpoint)
+        } catch {
+            try await refreshBook(anchor: speaker)
+            let refreshedEndpoint = try endpoint(for: speaker)
+            _ = try await client.call(TransportService.setVolume(volume), on: speaker, at: refreshedEndpoint)
+        }
+        volumes[speaker] = volume
         publishAssembled()
         return .applied
     }
 
     private func setGroupVolume(_ volume: DiscreteVolume, group: GroupID) async throws(SonosCommandError) -> CommandOutcome {
         let coordinator = group.coordinator
-        try await refreshBook(anchor: coordinator)
-        let endpoint = try endpoint(for: coordinator)
-        let current = try await groupVolume(of: coordinator, at: endpoint)
-        groupVolumes[coordinator] = current
-        if current == volume {
-            publishAssembled()
+        if groupVolumes[coordinator] == volume, addressBook.endpoint(for: coordinator) != nil {
             return .alreadySatisfied
         }
-        _ = try await client.call(TransportService.setGroupVolume(volume), on: coordinator, at: endpoint)
-        try? await Task.sleep(for: .milliseconds(200))
-        groupVolumes[coordinator] = (try? await groupVolume(of: coordinator, at: endpoint)) ?? volume
+        let targetEndpoint: URL
+        if let cached = addressBook.endpoint(for: coordinator) {
+            targetEndpoint = cached
+        } else {
+            try await refreshBook(anchor: coordinator)
+            targetEndpoint = try endpoint(for: coordinator)
+        }
+        do {
+            _ = try await client.call(TransportService.setGroupVolume(volume), on: coordinator, at: targetEndpoint)
+        } catch {
+            try await refreshBook(anchor: coordinator)
+            let refreshedEndpoint = try endpoint(for: coordinator)
+            _ = try await client.call(TransportService.setGroupVolume(volume), on: coordinator, at: refreshedEndpoint)
+        }
+        groupVolumes[coordinator] = volume
         await rereadMemberVolumes(of: coordinator)
         publishAssembled()
         return .applied
@@ -468,8 +687,11 @@ public actor SonosHousehold {
         try await refreshBook(anchor: coordinator)
         let endpoint = try endpoint(for: coordinator)
         let state = try await playbackState(of: coordinator, at: endpoint)
-        guard let position = queuePosition(state) else { throw .unsupportedForCurrentSource }
-        _ = try await client.call(TransportService.seek(toTrack: position + 1), on: coordinator, at: endpoint)
+        if let position = queuePosition(state) {
+            _ = try await client.call(TransportService.seek(toTrack: position + 1), on: coordinator, at: endpoint)
+        } else {
+            _ = try await client.call(TransportService.next, on: coordinator, at: endpoint)
+        }
         playback[coordinator] = (try? await playbackState(of: coordinator, at: endpoint)) ?? state
         publishAssembled()
         return .applied
@@ -480,13 +702,30 @@ public actor SonosHousehold {
         try await refreshBook(anchor: coordinator)
         let endpoint = try endpoint(for: coordinator)
         let state = try await playbackState(of: coordinator, at: endpoint)
-        guard let position = queuePosition(state) else { throw .unsupportedForCurrentSource }
         let elapsed = elapsedTime(state) ?? .zero
-        let request = elapsed > .seconds(3) || position <= 1
-            ? TransportService.seek(to: .zero)
-            : TransportService.seek(toTrack: position - 1)
-        _ = try await client.call(request, on: coordinator, at: endpoint)
+        if let position = queuePosition(state) {
+            let request = elapsed > .seconds(3) || position <= 1
+                ? TransportService.seek(to: .zero)
+                : TransportService.seek(toTrack: position - 1)
+            _ = try await client.call(request, on: coordinator, at: endpoint)
+        } else {
+            let request = elapsed > .seconds(3)
+                ? TransportService.seek(to: .zero)
+                : TransportService.previous
+            _ = try await client.call(request, on: coordinator, at: endpoint)
+        }
         playback[coordinator] = (try? await playbackState(of: coordinator, at: endpoint)) ?? state
+        publishAssembled()
+        return .applied
+    }
+
+    private func seekToQueueTrack(_ number: Int, group: GroupID) async throws(SonosCommandError) -> CommandOutcome {
+        let coordinator = group.coordinator
+        try await refreshBook(anchor: coordinator)
+        let endpoint = try endpoint(for: coordinator)
+        _ = try await client.call(TransportService.seek(toTrack: max(1, number)), on: coordinator, at: endpoint)
+        _ = try? await client.call(TransportService.transport(.play), on: coordinator, at: endpoint)
+        playback[coordinator] = (try? await playbackState(of: coordinator, at: endpoint)) ?? .stopped
         publishAssembled()
         return .applied
     }
@@ -597,12 +836,61 @@ public actor SonosHousehold {
     }
 
     private func playbackState(of speaker: SpeakerUUID, at endpoint: URL) async throws(SonosCommandError) -> PlaybackState {
-        let transport = try await client.call(TransportService.getTransportInfo, on: speaker, at: endpoint)
-        let position = try await client.call(TransportService.getPositionInfo, on: speaker, at: endpoint)
-        let media = try await client.call(TransportService.getMediaInfo, on: speaker, at: endpoint)
-        return TransportService.parsePlayback(
-            transportInfo: transport, positionInfo: position, mediaInfo: media,
-            coordinatorEndpoint: endpoint, sampledAt: Date())
+        async let transportCall = client.call(TransportService.getTransportInfo, on: speaker, at: endpoint)
+        async let positionCall = client.call(TransportService.getPositionInfo, on: speaker, at: endpoint)
+        async let mediaCall = client.call(TransportService.getMediaInfo, on: speaker, at: endpoint)
+        let transport: XMLNode
+        let position: XMLNode
+        let media: XMLNode
+        do {
+            (transport, position, media) = try await (transportCall, positionCall, mediaCall)
+        } catch let error as SonosCommandError {
+            throw error
+        } catch {
+            throw .speakerUnreachable(speaker)
+        }
+        let currentURI = media.value("CurrentURI")
+        let transportState = transport.value("CurrentTransportState")
+        let isStopped = transportState != "PLAYING"
+            && transportState != "TRANSITIONING"
+            && transportState != "PAUSED_PLAYBACK"
+        let trackNumber = Int(position.value("Track")) ?? 0
+        var queueItems: [QueueItem] = []
+        if !isStopped, currentURI.hasPrefix("x-rincon-queue:") {
+            let now = Date()
+            let browseKey = "\(currentURI)|\(trackNumber)"
+            let ttl: TimeInterval = (transportState == "PAUSED_PLAYBACK") ? 120 : 30
+            if cachedQueueKey[speaker] == browseKey,
+               let lastAt = cachedQueueAt[speaker],
+               now.timeIntervalSince(lastAt) < ttl,
+               let existing = cachedQueueItems[speaker] {
+                queueItems = existing
+            } else {
+                let startIdx = max(0, trackNumber)
+                if let qNode = try? await client.call(TransportService.browseQueue(startingAt: startIdx, count: 25), on: speaker, at: endpoint) {
+                    queueItems = TransportService.parseQueueBrowseResponse(qNode, startingIndex: startIdx, coordinatorEndpoint: endpoint)
+                }
+                if queueItems.isEmpty,
+                   let cdNode = try? await client.call(TransportService.browseContentDirectoryQueue(startingAt: startIdx, count: 25), on: speaker, at: endpoint) {
+                    queueItems = TransportService.parseQueueBrowseResponse(cdNode, startingIndex: startIdx, coordinatorEndpoint: endpoint)
+                }
+                cachedQueueKey[speaker] = browseKey
+                cachedQueueAt[speaker] = now
+                cachedQueueItems[speaker] = queueItems
+            }
+        } else if isStopped || !currentURI.hasPrefix("x-rincon-queue:") {
+            cachedQueueKey[speaker] = nil
+            cachedQueueItems[speaker] = nil
+        }
+        let parsed = TransportService.parsePlayback(
+            transportInfo: transport,
+            positionInfo: position,
+            mediaInfo: media,
+            queueItems: queueItems,
+            coordinatorEndpoint: endpoint,
+            sampledAt: Date()
+        )
+        return parsed
     }
 
     private func endpoint(for speaker: SpeakerUUID) throws(SonosCommandError) -> URL {
@@ -621,10 +909,12 @@ public actor SonosHousehold {
         switch command {
         case .setVolume(_, .speaker(let speaker)): speaker
         case .setVolume(_, .group(let group)): group.coordinator
-        case .playPause(_, let group), .nextTrack(let group), .previousTrack(let group): group.coordinator
+        case .playPause(_, let group), .nextTrack(let group), .previousTrack(let group), .seekToQueueTrack(_, let group): group.coordinator
         case .enqueueAndPlaySpotify(_, _, let group, _): group.coordinator
         case .group(let member, _), .ungroup(let member): member
         case .applyPreset(let preset): preset.coordinatorUUID
+        case .savePresets(let presets): presets.first?.coordinatorUUID ?? lastParsed?.members.keys.first ?? SpeakerUUID(rawValue: "RINCON_00000000000001400")!
+        case .setSystemName: lastParsed?.members.keys.first ?? SpeakerUUID(rawValue: "RINCON_00000000000001400")!
         }
     }
 
@@ -698,5 +988,107 @@ struct AddressBook: Sendable {
         var seen = Set<URL>()
         let live = parsed.members.values.map(\.endpoint).sorted { $0.absoluteString < $1.absoluteString }
         seeds = (live + seeds).filter { seen.insert($0).inserted }
+    }
+}
+
+private final class SonosLocalTLSDelegate: NSObject, URLSessionDelegate, Sendable {
+    func urlSession(
+        _ session: URLSession,
+        didReceive challenge: URLAuthenticationChallenge,
+        completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void
+    ) {
+        if let trust = challenge.protectionSpace.serverTrust {
+            completionHandler(.useCredential, URLCredential(trust: trust))
+        } else {
+            completionHandler(.performDefaultHandling, nil)
+        }
+    }
+}
+
+enum SonosMuseClient {
+    private static let apiKey = "123e4567-e89b-12d3-a456-426655440000"
+    private static let subprotocol = "v1.api.smartspeaker.audio"
+
+    static func fetchAreas(at endpoint: URL, validSpeakers: Set<SpeakerUUID>) async -> [PresetPill]? {
+        guard let host = endpoint.host,
+              let infoURL = URL(string: "https://\(host):1443/api/v1/players/local/info"),
+              let wsURL = URL(string: "wss://\(host):1443/websocket/api") else {
+            return nil
+        }
+
+        let config = URLSessionConfiguration.ephemeral
+        config.timeoutIntervalForRequest = 4
+        config.timeoutIntervalForResource = 5
+        let session = URLSession(configuration: config, delegate: SonosLocalTLSDelegate(), delegateQueue: nil)
+        defer { session.invalidateAndCancel() }
+
+        var infoRequest = URLRequest(url: infoURL, timeoutInterval: 4)
+        infoRequest.setValue(apiKey, forHTTPHeaderField: "X-Sonos-Api-Key")
+        guard let (infoData, _) = try? await session.data(for: infoRequest),
+              let infoJSON = try? JSONSerialization.jsonObject(with: infoData) as? [String: Any],
+              let householdId = infoJSON["householdId"] as? String,
+              !householdId.isEmpty else {
+            return nil
+        }
+
+        var wsRequest = URLRequest(url: wsURL, timeoutInterval: 4)
+        wsRequest.setValue(apiKey, forHTTPHeaderField: "X-Sonos-Api-Key")
+        wsRequest.setValue(subprotocol, forHTTPHeaderField: "Sec-WebSocket-Protocol")
+
+        let ws = session.webSocketTask(with: wsRequest)
+        ws.resume()
+        defer { ws.cancel(with: .normalClosure, reason: nil) }
+
+        let payload = """
+        [{"namespace":"areas","command":"getAreas","householdId":"\(householdId)","cmdId":"1"},{}]
+        """
+        do {
+            try await ws.send(.string(payload))
+            let message = try await ws.receive()
+            guard case .string(let text) = message else { return nil }
+            return parseAreasMessage(text, validSpeakers: validSpeakers)
+        } catch {
+            return nil
+        }
+    }
+
+    static func parseAreasMessage(_ text: String, validSpeakers: Set<SpeakerUUID>) -> [PresetPill]? {
+        guard let data = text.data(using: .utf8),
+              let array = try? JSONSerialization.jsonObject(with: data) as? [Any],
+              array.count >= 2,
+              let body = array[1] as? [String: Any],
+              let areas = body["areas"] as? [[String: Any]] else {
+            return nil
+        }
+
+        var pills: [PresetPill] = []
+        for area in areas {
+            let isReadOnly = (area["isReadOnly"] as? Bool) ?? false
+            if isReadOnly { continue }
+            guard let name = (area["name"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !name.isEmpty,
+                  let playerStrings = area["playerIds"] as? [String] else {
+                continue
+            }
+            let allIDs = playerStrings.compactMap(SpeakerUUID.init(rawValue:))
+            let onlineMatched = allIDs.filter { validSpeakers.contains($0) }
+            let effectiveIDs = onlineMatched.isEmpty ? allIDs : onlineMatched
+            guard let coordinator = effectiveIDs.first else { continue }
+            let members = Set(effectiveIDs.dropFirst())
+            let presetID: PresetID = if let idStr = area["id"] as? String, let uuid = UUID(uuidString: idStr) {
+                PresetID(rawValue: uuid)
+            } else {
+                PresetID()
+            }
+            pills.append(
+                PresetPill(
+                    id: presetID,
+                    name: name,
+                    coordinatorUUID: coordinator,
+                    memberUUIDs: members
+                )
+            )
+        }
+        return pills
     }
 }

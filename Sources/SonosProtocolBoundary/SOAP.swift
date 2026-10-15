@@ -1,8 +1,40 @@
+import Darwin
 import Foundation
 import SconeDomain
 
+public enum NetworkDebugLog {
+    private static let lock = NSLock()
+
+    public static func write(_ message: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support")
+        let dir = support.appendingPathComponent("Sconeos", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let file = dir.appendingPathComponent("network-debug.log")
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let timestamp = formatter.string(from: Date())
+        let pid = ProcessInfo.processInfo.processIdentifier
+        let ppid = Darwin.getppid()
+        let bundleID = Bundle.main.bundleIdentifier ?? "nil"
+        let line = "[\(timestamp)] [pid=\(pid) ppid=\(ppid) bundle=\(bundleID)] \(message)\n"
+        guard let data = line.data(using: .utf8) else { return }
+        if FileManager.default.fileExists(atPath: file.path) {
+            if let handle = try? FileHandle(forWritingTo: file) {
+                defer { try? handle.close() }
+                _ = try? handle.seekToEnd()
+                try? handle.write(contentsOf: data)
+            }
+        } else {
+            try? data.write(to: file, options: .atomic)
+        }
+    }
+}
+
 enum UPnPService: CaseIterable {
-    case zoneGroupTopology, avTransport, renderingControl, groupRenderingControl, contentDirectory, queue
+    case zoneGroupTopology, avTransport, renderingControl, groupRenderingControl, contentDirectory, queue, systemProperties
 
     var urn: String {
         switch self {
@@ -12,6 +44,7 @@ enum UPnPService: CaseIterable {
         case .groupRenderingControl: "urn:schemas-upnp-org:service:GroupRenderingControl:1"
         case .contentDirectory: "urn:schemas-upnp-org:service:ContentDirectory:1"
         case .queue: "urn:schemas-sonos-com:service:Queue:1"
+        case .systemProperties: "urn:schemas-upnp-org:service:SystemProperties:1"
         }
     }
 
@@ -23,6 +56,7 @@ enum UPnPService: CaseIterable {
         case .groupRenderingControl: "/MediaRenderer/GroupRenderingControl/Control"
         case .contentDirectory: "/MediaServer/ContentDirectory/Control"
         case .queue: "/MediaRenderer/Queue/Control"
+        case .systemProperties: "/SystemProperties/Control"
         }
     }
 }
@@ -108,6 +142,11 @@ struct SOAPClient: Sendable {
         do {
             (data, response) = try await Self.session.data(for: urlRequest)
         } catch {
+            let nsErr = error as NSError
+            if nsErr.domain != NSURLErrorDomain || nsErr.code != NSURLErrorCancelled {
+                let underlying = (nsErr.userInfo[NSUnderlyingErrorKey] as? NSError).map { "\($0.domain):\($0.code)" } ?? "none"
+                NetworkDebugLog.write("SOAP \(request.action) -> \(url.absoluteString) FAILED: \(nsErr.domain) code=\(nsErr.code) underlying=\(underlying) desc=\(nsErr.localizedDescription)")
+            }
             throw failure
         }
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0

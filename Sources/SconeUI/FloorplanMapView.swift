@@ -2,89 +2,634 @@ import SwiftUI
 import SconeDomain
 import SconeStore
 
+private enum MapDropTarget: Hashable {
+    case speaker(SpeakerUUID)
+    case musicHub(GroupID)
+}
+
+private struct SpeakerTether: Equatable {
+    let speakerID: SpeakerUUID
+    let roomName: String
+    let segment: AcousticCurveSegment
+    let severPoint: CGPoint
+}
+
+private struct MapGeometryKey: Equatable {
+    struct NodeKey: Equatable {
+        let id: SpeakerUUID
+        let x: Int
+        let y: Int
+        let level: FloorLevel
+        let group: GroupID?
+        let hasSatellites: Bool
+    }
+    struct HubKey: Equatable {
+        let id: GroupID
+        let memberIDs: [SpeakerUUID]
+    }
+    let width: Int
+    let height: Int
+    let nodes: [NodeKey]
+    let hubs: [HubKey]
+    let dragging: SpeakerUUID?
+    let dragX: Int?
+    let dragY: Int?
+}
+
+private struct PrecomputedMapGeometry {
+    let bands: [FloorBandLayout]
+    let hubLocations: [GroupID: CGPoint]
+    let displayPoints: [SpeakerUUID: CGPoint]
+    let tethersByGroup: [GroupID: [SpeakerTether]]
+    let canvasSize: CGSize
+}
+
+private final class MapGeometryMemoizer {
+    private var lastKey: MapGeometryKey?
+    private var lastGeometry: PrecomputedMapGeometry?
+
+    func resolve(key: MapGeometryKey, compute: () -> PrecomputedMapGeometry) -> PrecomputedMapGeometry {
+        if lastKey == key, let lastGeometry {
+            return lastGeometry
+        }
+        let next = compute()
+        lastKey = key
+        lastGeometry = next
+        return next
+    }
+}
+
 struct FloorplanMapView: View {
     @Environment(SconeStore.self) private var store
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    var onSelectGroup: ((GroupID) -> Void)? = nil
+
     @State private var dragging: SpeakerUUID?
     @State private var dragPoint: CGPoint?
-    @State private var dropTarget: SpeakerUUID?
+    @State private var dropTarget: MapDropTarget?
     @State private var selected: SpeakerUUID?
     @State private var hovered: SpeakerUUID?
+    @State private var hoveredTetherSpeaker: SpeakerUUID?
+    @State private var geometryMemoizer = MapGeometryMemoizer()
 
-    private let dropRadius: CGFloat = 65
+    private let dropRadius: CGFloat = 96
 
     var body: some View {
         let nodes = store.state.floorplan
+        let clusters = store.state.floorplanRoomClusters
         let groups = store.state.groups
+        let topologyKey = groups.map { "\($0.id.coordinator.rawValue):\($0.speakers.map(\.id.rawValue).joined(separator: ","))" }.joined(separator: "|")
+
         GeometryReader { geo in
-            let plot = CGRect(origin: .zero, size: geo.size).insetBy(dx: 16, dy: 18)
-            let anchors = nodes.map { node in
-                let name = RoomNaming.shortName(node.speaker.roomName, merged: false)
-                return Anchor(
-                    id: node.id,
-                    name: name,
-                    point: displayPoint(node, plot: plot),
-                    wing: Wing.match(name),
-                    satellites: !node.speaker.model.satellites.isEmpty)
-            }
-            let plan = HousePlan(anchors: anchors, plot: plot)
-            ZStack {
-                Color.clear
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        selected = nil
+            let isCompact = geo.size.width < 520 || LaunchView.requestsIOS()
+            if isCompact {
+                CompactFloorplanMapView(
+                    nodes: nodes,
+                    clusters: clusters,
+                    groups: groups,
+                    selected: $selected,
+                    onSelectGroup: onSelectGroup
+                )
+            } else {
+                let hubGroups = activeHubGroups(from: groups)
+                let geometry = memoizedGeometry(
+                    nodes: nodes,
+                    hubGroups: hubGroups,
+                    viewportSize: geo.size
+                )
+                let plot = CGRect(origin: .zero, size: geometry.canvasSize).insetBy(dx: 24, dy: 16)
+                let bands = geometry.bands
+                let hubLocations = geometry.hubLocations
+
+                ScrollView(.vertical, showsIndicators: geometry.canvasSize.height > geo.size.height + 4) {
+                    ZStack {
+                        Color.clear
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                withAnimation(.snappy(duration: 0.2)) {
+                                    selected = nil
+                                }
+                            }
+
+                        FloorBandsBackdrop(bands: bands)
+                            .allowsHitTesting(false)
+
+                        links(
+                            hubGroups: hubGroups,
+                            tethersByGroup: geometry.tethersByGroup
+                        )
+                        .allowsHitTesting(false)
+
+                        if let currentPoint = dragPoint,
+                           let target = dropTarget,
+                           let targetPoint = targetPosition(
+                               target,
+                               geometry: geometry
+                           ) {
+                            DragPreviewTether(from: currentPoint, to: targetPoint)
+                                .allowsHitTesting(false)
+                                .zIndex(1)
+                        }
+
+                        ForEach(nodes) { node in
+                            nodeView(
+                                node,
+                                groups: groups,
+                                nodes: nodes,
+                                geometry: geometry,
+                                plot: plot
+                            )
+                        }
+
+                        ForEach(hubGroups) { group in
+                            if let hubPoint = hubLocations[group.id] {
+                                musicHubView(group: group, position: hubPoint)
+                                    .transition(.opacity.combined(with: .scale(scale: 0.94)))
+                                    .zIndex(3.2)
+                            }
+                        }
+
+                        tetherSeverButtons(
+                            hubGroups: hubGroups,
+                            tethersByGroup: geometry.tethersByGroup
+                        )
+                        .zIndex(3.8)
+
+                        if let selectedID = selected,
+                           dragging == nil,
+                           let selectedNode = nodes.first(where: { $0.id == selectedID }) {
+                            selectedNodeOverlay(
+                                selectedNode,
+                                groups: groups,
+                                geometry: geometry,
+                                plot: plot
+                            )
+                            .transition(.opacity.combined(with: .scale(scale: 0.95)))
+                            .zIndex(5)
+                        }
                     }
-                Blueprint(plan: plan)
-                    .allowsHitTesting(false)
-                links(groups: groups, nodes: nodes, plot: plot)
-                    .allowsHitTesting(false)
-                ForEach(nodes) { node in
-                    nodeView(node, groups: groups, plot: plot)
+                    .frame(width: geometry.canvasSize.width, height: geometry.canvasSize.height)
+                    .coordinateSpace(.named("house"))
+                    .animation(.spring(response: 0.38, dampingFraction: 0.84), value: topologyKey)
                 }
+                .scrollBounceBehavior(.basedOnSize)
             }
-            .coordinateSpace(.named("house"))
         }
-        .padding(12)
-        .midnightGlass(radius: 28)
-        .padding(16)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
     }
 
-    private func nodeView(_ node: FloorplanNode, groups: [SonosGroup], plot: CGRect) -> some View {
+    private func activeHubGroups(from groups: [SonosGroup]) -> [SonosGroup] {
+        deduplicatedActiveHubGroups(from: groups)
+    }
+
+    private func memoizedGeometry(
+        nodes: [FloorplanNode],
+        hubGroups: [SonosGroup],
+        viewportSize: CGSize
+    ) -> PrecomputedMapGeometry {
+        let key = MapGeometryKey(
+            width: Int(viewportSize.width.rounded()),
+            height: Int(viewportSize.height.rounded()),
+            nodes: nodes.map {
+                MapGeometryKey.NodeKey(
+                    id: $0.id,
+                    x: Int(($0.coordinate.x * 1000).rounded()),
+                    y: Int(($0.coordinate.y * 1000).rounded()),
+                    level: $0.level,
+                    group: $0.group,
+                    hasSatellites: !$0.speaker.bondedSatellites.isEmpty
+                )
+            },
+            hubs: hubGroups.map {
+                MapGeometryKey.HubKey(id: $0.id, memberIDs: $0.speakers.map(\.id))
+            },
+            dragging: dragging,
+            dragX: dragPoint.map { Int($0.x.rounded()) },
+            dragY: dragPoint.map { Int($0.y.rounded()) }
+        )
+
+        return geometryMemoizer.resolve(key: key) {
+            var activeHubCountByLevel: [FloorLevel: Int] = [:]
+            for group in hubGroups {
+                let memberNodes = group.speakers.compactMap { spk in nodes.first { $0.id == spk.id } }
+                if let primaryLevel = memberNodes.first?.level {
+                    activeHubCountByLevel[primaryLevel, default: 0] += 1
+                }
+            }
+
+            let initialPlot = CGRect(origin: .zero, size: viewportSize).insetBy(dx: 24, dy: 16)
+            let bands = FloorBandLayout.compute(
+                nodes: nodes,
+                in: initialPlot,
+                activeHubCountByLevel: activeHubCountByLevel
+            )
+            let maxBandBottom = bands.map(\.frame.maxY).max() ?? initialPlot.maxY
+            let requiredHeight = max(viewportSize.height, maxBandBottom + 16)
+            let canvasSize = CGSize(width: viewportSize.width, height: requiredHeight)
+            let plot = CGRect(origin: .zero, size: canvasSize).insetBy(dx: 24, dy: 16)
+
+            var hubLocations = computeHubLocations(
+                hubGroups: hubGroups,
+                nodes: nodes,
+                bands: bands,
+                plot: plot
+            )
+            var displayPoints: [SpeakerUUID: CGPoint] = [:]
+            for node in nodes {
+                displayPoints[node.id] = computeDisplayPoint(
+                    node,
+                    bands: bands,
+                    hubLocations: hubLocations,
+                    plot: plot
+                )
+            }
+            for band in bands {
+                let bandNodes = nodes.filter { $0.level == band.level }
+                let roomSpecs = bandNodes.map { node in
+                    AcousticCurveRouter.LayoutRoomSpec(
+                        id: node.id,
+                        center: displayPoints[node.id] ?? baseDisplayPoint(node, bands: bands, plot: plot),
+                        hasSatellites: !node.speaker.bondedSatellites.isEmpty,
+                        isFixed: node.id == dragging
+                    )
+                }
+                let bandHubs = hubLocations.filter { _, pt in band.frame.contains(pt) }
+                let resolved = AcousticCurveRouter.resolveBandCollisions(
+                    rooms: roomSpecs,
+                    hubCenters: bandHubs,
+                    bandFrame: band.frame
+                )
+                for (id, pt) in resolved.roomCenters {
+                    displayPoints[id] = pt
+                }
+                for (gID, pt) in resolved.hubCenters {
+                    hubLocations[gID] = pt
+                }
+            }
+            let allObstacles = nodes.map { node in
+                AcousticCurveRouter.nodeObstacleRect(
+                    center: displayPoints[node.id] ?? .zero,
+                    hasSatellites: !node.speaker.bondedSatellites.isEmpty
+                )
+            }
+            var tethersByGroup: [GroupID: [SpeakerTether]] = [:]
+            for group in hubGroups {
+                guard let hubPoint = hubLocations[group.id] else { continue }
+                let hubRect = AcousticCurveRouter.musicHubRect(center: hubPoint)
+                tethersByGroup[group.id] = group.speakers.compactMap { speaker -> SpeakerTether? in
+                    guard let node = nodes.first(where: { $0.id == speaker.id }),
+                          let speakerPoint = displayPoints[node.id] else { return nil }
+                    let speakerRect = AcousticCurveRouter.nodeObstacleRect(
+                        center: speakerPoint,
+                        hasSatellites: !node.speaker.bondedSatellites.isEmpty
+                    )
+                    let seg = AcousticCurveRouter.routeTether(
+                        startRect: hubRect,
+                        endRect: speakerRect,
+                        obstacles: allObstacles,
+                        bounds: plot,
+                        inset: 2
+                    )
+                    let roomName = RoomNaming.shortName(speaker.roomName, merged: false)
+                    return SpeakerTether(
+                        speakerID: speaker.id,
+                        roomName: roomName,
+                        segment: seg,
+                        severPoint: seg.point(at: 0.5)
+                    )
+                }
+            }
+            return PrecomputedMapGeometry(
+                bands: bands,
+                hubLocations: hubLocations,
+                displayPoints: displayPoints,
+                tethersByGroup: tethersByGroup,
+                canvasSize: canvasSize
+            )
+        }
+    }
+
+    private func computeHubLocations(
+        hubGroups: [SonosGroup],
+        nodes: [FloorplanNode],
+        bands: [FloorBandLayout],
+        plot: CGRect
+    ) -> [GroupID: CGPoint] {
+        var result: [GroupID: CGPoint] = [:]
+        var placedHubRects: [CGRect] = []
+        let basePoints = Dictionary(uniqueKeysWithValues: nodes.map { ($0.id, baseDisplayPoint($0, bands: bands, plot: plot)) })
+        let roomObstacles = nodes.compactMap { node -> CGRect? in
+            guard let pt = basePoints[node.id] else { return nil }
+            return AcousticCurveRouter.nodeObstacleRect(
+                center: pt,
+                hasSatellites: !node.speaker.bondedSatellites.isEmpty
+            )
+        }
+
+        for group in hubGroups {
+            let memberNodes = group.speakers.compactMap { spk in nodes.first { $0.id == spk.id } }
+            let connectedPoints = memberNodes.compactMap { basePoints[$0.id] }
+            guard !connectedPoints.isEmpty else { continue }
+
+            let targetLevel = memberNodes.first?.level
+            let bounds: CGRect = if let level = targetLevel,
+                                    let band = bands.first(where: { $0.level == level }) {
+                CGRect(
+                    x: band.frame.minX + 16,
+                    y: band.frame.minY + FloorBandLayout.headerHeight + 8,
+                    width: max(80, band.frame.width - 32),
+                    height: max(60, band.frame.height - FloorBandLayout.headerHeight - 16)
+                )
+            } else {
+                plot
+            }
+
+            let center = AcousticCurveRouter.placeMusicHub(
+                connectedPoints: connectedPoints,
+                roomObstacles: roomObstacles,
+                existingHubs: placedHubRects,
+                bounds: bounds
+            )
+            result[group.id] = center
+            placedHubRects.append(AcousticCurveRouter.musicHubRect(center: center))
+        }
+        return result
+    }
+
+    private func musicHubView(group: SonosGroup, position: CGPoint) -> some View {
+        let isPlaying = playbackIsActive(group.playback)
+        let isDropTarget = (dropTarget == .musicHub(group.id))
+        return MusicSourceNodeView(
+            group: group,
+            isPlaying: isPlaying,
+            isDropTarget: isDropTarget,
+            onTogglePlay: {
+                acousticTick()
+                store.togglePlayOrHandOffSpotify(for: group)
+            },
+            onOpenDetail: {
+                onSelectGroup?(group.id)
+            }
+        )
+        .contextMenu {
+            Button {
+                store.togglePlayOrHandOffSpotify(for: group)
+            } label: {
+                Label(isPlaying ? "Pause" : "Play", systemImage: isPlaying ? "pause.fill" : "play.fill")
+            }
+            Button {
+                store.handOffSpotify(to: group.id)
+            } label: {
+                Label("Play from Spotify", systemImage: "dot.radiowaves.left.and.right")
+            }
+            if group.speakers.count > 1 {
+                Divider()
+                ForEach(group.speakers) { member in
+                    let memberName = RoomNaming.shortName(member.roomName, merged: false)
+                    Button(role: .destructive) {
+                        store.ungroupSpeaker(member.id)
+                    } label: {
+                        Label("Disconnect \(memberName)", systemImage: "minus.circle")
+                    }
+                }
+                Button(role: .destructive) {
+                    store.dissolveGroup(group.id)
+                } label: {
+                    Label("Ungroup All (\(group.displayName))", systemImage: "xmark.circle")
+                }
+                Button {
+                    store.savePreset(from: group.id)
+                } label: {
+                    Label("Save as Preset", systemImage: "bookmark.fill")
+                }
+            }
+            Divider()
+            Button {
+                onSelectGroup?(group.id)
+            } label: {
+                Label("Open \(group.displayName)", systemImage: "arrow.up.right.square")
+            }
+        }
+        .position(position)
+    }
+
+    private func nodeView(
+        _ node: FloorplanNode,
+        groups: [SonosGroup],
+        nodes: [FloorplanNode],
+        geometry: PrecomputedMapGeometry,
+        plot: CGRect
+    ) -> some View {
         let name = RoomNaming.shortName(node.speaker.roomName, merged: false)
         let group = node.group.flatMap { id in groups.first { $0.id == id } }
         let playing = group.map { playbackIsActive($0.playback) } ?? false
-        let grouped = (group?.speakers.count ?? 0) > 1
-        let point = displayPoint(node, plot: plot)
-        let showsVolume = (hovered == node.id || selected == node.id) && dragging != node.id
-        return RoomNode(
+        let connectedToHub = group.map { geometry.hubLocations[$0.id] != nil } ?? false
+        let point = geometry.displayPoints[node.id] ?? baseDisplayPoint(node, bands: geometry.bands, plot: plot)
+        let isHovered = hovered == node.id
+        let isSelected = selected == node.id
+        let isDropTarget = (dropTarget == .speaker(node.id))
+        let isBeingDragged = dragging == node.id
+
+        return RoomContainerNode(
             node: node,
             name: name,
             playing: playing,
-            grouped: grouped,
-            dropTarget: dropTarget == node.id,
-            showsVolume: showsVolume,
-            onVolume: { volume in
-                store.send(.setVolume(volume, for: .speaker(node.speaker.id)))
-            })
-            .position(point)
-            .zIndex(dragging == node.id ? 3 : (showsVolume || dropTarget == node.id ? 2 : 0))
-            .gesture(drag(node, plot: plot))
-            .onTapGesture { selected = node.id }
-            .onHover { inside in
+            connectedToHub: connectedToHub,
+            isHovered: isHovered,
+            isSelected: isSelected,
+            dropTarget: isDropTarget
+        )
+        .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .onTapGesture {
+            if selected == node.id {
+                if let group = node.group {
+                    onSelectGroup?(group)
+                }
+            } else {
+                withAnimation(.snappy(duration: 0.2)) {
+                    selected = node.id
+                }
+            }
+        }
+        .gesture(drag(node, geometry: geometry, plot: plot))
+        .onHover { inside in
+            withAnimation(.snappy(duration: 0.16)) {
                 if inside {
                     hovered = node.id
                 } else if hovered == node.id {
                     hovered = nil
                 }
             }
+        }
+        .contextMenu {
+            speakerContextMenu(for: node, group: group, allNodes: nodes)
+        }
+        .position(point)
+        .zIndex(isBeingDragged ? 4 : (isDropTarget || isSelected ? 3 : 2))
     }
 
-    private func drag(_ node: FloorplanNode, plot: CGRect) -> some Gesture {
-        DragGesture(minimumDistance: 6, coordinateSpace: .named("house"))
+    @ViewBuilder
+    private func speakerContextMenu(
+        for node: FloorplanNode,
+        group: SonosGroup?,
+        allNodes: [FloorplanNode]
+    ) -> some View {
+        let shortName = RoomNaming.shortName(node.speaker.roomName, merged: false)
+        if let group {
+            Button {
+                store.togglePlayOrHandOffSpotify(for: group)
+            } label: {
+                Label(
+                    playbackIsActive(group.playback) ? "Pause" : "Play",
+                    systemImage: playbackIsActive(group.playback) ? "pause.fill" : "play.fill"
+                )
+            }
+
+            Button {
+                store.handOffSpotify(to: group.id)
+            } label: {
+                Label("Play from Spotify", systemImage: "dot.radiowaves.left.and.right")
+            }
+
+            Divider()
+        }
+
+        let otherNodes = allNodes.filter { other in
+            other.id != node.id && (node.group == nil || other.group != node.group)
+        }
+        if !otherNodes.isEmpty {
+            Menu {
+                ForEach(otherNodes) { other in
+                    let otherName = RoomNaming.shortName(other.speaker.roomName, merged: false)
+                    Button("Group with \(otherName)") {
+                        store.group(member: node.id, onto: other.id)
+                    }
+                }
+                if allNodes.count > 2 {
+                    Divider()
+                    Button("Group All Rooms (Everywhere)") {
+                        store.groupEverywhere()
+                    }
+                }
+            } label: {
+                Label("Group with…", systemImage: "hifispeaker.2.fill")
+            }
+        }
+
+        if let group, group.speakers.count > 1 {
+            Button(role: .destructive) {
+                store.ungroupSpeaker(node.id)
+            } label: {
+                Label("Disconnect \(shortName) from Music", systemImage: "xmark.circle")
+            }
+
+            if group.speakers.count > 2 {
+                Button(role: .destructive) {
+                    store.dissolveGroup(group.id)
+                } label: {
+                    Label("Ungroup All in \(group.displayName)", systemImage: "rectangle.stack.badge.minus")
+                }
+            }
+
+            Button {
+                store.savePreset(from: group.id)
+            } label: {
+                Label("Save Group as Preset", systemImage: "bookmark.fill")
+            }
+        }
+
+        Divider()
+
+        Button {
+            store.toggleMute(for: node.id)
+        } label: {
+            Label(
+                node.speaker.volume == .v0 ? "Unmute \(shortName)" : "Mute \(shortName)",
+                systemImage: node.speaker.volume == .v0 ? "speaker.wave.2.fill" : "speaker.slash.fill"
+            )
+        }
+
+        if node.placement == .pinned {
+            Button {
+                store.resetRoom(node.id)
+            } label: {
+                Label("Reset Map Position", systemImage: "arrow.counterclockwise")
+            }
+        }
+
+        if let group {
+            Divider()
+            Button {
+                onSelectGroup?(group.id)
+            } label: {
+                Label("Open \(group.displayName)", systemImage: "arrow.up.right.square")
+            }
+        }
+    }
+
+    private func selectedNodeOverlay(
+        _ node: FloorplanNode,
+        groups: [SonosGroup],
+        geometry: PrecomputedMapGeometry,
+        plot: CGRect
+    ) -> some View {
+        let point = geometry.displayPoints[node.id] ?? baseDisplayPoint(node, bands: geometry.bands, plot: plot)
+        let hasSats = !node.speaker.bondedSatellites.isEmpty
+        let extraOffset: CGFloat = hasSats ? 84 : 66
+        let placeAbove = point.y > plot.maxY - 96
+        let popoverY = placeAbove ? max(plot.minY + 26, point.y - 66) : min(plot.maxY - 16, point.y + extraOffset)
+        let clampedX = min(max(point.x, plot.minX + 128), plot.maxX - 128)
+        let group = node.group.flatMap { id in groups.first { $0.id == id } }
+
+        return HStack(spacing: 8) {
+            if let group {
+                Button {
+                    store.togglePlayOrHandOffSpotify(for: group)
+                } label: {
+                    Image(systemName: playbackIsActive(group.playback) ? "pause.fill" : "play.fill")
+                        .font(.system(size: 11, weight: .bold))
+                        .contentTransition(.symbolEffect(.replace))
+                        .foregroundStyle(MidnightGlass.ink)
+                        .frame(width: 26, height: 26)
+                        .background(Circle().fill(MidnightGlass.gold))
+                }
+                .buttonStyle(PressableStyle())
+                .accessibilityLabel(playbackIsActive(group.playback) ? "Pause" : "Play")
+            }
+            DiscreteVolumeControl(volume: node.speaker.volume, compact: true) { volume in
+                store.send(.setVolume(volume, for: .speaker(node.speaker.id)))
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .frame(width: 252)
+        .midnightGlass(glowing: true, radius: 16)
+        .position(x: clampedX, y: popoverY)
+    }
+
+    private func drag(
+        _ node: FloorplanNode,
+        geometry: PrecomputedMapGeometry,
+        plot: CGRect
+    ) -> some Gesture {
+        let hasSats = !node.speaker.bondedSatellites.isEmpty
+        return DragGesture(minimumDistance: 4, coordinateSpace: .named("house"))
             .onChanged { value in
+                if selected != nil { selected = nil }
                 dragging = node.id
-                dragPoint = value.location
-                let next = nearest(to: value.location, excluding: node.id, plot: plot)
+                let next = nearestTarget(
+                    to: value.location,
+                    excluding: node.id,
+                    geometry: geometry
+                )
+                if next != nil {
+                    dragPoint = value.location
+                } else if let band = geometry.bands.first(where: { $0.level == node.level }) {
+                    dragPoint = band.clampPoint(value.location, hasSatellites: hasSats)
+                } else {
+                    dragPoint = value.location
+                }
                 if next != dropTarget, next != nil {
                     acousticTick()
                 }
@@ -92,9 +637,24 @@ struct FloorplanMapView: View {
             }
             .onEnded { value in
                 let moved = hypot(value.translation.width, value.translation.height)
-                if moved >= 6 {
-                    if let target = nearest(to: value.location, excluding: node.id, plot: plot) {
-                        store.group(member: node.id, onto: target)
+                if moved >= 4 {
+                    if let target = nearestTarget(
+                        to: value.location,
+                        excluding: node.id,
+                        geometry: geometry
+                    ) {
+                        acousticTick()
+                        switch target {
+                        case .speaker(let targetSpeakerID):
+                            store.group(member: node.id, onto: targetSpeakerID)
+                        case .musicHub(let groupID):
+                            if let group = store.state.groups.first(where: { $0.id == groupID }),
+                               group.coordinator.id != node.id {
+                                store.group(member: node.id, onto: group.coordinator.id)
+                            }
+                        }
+                    } else if let band = geometry.bands.first(where: { $0.level == node.level }) {
+                        store.moveRoom(node.id, to: band.coordinate(for: value.location, hasSatellites: hasSats))
                     } else {
                         store.moveRoom(node.id, to: coordinate(at: value.location, plot: plot))
                     }
@@ -106,35 +666,108 @@ struct FloorplanMapView: View {
     }
 
     @ViewBuilder
-    private func links(groups: [SonosGroup], nodes: [FloorplanNode], plot: CGRect) -> some View {
-        if reduceMotion {
-            linkLayer(groups: groups, nodes: nodes, plot: plot, phase: nil)
+    private func links(
+        hubGroups: [SonosGroup],
+        tethersByGroup: [GroupID: [SpeakerTether]]
+    ) -> some View {
+        let anyPlaying = hubGroups.contains(where: { playbackIsActive($0.playback) })
+        if reduceMotion || !anyPlaying {
+            linkLayer(
+                hubGroups: hubGroups,
+                tethersByGroup: tethersByGroup,
+                phase: nil
+            )
         } else {
             TimelineView(.animation(minimumInterval: 1 / 30)) { timeline in
                 let phase = timeline.date.timeIntervalSinceReferenceDate
                     .truncatingRemainder(dividingBy: 2.6) / 2.6
-                linkLayer(groups: groups, nodes: nodes, plot: plot, phase: phase)
+                linkLayer(
+                    hubGroups: hubGroups,
+                    tethersByGroup: tethersByGroup,
+                    phase: phase
+                )
             }
         }
     }
 
-    private func linkLayer(groups: [SonosGroup], nodes: [FloorplanNode], plot: CGRect, phase: Double?) -> some View {
-        let linked = groups.filter { $0.speakers.count > 1 }
-        return ZStack {
-            ForEach(linked) { group in
-                let points = ordered(group.speakers.compactMap { speaker in
-                    nodes.first { $0.id == speaker.id }.map { displayPoint($0, plot: plot) }
-                })
-                AcousticLink(points: points, phase: phase)
+    private func linkLayer(
+        hubGroups: [SonosGroup],
+        tethersByGroup: [GroupID: [SpeakerTether]],
+        phase: Double?
+    ) -> some View {
+        ZStack {
+            ForEach(hubGroups) { group in
+                if let tethers = tethersByGroup[group.id], !tethers.isEmpty {
+                    let endpoints = tethers.flatMap { [$0.segment.start, $0.segment.end] }
+                    AcousticLink(
+                        points: endpoints,
+                        segments: tethers.map(\.segment),
+                        phase: playbackIsActive(group.playback) ? phase : nil
+                    )
+                    .transition(.opacity)
+                }
             }
         }
     }
 
-    private func displayPoint(_ node: FloorplanNode, plot: CGRect) -> CGPoint {
+    private func tetherSeverButtons(
+        hubGroups: [SonosGroup],
+        tethersByGroup: [GroupID: [SpeakerTether]]
+    ) -> some View {
+        ZStack {
+            ForEach(hubGroups) { group in
+                if group.speakers.count > 1, let tethers = tethersByGroup[group.id] {
+                    ForEach(tethers, id: \.speakerID) { tether in
+                        TetherSeverOverlay(
+                            tether: tether,
+                            isRoomHovered: hovered == tether.speakerID,
+                            onSever: {
+                                acousticTick()
+                                store.ungroupSpeaker(tether.speakerID)
+                            }
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    private func baseDisplayPoint(
+        _ node: FloorplanNode,
+        bands: [FloorBandLayout],
+        plot: CGRect
+    ) -> CGPoint {
         if node.id == dragging, let dragPoint { return dragPoint }
+        let hasSats = !node.speaker.bondedSatellites.isEmpty
+        if let band = bands.first(where: { $0.level == node.level }) {
+            return band.point(for: node.coordinate, hasSatellites: hasSats)
+        }
         return CGPoint(
             x: plot.minX + node.coordinate.x * plot.width,
-            y: plot.minY + node.coordinate.y * plot.height)
+            y: plot.minY + node.coordinate.y * plot.height
+        )
+    }
+
+    private func computeDisplayPoint(
+        _ node: FloorplanNode,
+        bands: [FloorBandLayout],
+        hubLocations: [GroupID: CGPoint],
+        plot: CGRect
+    ) -> CGPoint {
+        let base = baseDisplayPoint(node, bands: bands, plot: plot)
+        if node.id == dragging { return base }
+        guard let band = bands.first(where: { $0.level == node.level }),
+              !hubLocations.isEmpty else {
+            return base
+        }
+        let nearestHub = hubLocations.values.min { lhs, rhs in
+            hypot(lhs.x - base.x, lhs.y - base.y) < hypot(rhs.x - base.x, rhs.y - base.y)
+        }
+        return AcousticCurveRouter.nudgedRoomPoint(
+            basePoint: base,
+            hubCenter: nearestHub,
+            safeRect: band.safeInnerRect
+        )
     }
 
     private func coordinate(at point: CGPoint, plot: CGRect) -> RoomCoordinate {
@@ -143,317 +776,580 @@ struct FloorplanMapView: View {
         return RoomCoordinate(clampingX: x, y: y)
     }
 
-    private func nearest(to point: CGPoint, excluding id: SpeakerUUID, plot: CGRect) -> SpeakerUUID? {
-        var best: SpeakerUUID?
+    private func targetPosition(
+        _ target: MapDropTarget,
+        geometry: PrecomputedMapGeometry
+    ) -> CGPoint? {
+        switch target {
+        case .speaker(let id):
+            return geometry.displayPoints[id]
+        case .musicHub(let groupID):
+            return geometry.hubLocations[groupID]
+        }
+    }
+
+    private func nearestTarget(
+        to point: CGPoint,
+        excluding id: SpeakerUUID,
+        geometry: PrecomputedMapGeometry
+    ) -> MapDropTarget? {
+        var best: MapDropTarget?
         var bestDistance = dropRadius
+        let draggedGroup = store.state.floorplan.first(where: { $0.id == id })?.group
+
+        for (groupID, hubCenter) in geometry.hubLocations where groupID != draggedGroup {
+            let distance = hypot(hubCenter.x - point.x, hubCenter.y - point.y)
+            if distance <= bestDistance {
+                bestDistance = distance
+                best = .musicHub(groupID)
+            }
+        }
         for node in store.state.floorplan where node.id != id {
-            let center = displayPoint(node, plot: plot)
+            guard let center = geometry.displayPoints[node.id] else { continue }
             let distance = hypot(center.x - point.x, center.y - point.y)
             if distance <= bestDistance {
                 bestDistance = distance
-                best = node.id
+                best = .speaker(node.id)
             }
         }
         return best
     }
 }
 
-private struct RoomNode: View {
+/// Simple, shadowless inner room container on the floorplan.
+private struct RoomContainerNode: View {
     var node: FloorplanNode
     var name: String
     var playing: Bool
-    var grouped: Bool
+    var connectedToHub: Bool
+    var isHovered: Bool
+    var isSelected: Bool
     var dropTarget: Bool
-    var showsVolume: Bool
-    var onVolume: (DiscreteVolume) -> Void
+    var flexibleWidth: Bool = false
+
+    private var satellites: [BondedSatellite] {
+        node.speaker.bondedSatellites
+    }
 
     var body: some View {
-        VStack(spacing: 4) {
-            ZStack {
-                if dropTarget {
-                    Circle()
-                        .stroke(MidnightGlass.gold, lineWidth: 2)
-                        .background(Circle().fill(MidnightGlass.copper.opacity(0.16)))
-                        .frame(width: 84, height: 84)
-                        .shadow(color: MidnightGlass.copper.opacity(0.9), radius: 12)
-                }
-                SpeakerSilhouetteView(
-                    model: node.speaker.model,
-                    isOnline: node.speaker.reachability.isOnline,
-                    isPlaying: playing,
-                    isGrouped: grouped,
-                    size: 64)
-            }
-            .frame(height: 72)
+        VStack(spacing: 6) {
             Text(name)
                 .font(.caption.weight(.semibold))
-                .foregroundStyle(.white)
+                .foregroundStyle(connectedToHub || isSelected ? MidnightGlass.gold : MidnightGlass.primaryText.opacity(0.9))
                 .lineLimit(1)
-                .minimumScaleFactor(0.7)
-                .frame(width: 108)
-            HStack(spacing: 4) {
-                if !node.speaker.reachability.isOnline {
-                    OfflinePill()
+                .minimumScaleFactor(0.85)
+
+            SpeakerSilhouetteView(
+                model: node.speaker.model,
+                isOnline: node.speaker.reachability.isOnline,
+                isPlaying: playing,
+                isGrouped: connectedToHub,
+                size: 46
+            )
+
+            if dropTarget {
+                Text("Connect")
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(MidnightGlass.ink)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 2)
+                    .background(Capsule().fill(MidnightGlass.gold))
+            } else if let battery = node.speaker.model.battery {
+                SpeakerBatteryBadge(battery: battery)
+            } else if !node.speaker.reachability.isOnline {
+                OfflinePill()
+            } else {
+                Text("\(node.speaker.volume.percent)%")
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(MidnightGlass.secondaryText)
+            }
+
+            if !satellites.isEmpty {
+                BondedSatellitesMapStrip(satellites: satellites, isPlaying: playing)
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .frame(width: flexibleWidth ? nil : (satellites.isEmpty ? 138 : 196))
+        .frame(maxWidth: flexibleWidth ? .infinity : nil)
+        .background {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(MidnightGlass.roomEnclosureFill)
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(
+                    dropTarget
+                        ? MidnightGlass.gold
+                        : (connectedToHub || isSelected
+                            ? MidnightGlass.gold.opacity(0.68)
+                            : (isHovered ? MidnightGlass.gold.opacity(0.45) : MidnightGlass.roomEnclosureBorder)),
+                    lineWidth: dropTarget ? 2 : (connectedToHub || isSelected ? 1.25 : 1)
+                )
+        }
+        .scaleEffect(dropTarget ? 1.04 : (isHovered ? 1.015 : 1.0))
+        .animation(.spring(duration: 0.18), value: dropTarget)
+        .animation(.snappy(duration: 0.18), value: isHovered)
+    }
+}
+
+/// Coherent Music Square node on the map connected to each speaker playing its music.
+private struct MusicSourceNodeView: View {
+    static let cardSize = CGSize(width: 340, height: 108)
+
+    var group: SonosGroup
+    var isPlaying: Bool
+    var isDropTarget: Bool
+    var flexibleWidth: Bool = false
+    var onTogglePlay: () -> Void
+    var onOpenDetail: () -> Void
+
+    @State private var isHovered = false
+
+    private var track: NowPlayingTrack? {
+        if case .track(let t) = group.playback.nowPlaying {
+            return t
+        }
+        return nil
+    }
+
+    private var titleText: String {
+        if let track, !track.title.isEmpty {
+            return track.title
+        }
+        switch group.playback.nowPlaying {
+        case .tvAudio:
+            return "TV Audio"
+        case .stream(let title):
+            return title ?? ""
+        default:
+            return group.displayName
+        }
+    }
+
+    private var subtitleText: String {
+        if let track, let artist = track.artist, !artist.isEmpty {
+            return artist
+        }
+        return "\(group.speakers.count) \(group.speakers.count == 1 ? "room" : "rooms")"
+    }
+
+    var body: some View {
+        HStack(spacing: 14) {
+            Button(action: onOpenDetail) {
+                HStack(spacing: 14) {
+                    AlbumArtworkView(url: track?.artworkURL, size: flexibleWidth ? 64 : 80, cornerRadius: 14)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(titleText)
+                            .font(.system(size: flexibleWidth ? 15 : 16, weight: .bold))
+                            .foregroundStyle(MidnightGlass.primaryText)
+                            .lineLimit(2)
+                            .multilineTextAlignment(.leading)
+                            .fixedSize(horizontal: false, vertical: true)
+
+                        Text(subtitleText)
+                            .font(.system(size: flexibleWidth ? 12.5 : 13.5, weight: .medium))
+                            .foregroundStyle(MidnightGlass.secondaryText)
+                            .lineLimit(1)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                if playing {
-                    PlayingMark()
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .focusEffectDisabled()
+
+            Button(action: onTogglePlay) {
+                Image(systemName: isPlaying ? "pause.fill" : "play.fill")
+                    .font(.system(size: 14, weight: .bold))
+                    .contentTransition(.symbolEffect(.replace))
+                    .foregroundStyle(isPlaying ? MidnightGlass.ink : MidnightGlass.gold)
+                    .frame(width: 40, height: 40)
+                    .background(
+                        Circle().fill(isPlaying ? MidnightGlass.gold : MidnightGlass.subtleFill)
+                    )
+                    .overlay(
+                        Circle().strokeBorder(MidnightGlass.gold.opacity(0.75), lineWidth: 1.2)
+                    )
+            }
+            .buttonStyle(PressableStyle())
+            .focusEffectDisabled()
+            .help(isPlaying ? "Pause \(group.displayName)" : "Play \(group.displayName)")
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .frame(width: flexibleWidth ? nil : Self.cardSize.width, height: flexibleWidth ? nil : Self.cardSize.height)
+        .frame(maxWidth: flexibleWidth ? .infinity : nil)
+        .background {
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(MidnightGlass.cardElevatedFill)
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .strokeBorder(
+                    isDropTarget ? MidnightGlass.gold : MidnightGlass.gold.opacity(isHovered ? 0.96 : 0.84),
+                    lineWidth: isDropTarget ? 2.2 : 1.5
+                )
+        }
+        .scaleEffect(isDropTarget ? 1.05 : (isHovered ? 1.015 : 1.0))
+        .onHover { hovering in
+            withAnimation(.snappy(duration: 0.18)) {
+                isHovered = hovering
+            }
+        }
+        .animation(.spring(duration: 0.18), value: isDropTarget)
+    }
+}
+
+private struct TetherSeverOverlay: View {
+    var tether: SpeakerTether
+    var isRoomHovered: Bool
+    var onSever: () -> Void
+
+    @State private var isZoneHovered = false
+    @State private var isPillHovered = false
+
+    private var isVisible: Bool {
+        isZoneHovered || isPillHovered || isRoomHovered
+    }
+
+    var body: some View {
+        Button(action: onSever) {
+            ZStack {
+                Circle()
+                    .fill(Color.clear)
+                    .frame(width: 44, height: 44)
+
+                Image(systemName: "xmark")
+                    .font(.system(size: 8.5, weight: .bold))
+                    .foregroundStyle(isPillHovered ? MidnightGlass.ink : MidnightGlass.gold)
+                    .frame(width: 22, height: 22)
+                    .background {
+                        Circle()
+                            .fill(isPillHovered ? MidnightGlass.gold : MidnightGlass.badgeBackground)
+                    }
+                    .overlay {
+                        Circle()
+                            .strokeBorder(MidnightGlass.gold.opacity(0.88), lineWidth: 1.2)
+                    }
+                    .onHover { hovering in
+                        withAnimation(.snappy(duration: 0.15)) {
+                            isPillHovered = hovering
+                        }
+                    }
+                    .opacity(isVisible ? 1 : 0)
+                    .scaleEffect(isVisible ? (isPillHovered ? 1.08 : 1.0) : 0.78)
+            }
+            .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering in
+            withAnimation(.snappy(duration: 0.16)) {
+                isZoneHovered = hovering
+            }
+        }
+        .position(tether.severPoint)
+        .help("Disconnect \(tether.roomName) from music")
+        .accessibilityLabel("Disconnect \(tether.roomName)")
+    }
+}
+
+private struct BondedSatellitesMapStrip: View {
+    var satellites: [BondedSatellite]
+    var isPlaying: Bool
+
+    var body: some View {
+        HStack(spacing: 4) {
+            ForEach(satellites) { sat in
+                HStack(spacing: 3) {
+                    SpeakerSilhouetteView(
+                        model: sat.speakerModel,
+                        isOnline: sat.isOnline,
+                        isPlaying: isPlaying,
+                        isGrouped: true,
+                        size: 14
+                    )
+                    HStack(spacing: 0) {
+                        Text(sat.role.shortBadge)
+                            .font(.system(size: 8.5, weight: .bold))
+                            .foregroundStyle(MidnightGlass.primaryText)
+                        Text(" · \(sat.shortModelLabel)")
+                            .font(.system(size: 8.5, weight: .medium))
+                            .foregroundStyle(MidnightGlass.secondaryText)
+                    }
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
+                }
+                .padding(.horizontal, 5)
+                .padding(.vertical, 2)
+                .background(
+                    Capsule()
+                        .fill(MidnightGlass.subtleFill)
+                )
+                .overlay(
+                    Capsule()
+                        .strokeBorder(MidnightGlass.cardBorder, lineWidth: 0.75)
+                )
+                .help("\(sat.role.label) · \(sat.modelLabel) (bonded)")
+            }
+        }
+    }
+}
+
+private struct CompactFloorplanMapView: View {
+    @Environment(SconeStore.self) private var store
+    var nodes: [FloorplanNode]
+    var clusters: [FloorplanRoomCluster]
+    var groups: [SonosGroup]
+    @Binding var selected: SpeakerUUID?
+    var onSelectGroup: ((GroupID) -> Void)?
+
+    private var distinctLevels: [FloorLevel] {
+        let levels = Array(Set(nodes.map(\.level))).sorted(by: >)
+        return levels.isEmpty ? [.main] : levels
+    }
+
+    private var hubGroups: [SonosGroup] {
+        deduplicatedActiveHubGroups(from: groups)
+    }
+
+    var body: some View {
+        ScrollView(.vertical, showsIndicators: false) {
+            VStack(spacing: 14) {
+                ForEach(distinctLevels) { level in
+                    let floorNodes = nodes.filter { $0.level == level }.sorted {
+                        if abs($0.coordinate.y - $1.coordinate.y) > 0.10 {
+                            return $0.coordinate.y < $1.coordinate.y
+                        }
+                        return $0.coordinate.x < $1.coordinate.x
+                    }
+                    let floorHubGroups = hubGroups.filter { group in
+                        let memberLevels = group.speakers.compactMap { spk in nodes.first { $0.id == spk.id }?.level }
+                        return memberLevels.first == level
+                    }
+
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack(spacing: 8) {
+                            Text(level.title)
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundStyle(MidnightGlass.secondaryText)
+                            Spacer()
+                            Text("\(floorNodes.count) \(floorNodes.count == 1 ? "Room" : "Rooms")")
+                                .font(.caption2.weight(.medium))
+                                .foregroundStyle(MidnightGlass.secondaryText)
+                        }
+                        .padding(.horizontal, 4)
+
+                        ForEach(floorHubGroups) { hubGroup in
+                            MusicSourceNodeView(
+                                group: hubGroup,
+                                isPlaying: playbackIsActive(hubGroup.playback),
+                                isDropTarget: false,
+                                flexibleWidth: true,
+                                onTogglePlay: {
+                                    acousticTick()
+                                    store.togglePlayOrHandOffSpotify(for: hubGroup)
+                                },
+                                onOpenDetail: {
+                                    onSelectGroup?(hubGroup.id)
+                                }
+                            )
+                        }
+
+                        LazyVGrid(
+                            columns: [
+                                GridItem(.flexible(minimum: 136), spacing: 10),
+                                GridItem(.flexible(minimum: 136), spacing: 10),
+                            ],
+                            spacing: 10
+                        ) {
+                            ForEach(floorNodes) { node in
+                                sharedFloorRoomNode(node)
+                            }
+                        }
+                    }
+                    .padding(14)
+                    .background(
+                        RoundedRectangle(cornerRadius: 22, style: .continuous)
+                            .fill(MidnightGlass.floorBandFill)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 22, style: .continuous)
+                            .strokeBorder(MidnightGlass.floorBandBorder, lineWidth: 1)
+                    )
                 }
             }
-            .frame(height: 16)
+            .padding(.horizontal, 4)
+            .padding(.vertical, 6)
         }
-        .frame(width: 120)
-        .overlay(alignment: .bottom) {
-            if showsVolume {
-                DiscreteVolumeControl(volume: node.speaker.volume, compact: true, onChange: onVolume)
-                    .frame(width: 176)
-                    .offset(y: 42)
+    }
+
+    private func sharedFloorRoomNode(_ node: FloorplanNode) -> some View {
+        let name = RoomNaming.shortName(node.speaker.roomName, merged: false)
+        let group = node.group.flatMap { id in groups.first { $0.id == id } }
+        let playing = group.map { playbackIsActive($0.playback) } ?? false
+        let connectedToHub = group.map { grp in hubGroups.contains { $0.id == grp.id } } ?? false
+        let otherNodes = nodes.filter { other in
+            other.id != node.id && (node.group == nil || other.group != node.group)
+        }
+
+        return RoomContainerNode(
+            node: node,
+            name: name,
+            playing: playing,
+            connectedToHub: connectedToHub,
+            isHovered: false,
+            isSelected: selected == node.id,
+            dropTarget: false,
+            flexibleWidth: true
+        )
+        .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .onTapGesture {
+            if let group = node.group {
+                onSelectGroup?(group)
             }
         }
+        .contextMenu {
+            if let group {
+                Button {
+                    store.togglePlayOrHandOffSpotify(for: group)
+                } label: {
+                    Label(playing ? "Pause" : "Play", systemImage: playing ? "pause.fill" : "play.fill")
+                }
+                Button {
+                    store.handOffSpotify(to: group.id)
+                } label: {
+                    Label("Play from Spotify", systemImage: "dot.radiowaves.left.and.right")
+                }
+            }
+            if !otherNodes.isEmpty {
+                Menu {
+                    ForEach(otherNodes) { other in
+                        let otherName = RoomNaming.shortName(other.speaker.roomName, merged: false)
+                        Button("Group with \(otherName)") {
+                            store.group(member: node.id, onto: other.id)
+                        }
+                    }
+                } label: {
+                    Label("Group with…", systemImage: "hifispeaker.2.fill")
+                }
+            }
+            if let group, group.speakers.count > 1 {
+                Button(role: .destructive) {
+                    store.ungroupSpeaker(node.id)
+                } label: {
+                    Label("Disconnect \(name)", systemImage: "xmark.circle")
+                }
+            }
+            Button {
+                store.toggleMute(for: node.id)
+            } label: {
+                Label(
+                    node.speaker.volume == .v0 ? "Unmute \(name)" : "Mute \(name)",
+                    systemImage: node.speaker.volume == .v0 ? "speaker.wave.2.fill" : "speaker.slash.fill"
+                )
+            }
+        }
+        .draggable(node.id.rawValue)
+        .dropDestination(for: String.self) { items, _ in
+            joinedSpeaker(from: items, onto: node.id, store: store)
+        }
+    }
+}
+
+private struct DragPreviewTether: View {
+    var from: CGPoint
+    var to: CGPoint
+
+    var body: some View {
+        Path { path in
+            path.move(to: from)
+            path.addLine(to: to)
+        }
+        .stroke(
+            MidnightGlass.gold,
+            style: StrokeStyle(lineWidth: 2.5, lineCap: .round, dash: [6, 5])
+        )
     }
 }
 
 private struct AcousticLink: View {
     var points: [CGPoint]
+    var segments: [AcousticCurveSegment]
     var phase: Double?
 
     var body: some View {
-        let path = acousticPath(through: points)
+        let path = acousticPath(through: segments)
         ZStack {
             ForEach(Array(points.enumerated()), id: \.offset) { item in
                 Circle()
                     .fill(
                         RadialGradient(
-                            colors: [MidnightGlass.gold.opacity(0.45), MidnightGlass.copper.opacity(0)],
+                            colors: [MidnightGlass.gold.opacity(0.32), MidnightGlass.copper.opacity(0)],
                             center: .center,
                             startRadius: 0,
-                            endRadius: 28))
+                            endRadius: 28
+                        )
+                    )
                     .frame(width: 56, height: 56)
                     .position(item.element)
             }
             path
-                .stroke(MidnightGlass.copper.opacity(0.28), style: StrokeStyle(lineWidth: 10, lineCap: .round))
-                .blur(radius: 6)
+                .stroke(MidnightGlass.copper.opacity(0.20), style: StrokeStyle(lineWidth: 7, lineCap: .round))
+                .blur(radius: 4)
             path
                 .stroke(
                     LinearGradient(
                         colors: [MidnightGlass.copper, MidnightGlass.gold],
                         startPoint: .leading,
-                        endPoint: .trailing),
-                    style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                        endPoint: .trailing
+                    ),
+                    style: StrokeStyle(lineWidth: 2.2, lineCap: .round)
+                )
             if let phase {
                 path
                     .trim(from: phase > 0.2 ? phase - 0.2 : 0, to: min(phase, 1))
-                    .stroke(Color.white.opacity(0.9), style: StrokeStyle(lineWidth: 2.4, lineCap: .round))
+                    .stroke(MidnightGlass.gold, style: StrokeStyle(lineWidth: 2.6, lineCap: .round))
             }
         }
     }
 }
 
-private func ordered(_ points: [CGPoint]) -> [CGPoint] {
-    guard points.count > 2 else { return points }
-    let cx = points.map(\.x).reduce(0, +) / CGFloat(points.count)
-    let cy = points.map(\.y).reduce(0, +) / CGFloat(points.count)
-    return points.sorted { atan2($0.y - cy, $0.x - cx) < atan2($1.y - cy, $1.x - cx) }
-}
-
-private func acousticPath(through points: [CGPoint]) -> Path {
+private func acousticPath(through segments: [AcousticCurveSegment]) -> Path {
     var path = Path()
-    guard points.count >= 2 else { return path }
-    if points.count == 2 {
-        let start = points[0]
-        let end = points[1]
-        let dx = end.x - start.x
-        let dy = end.y - start.y
-        let length = max(hypot(dx, dy), 1)
-        let bow = min(64, length * 0.3)
-        let control = CGPoint(
-            x: (start.x + end.x) / 2 + (-dy / length) * bow,
-            y: (start.y + end.y) / 2 + (dx / length) * bow)
-        path.move(to: start)
-        path.addQuadCurve(to: end, control: control)
-        return path
+    guard let first = segments.first else { return path }
+    path.move(to: first.start)
+    for segment in segments {
+        if path.currentPoint != segment.start {
+            path.move(to: segment.start)
+        }
+        path.addQuadCurve(to: segment.end, control: segment.control)
     }
-    path.move(to: points[0])
-    let count = points.count
-    for index in 0..<count {
-        let p0 = points[(index - 1 + count) % count]
-        let p1 = points[index]
-        let p2 = points[(index + 1) % count]
-        let p3 = points[(index + 2) % count]
-        let control1 = CGPoint(x: p1.x + (p2.x - p0.x) / 6, y: p1.y + (p2.y - p0.y) / 6)
-        let control2 = CGPoint(x: p2.x - (p3.x - p1.x) / 6, y: p2.y - (p3.y - p1.y) / 6)
-        path.addCurve(to: p2, control1: control1, control2: control2)
-    }
-    path.closeSubpath()
     return path
 }
 
-private struct Anchor {
-    var id: SpeakerUUID
-    var name: String
-    var point: CGPoint
-    var wing: Wing?
-    var satellites: Bool
-}
-
-private enum Wing: String {
-    case kitchen, dining, living, bedroom, guest, basement
-
-    var title: String {
-        switch self {
-        case .kitchen: "Kitchen"
-        case .dining: "Dining Room"
-        case .living: "Living Room"
-        case .bedroom: "Bedroom"
-        case .guest: "Guest Room"
-        case .basement: "Basement"
-        }
-    }
-
-    static func match(_ name: String) -> Wing? {
-        let value = name.lowercased()
-        if value.contains("kitchen") { return .kitchen }
-        if value.contains("dining") { return .dining }
-        if value.contains("living") { return .living }
-        if value.contains("guest") { return .guest }
-        if value.contains("bed") { return .bedroom }
-        if value.contains("base") { return .basement }
-        return nil
-    }
-}
-
-private enum Story: CaseIterable {
-    case main, upper, lower
-
-    var title: String {
-        switch self {
-        case .main: "Main Level"
-        case .upper: "Upper Suite"
-        case .lower: "Lower Level"
-        }
-    }
-
-    var wings: [Wing] {
-        switch self {
-        case .main: [.kitchen, .dining, .living]
-        case .upper: [.bedroom, .guest]
-        case .lower: [.basement]
-        }
-    }
-}
-
-private struct NormBox {
-    var x: Double
-    var y: Double
-    var w: Double
-    var h: Double
-
-    func rect(in plot: CGRect) -> CGRect {
-        CGRect(
-            x: plot.minX + x * plot.width,
-            y: plot.minY + y * plot.height,
-            width: w * plot.width,
-            height: h * plot.height)
-    }
-}
-
-private let wingFallback: [Wing: NormBox] = [
-    .kitchen: NormBox(x: 0.08, y: 0.08, w: 0.28, h: 0.34),
-    .dining: NormBox(x: 0.38, y: 0.08, w: 0.28, h: 0.34),
-    .living: NormBox(x: 0.68, y: 0.08, w: 0.26, h: 0.36),
-    .bedroom: NormBox(x: 0.08, y: 0.52, w: 0.28, h: 0.36),
-    .guest: NormBox(x: 0.38, y: 0.52, w: 0.28, h: 0.36),
-    .basement: NormBox(x: 0.68, y: 0.52, w: 0.26, h: 0.38),
-]
-
-private struct HousePlan {
-    struct Room: Identifiable {
-        var id: String
-        var title: String
-        var frame: CGRect
-        var dots: [CGPoint]
-    }
-
-    struct Level: Identifiable {
-        var id: String
-        var title: String
-        var frame: CGRect
-        var rooms: [Room]
-    }
-
-    var levels: [Level]
-
-    init(anchors: [Anchor], plot: CGRect) {
-        levels = Story.allCases.compactMap { story in
-            let rooms = story.wings.map { wing in
-                let fallback = wingFallback[wing]?.rect(in: plot) ?? plot
-                let points = anchors.filter { $0.wing == wing }.map(\.point)
-                var dots: [CGPoint] = []
-                if wing == .living {
-                    for anchor in anchors where anchor.wing == .living && anchor.satellites {
-                        dots.append(CGPoint(x: anchor.point.x - 34, y: anchor.point.y + 18))
-                        dots.append(CGPoint(x: anchor.point.x + 34, y: anchor.point.y + 18))
-                    }
-                }
-                return Room(id: wing.rawValue, title: wing.title, frame: grown(fallback, around: points), dots: dots)
-            }
-            guard var frame = rooms.first?.frame else { return nil }
-            for room in rooms.dropFirst() {
-                frame = frame.union(room.frame)
-            }
-            frame = frame.insetBy(dx: -8, dy: -8)
-            return Level(id: story.title, title: story.title, frame: frame, rooms: rooms)
-        }
-    }
-}
-
-private func grown(_ fallback: CGRect, around points: [CGPoint]) -> CGRect {
-    guard let first = points.first else { return fallback }
-    if points.allSatisfy({ fallback.insetBy(dx: 12, dy: 12).contains($0) }) {
-        return fallback
-    }
-    var rect = CGRect(origin: first, size: .zero)
-    for point in points.dropFirst() {
-        rect = rect.union(CGRect(origin: point, size: .zero))
-    }
-    return rect.insetBy(dx: -54, dy: -46).union(fallback)
-}
-
-private struct Blueprint: View {
-    var plan: HousePlan
+private struct FloorBandsBackdrop: View {
+    var bands: [FloorBandLayout]
 
     var body: some View {
-        ZStack {
-            Canvas { context, _ in
-                guard var outer = plan.levels.first?.frame else { return }
-                for level in plan.levels.dropFirst() {
-                    outer = outer.union(level.frame)
-                }
-                outer = outer.insetBy(dx: -14, dy: -14)
-                let wall = Path(roundedRect: outer, cornerRadius: 18)
-                context.stroke(wall, with: .color(Color.white.opacity(0.16)), lineWidth: 1)
-                for level in plan.levels {
-                    let levelPath = Path(roundedRect: level.frame, cornerRadius: 14)
-                    context.fill(levelPath, with: .color(Color.white.opacity(0.035)))
-                    context.stroke(levelPath, with: .color(MidnightGlass.copper.opacity(0.28)), lineWidth: 1)
-                    for room in level.rooms {
-                        let roomPath = Path(roundedRect: room.frame, cornerRadius: 10)
-                        context.stroke(roomPath, with: .color(Color.white.opacity(0.12)), lineWidth: 1)
-                        for dot in room.dots {
-                            let mark = CGRect(x: dot.x - 3, y: dot.y - 3, width: 6, height: 6)
-                            context.fill(Path(ellipseIn: mark), with: .color(MidnightGlass.gold.opacity(0.85)))
-                        }
+        ZStack(alignment: .topLeading) {
+            ForEach(bands) { band in
+                RoundedRectangle(cornerRadius: 24, style: .continuous)
+                    .fill(MidnightGlass.floorBandFill)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 24, style: .continuous)
+                            .strokeBorder(MidnightGlass.floorBandBorder, lineWidth: 1)
                     }
-                }
-            }
-            ForEach(plan.levels) { level in
-                Text(level.title.uppercased())
-                    .font(.system(size: 10, weight: .semibold))
-                    .tracking(1.5)
-                    .foregroundStyle(MidnightGlass.gold.opacity(0.55))
-                    .position(x: level.frame.midX, y: max(14, level.frame.minY - 12))
+                    .overlay(alignment: .topLeading) {
+                        Text(band.level.title)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(MidnightGlass.secondaryText)
+                            .padding(.leading, 18)
+                            .padding(.top, 12)
+                    }
+                    .frame(width: band.frame.width, height: band.frame.height)
+                    .position(x: band.frame.midX, y: band.frame.midY)
             }
         }
-        .allowsHitTesting(false)
     }
 }

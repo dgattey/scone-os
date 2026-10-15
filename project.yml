@@ -1,4 +1,4 @@
-name: SconeOS
+name: Sconeos
 options:
   bundleIdPrefix: com.sconeos
   deploymentTarget:
@@ -15,12 +15,12 @@ packages:
   SconeKit:
     path: .
 targets:
-  SconeOS:
+  Sconeos:
     type: application
     platform: macOS
     deploymentTarget: "14.0"
     sources:
-      - Sources/SconeOSApp
+      - Sources/SconeosApp
     dependencies:
       - package: SconeKit
         product: SconeUI
@@ -32,26 +32,29 @@ targets:
         product: SpotifyBridge
     settings:
       base:
-        PRODUCT_NAME: SconeOS
-        PRODUCT_BUNDLE_IDENTIFIER: com.sconeos.SconeOS
+        PRODUCT_NAME: Sconeos
+        PRODUCT_BUNDLE_IDENTIFIER: com.sconeos.Sconeos
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.music
-        INFOPLIST_KEY_NSAppleEventsUsageDescription: SconeOS reads the current Spotify track and pauses Spotify after a room starts playing it.
+        INFOPLIST_KEY_NSAppleEventsUsageDescription: Sconeos reads the current Spotify track and pauses Spotify after a room starts playing it.
         ENABLE_HARDENED_RUNTIME: NO
     info:
       properties:
-        CFBundleDisplayName: SconeOS
+        CFBundleDisplayName: Sconeos
         NSHighResolutionCapable: true
+        NSLocalNetworkUsageDescription: Sconeos discovers and controls Sonos speakers on your local network.
+        NSBonjourServices:
+          - _sonos._tcp
         CFBundleURLTypes:
           - CFBundleURLName: com.sconeos.callback
             CFBundleURLSchemes:
               - sconeos
-  SconeOS-iOS:
+  Sconeos-iOS:
     type: application
     platform: iOS
     deploymentTarget: "17.0"
     sources:
-      - Sources/SconeOSApp
+      - Sources/SconeosApp
     dependencies:
       - package: SconeKit
         product: SconeUI
@@ -63,16 +66,19 @@ targets:
         product: SpotifyBridge
     settings:
       base:
-        PRODUCT_NAME: SconeOS
-        PRODUCT_BUNDLE_IDENTIFIER: com.sconeos.SconeOS.ios
+        PRODUCT_NAME: Sconeos
+        PRODUCT_BUNDLE_IDENTIFIER: com.sconeos.Sconeos.ios
         TARGETED_DEVICE_FAMILY: "1,2"
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.music
         SUPPORTS_MACCATALYST: NO
     info:
       properties:
-        CFBundleDisplayName: SconeOS
+        CFBundleDisplayName: Sconeos
         UILaunchScreen: {}
+        NSLocalNetworkUsageDescription: Sconeos discovers and controls Sonos speakers on your local network.
+        NSBonjourServices:
+          - _sonos._tcp
         CFBundleURLTypes:
           - CFBundleURLName: com.sconeos.callback
             CFBundleURLSchemes:

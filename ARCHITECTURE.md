@@ -1,10 +1,10 @@
-# SconeOS architecture, candidate 1
+# Sconeos architecture, candidate 1
 
 One runner's candidate for the architect arena. The full type sketch is a SwiftPM package at `/tmp/arena-scone-os/candidate-1/sketch/`. It builds under the Swift 6 language mode with strict concurrency and `-warnings-as-errors`, and every body is `fatalError("not implemented")` or a `// TODO` with pseudocode. The `UsageSketch` target holds the SwiftUI call sites from the usage section, so the compiler checks the usage against the types. `/tmp/arena-scone-os/candidate-1/fence-check/` is a separate package that tries to mint a `GroupID` and a `Topology` from outside the package. It fails to build, which backs decision 1 below.
 
 ## Problem
 
-SconeOS is a macOS and iOS SwiftUI app that drives one Sonos S2 household over the LAN with no Sonos cloud. It groups rooms, applies saved presets, sets volume, controls transport, hands off Spotify, and draws the rooms on a floorplan, including while the household is unreachable. The PoC trace and the spatial probe set constraints that make the shape non-obvious.
+Sconeos is a macOS and iOS SwiftUI app that drives one Sonos S2 household over the LAN with no Sonos cloud. It groups rooms, applies saved presets, sets volume, controls transport, hands off Spotify, and draws the rooms on a floorplan, including while the household is unreachable. The PoC trace and the spatial probe set constraints that make the shape non-obvious.
 
 - Wire group IDs are not identities. Ungrouping Bedroom changed its group ID from `RINCON_542A1B5F088401400:2737252947` to `RINCON_542A1B5F088401400:2737252948`. Presets and view identity must key on speakers.
 - Coordinator-only actions fail on members. `GetGroupVolume` and `SetGroupVolume` on a grouped member returned HTTP 500. Transport and queue actions follow the same rule.
@@ -19,7 +19,7 @@ SconeOS is a macOS and iOS SwiftUI app that drives one Sonos S2 household over t
 
 ### Quickstart
 
-SconeOS has three library modules a caller touches and one domain module they all share. A view imports `SconeStore` and `SconeDomain`, reads `store.state`, and sends `SonosCommand` values. The one way to change the household is `store.send(_:)`.
+Sconeos has three library modules a caller touches and one domain module they all share. A view imports `SconeStore` and `SconeDomain`, reads `store.state`, and sends `SonosCommand` values. The one way to change the household is `store.send(_:)`.
 
 ```swift
 import SconeDomain
@@ -27,7 +27,7 @@ import SconeStore
 import SpotifyBridge
 import SwiftUI
 
-struct SconeOSApp: App {
+struct SconeosApp: App {
     @State private var spotify: SpotifyBridge
     @State private var store: SconeStore
 
@@ -133,7 +133,7 @@ for await snapshot in sonos.snapshots() {
 
 ```
 scone-os/
-  SconeOS.xcodeproj               multiplatform app target: SwiftUI views only
+  Sconeos.xcodeproj               multiplatform app target: SwiftUI views only
   Packages/SconeKit/Package.swift
     SconeDomain                   pure value types and pure algorithms. Depends on Foundation only.
       Identity.swift              SpeakerUUID, GroupID
@@ -611,7 +611,7 @@ Grafts folded into the base from Candidate 2:
 
 ## Tradeoffs accepted
 
-- We accept a displayed volume up to 2 points off the speaker's real value (Kitchen at 24 shows 25) in exchange for a type that cannot hold an off-step volume. The first change from SconeOS lands on a detent.
+- We accept a displayed volume up to 2 points off the speaker's real value (Kitchen at 24 shows 25) in exchange for a type that cannot hold an off-step volume. The first change from Sconeos lands on a detent.
 - We accept up to one sweep interval (2 s) of staleness for changes made in the Sonos app in exchange for having no inbound HTTP listener. GENA events need one, which triggers the macOS firewall prompt and dies in the iOS background.
 - We accept that `GroupID` equality ignores the wire generation in exchange for SwiftUI identity that survives regroups and presets that cannot key on a reminted value.
 - We accept full snapshots instead of deltas. At eight speakers, equality is trivial, and the store reconciles state instead of replaying events.

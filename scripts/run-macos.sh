@@ -3,4 +3,6 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 "$ROOT/scripts/build-macos.sh" "$@"
-open "$ROOT/build/SconeOS.app"
+killall Sconeos 2>/dev/null || true
+open "$ROOT/build/Sconeos.app"
+

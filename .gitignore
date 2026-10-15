@@ -3,6 +3,15 @@
 *.xcodeproj/project.xcworkspace/
 *.xcodeproj/xcuserdata/
 DerivedData/
+.derivedData*/
 build/
 dist/
+.cert/
+sparkle_private.key
+*.p12
+*.pem
+*.key
 .DS_Store
+.env.local
+*.secret
+Sources/SpotifyBridge/SpotifySealedClient.generated.swift

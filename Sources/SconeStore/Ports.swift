@@ -13,6 +13,7 @@ extension SonosHousehold: SonosControl {}
 public protocol SpotifySource: AnyObject {
     func currentContext() async throws(SpotifyBridgeError) -> SpotifyTrackContext
     func pauseSourcePlayback() async
+    func resumeSourcePlayback() async -> Bool
 }
 
 extension SpotifyBridge: SpotifySource {}

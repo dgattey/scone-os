@@ -33,6 +33,19 @@ public struct Topology: Hashable, Sendable {
         case .makeStandalone(let speaker):
             guard coordinatorOf[speaker] != nil else { return self }
             return Topology(coordinatorOf: coordinatorMap(makingStandalone: speaker)) ?? self
+        case .delegateCoordination(let oldCoordinator, let newCoordinator, let rejoinGroup):
+            guard coordinatorOf[oldCoordinator] == oldCoordinator,
+                  coordinatorOf[newCoordinator] == oldCoordinator,
+                  oldCoordinator != newCoordinator else {
+                return self
+            }
+            var map = coordinatorOf
+            let groupMembers = map.keys.filter { map[$0] == oldCoordinator }
+            for member in groupMembers {
+                map[member] = newCoordinator
+            }
+            map[oldCoordinator] = rejoinGroup ? newCoordinator : oldCoordinator
+            return Topology(coordinatorOf: map) ?? self
         case .join(let member, coordinator: let coordinator):
             guard coordinatorOf[coordinator] == coordinator, member != coordinator, coordinatorOf[member] != nil else {
                 return self
@@ -56,6 +69,7 @@ public struct Topology: Hashable, Sendable {
 
 public enum TopologyStep: Hashable, Sendable {
     case makeStandalone(SpeakerUUID)
+    case delegateCoordination(from: SpeakerUUID, to: SpeakerUUID, rejoinGroup: Bool)
     case join(SpeakerUUID, coordinator: SpeakerUUID)
 }
 
@@ -95,6 +109,11 @@ public enum TopologyTarget: Hashable, Sendable {
         case .standalone(let speaker):
             if !topology.speakers.contains(speaker) { return .steps([], skipped: [speaker]) }
             if isSatisfied(by: topology) { return .steps([], skipped: []) }
+            let groupID = GroupID(coordinator: speaker)
+            let currentMembers = topology.groups[groupID, default: []].subtracting([speaker])
+            if topology.group(of: speaker) == groupID, let promoted = currentMembers.min() {
+                return .steps([.delegateCoordination(from: speaker, to: promoted, rejoinGroup: false)], skipped: [])
+            }
             return .steps([.makeStandalone(speaker)], skipped: [])
         case .exactGroup(let coordinator, let members):
             guard topology.speakers.contains(coordinator) else {

@@ -18,14 +18,12 @@ enum TelemetryService {
     static func model(
         number: String, displayName: String, satellites: [BondedSatellite], battery: BatteryTelemetry?
     ) -> SpeakerModel {
-        switch number {
-        case "S39": .era100
-        case "S41": .era300
-        case "S33": .symfoniskBookshelf
-        case "S31": .beamHt(satellites: satellites)
-        case "S17": .move(battery: battery)
-        default: .unrecognized(modelNumber: number, displayName: displayName)
-        }
+        SpeakerModel.classify(
+            modelName: displayName,
+            modelNumber: number,
+            satellites: satellites,
+            battery: battery
+        )
     }
 
     static func parseDeviceDescription(_ data: Data) throws -> (modelNumber: String, displayName: String) {
@@ -33,7 +31,7 @@ enum TelemetryService {
         let modelNumber = modelCode(root.descendants("modelNumber").first?.text ?? "")
         let display = root.descendants("displayName").first?.text ?? ""
         let modelName = root.descendants("modelName").first?.text ?? ""
-        let name = display.isEmpty ? modelName : display
+        let name = modelName.isEmpty ? display : modelName
         guard !modelNumber.isEmpty || !name.isEmpty else {
             throw ProtocolParseError(description: "device description has no model")
         }
@@ -68,7 +66,7 @@ enum TelemetryService {
                 satelliteMAC = nil
                 continue
             }
-            if let mac = firstCapture(#"Satellite\s+\d+:\s*([0-9A-Fa-f:]+)"#, in: line) {
+            if let mac = firstCapture(#"(?:Satellite\s+\d+:|Client\s+Node)\s*([0-9A-Fa-f:]+)"#, in: line) {
                 satelliteMAC = mac
                 continue
             }
