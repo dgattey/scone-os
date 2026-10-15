@@ -1973,6 +1973,81 @@ struct SconeFileTests {
             #expect(enqueuedCmd)
         }
     }
+
+    @Test func sonosMuseClientCodableParsingAndEncodingAndAsyncPersistence() async throws {
+        let infoData = Data(#"{"householdId":"Sonos_Household_12345","device":{"name":"Living Room"}}"#.utf8)
+        #expect(SonosMuseClient.parsePlayerHouseholdID(infoData) == "Sonos_Household_12345")
+        #expect(SonosMuseClient.parsePlayerHouseholdID(Data(#"{"householdId":"   "}"#.utf8)) == nil)
+
+        let commandJSON = try #require(SonosMuseClient.encodeGetAreasCommand(householdId: "Sonos_Household_12345"))
+        #expect(commandJSON.contains(#""namespace":"areas""#))
+        #expect(commandJSON.contains(#""command":"getAreas""#))
+        #expect(commandJSON.contains(#""householdId":"Sonos_Household_12345""#))
+
+        let presetUUID = UUID()
+        let areasPayload = """
+        [
+          {"namespace":"areas","name":"areasResult"},
+          {
+            "areas": [
+              {
+                "id": "\(presetUUID.uuidString)",
+                "name": "Upstairs",
+                "isReadOnly": false,
+                "playerIds": ["\(House.kitchen.rawValue)", "\(House.dining.rawValue)", "\(House.living.rawValue)"]
+              },
+              {
+                "id": "read-only-area",
+                "name": "Everywhere",
+                "isReadOnly": true,
+                "playerIds": ["\(House.kitchen.rawValue)"]
+              }
+            ]
+          }
+        ]
+        """
+        let parsedPills = try #require(
+            SonosMuseClient.parseAreasMessage(
+                areasPayload,
+                validSpeakers: [House.kitchen, House.dining]
+            )
+        )
+        #expect(parsedPills.count == 1)
+        #expect(parsedPills[0].id == PresetID(rawValue: presetUUID))
+        #expect(parsedPills[0].name == "Upstairs")
+        #expect(parsedPills[0].coordinatorUUID == House.kitchen)
+        #expect(parsedPills[0].memberUUIDs == [House.dining])
+
+        let directory = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let files = SconeFiles(directory: directory)
+        let pin = RoomCoordinate(clampingX: 0.42, y: 0.64)
+        try await files.saveAsync(FloorplanPositionsFile(pins: [House.living: pin]), to: .floorplanPositions)
+        guard case .loaded(let loadedPositions) = files.load(FileSlot.floorplanPositions) else {
+            Issue.record("expected async-saved floorplan-positions.json")
+            return
+        }
+        #expect(loadedPositions.pins[House.living] == pin)
+
+        let vault = TokenVault(service: "Sconeos.UnitTest", directory: directory)
+        let expiry = Date(timeIntervalSince1970: 2_000_000_000)
+        vault.storeAsync(
+            accessToken: "access-123",
+            expiry: expiry,
+            refreshToken: "refresh-456"
+        )
+        vault.storeDisplayNameAsync("Dylan")
+        try? await Task.sleep(for: .milliseconds(50))
+        #expect(vault.accessToken()?.token == "access-123")
+        #expect(vault.accessToken()?.expiry == expiry)
+        #expect(vault.refreshToken() == "refresh-456")
+        #expect(vault.displayName() == "Dylan")
+        vault.clearAsync()
+        try? await Task.sleep(for: .milliseconds(50))
+        #expect(vault.accessToken() == nil)
+        #expect(vault.refreshToken() == nil)
+        #expect(vault.displayName() == nil)
+    }
 }
 
 @MainActor

@@ -55,7 +55,7 @@ public final class SpotifyBridge {
             let name = (storedName?.isEmpty == false) ? storedName! : "Spotify"
             UserDefaults.standard.set(name, forKey: Self.displayNameKey)
             if snapshot.displayName == nil {
-                vault.storeDisplayName(name)
+                vault.storeDisplayNameAsync(name)
             }
             authorization = .connected(displayName: name)
             startBackgroundRefreshLoop()
@@ -66,7 +66,7 @@ public final class SpotifyBridge {
                           let fetchedName = try? await WebAPI.profileName(accessToken: token),
                           !fetchedName.isEmpty else { return }
                     UserDefaults.standard.set(fetchedName, forKey: Self.displayNameKey)
-                    self.vault.storeDisplayName(fetchedName)
+                    self.vault.storeDisplayNameAsync(fetchedName)
                     self.authorization = .connected(displayName: fetchedName)
                 }
             }
@@ -123,7 +123,7 @@ public final class SpotifyBridge {
         refreshTask = nil
         inFlightTokenRefresh?.cancel()
         inFlightTokenRefresh = nil
-        vault.clear()
+        vault.clearAsync()
         accessToken = nil
         accessExpiry = nil
         refreshToken = nil
@@ -278,7 +278,7 @@ public final class SpotifyBridge {
         } else {
             updatedRefresh = refreshToken
         }
-        vault.store(
+        vault.storeAsync(
             accessToken: tokens.accessToken,
             expiry: expiry,
             refreshToken: updatedRefresh,

@@ -86,7 +86,6 @@ public struct TokenVault: Sendable {
     public let service: String
     public let vaultFileURL: URL
     private let derivedKey: SymmetricKey
-    private let fallbackKeys: [SymmetricKey]
 
     private static let stableMachineIdentity: String = {
         let user = resolvedHostUserName()
@@ -156,7 +155,7 @@ public struct TokenVault: Sendable {
             hosts.append("\(slug).local")
         }
         if let store = SCDynamicStoreCreate(nil, "sconeos" as CFString, nil, nil),
-           let dns = SCDynamicStoreCopyValue(store, "State:/Network/Global/DNS" as CFString) as? [String: Any],
+           let dns = SCDynamicStoreCopyValue(store, "State:/Network/Global/DNS" as CFString) as? NSDictionary,
            let domains = dns["SearchDomains"] as? [String] {
             for domain in domains where !domain.isEmpty {
                 for slug in baseSlugs {
@@ -210,7 +209,9 @@ public struct TokenVault: Sendable {
             info: Data(service.utf8),
             outputByteCount: 32
         )
+    }
 
+    private func makeFallbackKeys() -> [SymmetricKey] {
         var fallbacks: [SymmetricKey] = []
         let candidateServices = Array(Set([service, "Sconeos.Spotify"]))
         for svc in candidateServices {
@@ -226,7 +227,7 @@ public struct TokenVault: Sendable {
                 )
             }
         }
-        self.fallbackKeys = fallbacks
+        return fallbacks
     }
 
     public func loadSnapshot() -> Snapshot {
@@ -302,6 +303,43 @@ public struct TokenVault: Sendable {
         try? FileManager.default.removeItem(at: vaultFileURL)
     }
 
+    public nonisolated func storeAsync(
+        accessToken: String,
+        expiry: Date,
+        refreshToken: String?,
+        displayName: String? = nil
+    ) {
+        let copy = self
+        Task.detached(priority: .utility) {
+            await TokenVaultWriter.shared.perform {
+                copy.store(
+                    accessToken: accessToken,
+                    expiry: expiry,
+                    refreshToken: refreshToken,
+                    displayName: displayName
+                )
+            }
+        }
+    }
+
+    public nonisolated func storeDisplayNameAsync(_ displayName: String) {
+        let copy = self
+        Task.detached(priority: .utility) {
+            await TokenVaultWriter.shared.perform {
+                copy.storeDisplayName(displayName)
+            }
+        }
+    }
+
+    public nonisolated func clearAsync() {
+        let copy = self
+        Task.detached(priority: .utility) {
+            await TokenVaultWriter.shared.perform {
+                copy.clear()
+            }
+        }
+    }
+
     private func readEncryptedFile() -> VaultRecord? {
         guard let combined = try? Data(contentsOf: vaultFileURL),
               let sealedBox = try? AES.GCM.SealedBox(combined: combined) else {
@@ -311,7 +349,7 @@ public struct TokenVault: Sendable {
            let record = try? JSONDecoder().decode(VaultRecord.self, from: plaintext) {
             return record
         }
-        for fallbackKey in fallbackKeys {
+        for fallbackKey in makeFallbackKeys() {
             if let plaintext = try? AES.GCM.open(sealedBox, using: fallbackKey),
                let record = try? JSONDecoder().decode(VaultRecord.self, from: plaintext) {
                 writeEncryptedFile(record)
@@ -337,10 +375,139 @@ public struct TokenVault: Sendable {
     }
 }
 
-struct SpotifyTokenSet: Sendable {
-    var accessToken: String
-    var refreshToken: String?
-    var expiresIn: Int
+private actor TokenVaultWriter {
+    static let shared = TokenVaultWriter()
+
+    func perform(_ operation: @Sendable () -> Void) {
+        operation()
+    }
+}
+
+package struct SpotifyTokenSet: Sendable, Equatable {
+    package var accessToken: String
+    package var refreshToken: String?
+    package var expiresIn: Int
+}
+
+private struct SpotifyNamedResourcePayload: Decodable, Sendable {
+    let name: String?
+}
+
+private struct SpotifyOEmbedPayload: Decodable, Sendable {
+    let title: String?
+}
+
+private struct SpotifyUserProfilePayload: Decodable, Sendable {
+    let id: String?
+    let displayName: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case displayName = "display_name"
+    }
+}
+
+private struct SpotifyTokenPayload: Decodable, Sendable {
+    let accessToken: String
+    let refreshToken: String?
+    let expiresIn: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case accessToken = "access_token"
+        case refreshToken = "refresh_token"
+        case expiresIn = "expires_in"
+    }
+}
+
+private struct SpotifyDevicesPayload: Decodable, Sendable {
+    struct Device: Decodable, Sendable {
+        let id: String?
+        let name: String?
+        let type: String?
+        let isActive: Bool?
+        let isRestricted: Bool?
+
+        enum CodingKeys: String, CodingKey {
+            case id, name, type
+            case isActive = "is_active"
+            case isRestricted = "is_restricted"
+        }
+    }
+    let devices: [Device]?
+}
+
+private struct SpotifyTransferPlaybackPayload: Encodable, Sendable {
+    let deviceIDs: [String]
+    let play: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case deviceIDs = "device_ids"
+        case play
+    }
+}
+
+private struct SpotifyResumePlaybackPayload: Encodable, Sendable {
+    struct Offset: Encodable, Sendable {
+        let uri: String
+    }
+    var contextURI: String?
+    var uris: [String]?
+    var offset: Offset?
+    var positionMs: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case contextURI = "context_uri"
+        case uris
+        case offset
+        case positionMs = "position_ms"
+    }
+}
+
+private struct SpotifyTrackObjectPayload: Decodable, Sendable {
+    struct Artist: Decodable, Sendable {
+        let name: String?
+    }
+    struct Image: Decodable, Sendable {
+        let url: String?
+    }
+    struct Album: Decodable, Sendable {
+        let name: String?
+        let images: [Image]?
+    }
+    let name: String?
+    let uri: String?
+    let type: String?
+    let isLocal: Bool?
+    let durationMs: Int?
+    let artists: [Artist]?
+    let album: Album?
+
+    enum CodingKeys: String, CodingKey {
+        case name, uri, type, artists, album
+        case isLocal = "is_local"
+        case durationMs = "duration_ms"
+    }
+}
+
+private struct SpotifyQueuePayload: Decodable, Sendable {
+    let queue: [SpotifyTrackObjectPayload]?
+}
+
+private struct SpotifyCurrentlyPlayingPayload: Decodable, Sendable {
+    struct Context: Decodable, Sendable {
+        let uri: String?
+    }
+    let item: SpotifyTrackObjectPayload?
+    let context: Context?
+    let device: SpotifyDevicesPayload.Device?
+    let isPlaying: Bool?
+    let progressMs: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case item, context, device
+        case isPlaying = "is_playing"
+        case progressMs = "progress_ms"
+    }
 }
 
 actor SpotifyAPIClient {
@@ -539,10 +706,7 @@ actor SpotifyAPIClient {
                     return nil
                 }
                 if (200..<300).contains(status),
-                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                   let name = (json["name"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
-                   !name.isEmpty {
-                    let formatted = kind == "playlist" ? "Playlist \"\(name)\"" : name
+                   let formatted = WebAPI.parseContextName(from: data, kind: kind) {
                     self.contextTitleCache[contextURI] = formatted
                     return formatted
                 }
@@ -556,10 +720,7 @@ actor SpotifyAPIClient {
                     return nil
                 }
                 if (200..<300).contains(status),
-                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                   let name = (json["title"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
-                   !name.isEmpty {
-                    let formatted = kind == "playlist" ? "Playlist \"\(name)\"" : name
+                   let formatted = WebAPI.parseOEmbedTitle(from: data, kind: kind) {
                     self.contextTitleCache[contextURI] = formatted
                     return formatted
                 }
@@ -575,20 +736,18 @@ actor SpotifyAPIClient {
     }
 }
 
-struct SpotifyConnectDevice: Sendable, Hashable {
-    var id: String?
-    var name: String
-    var type: String
-    var isActive: Bool
-    var isRestricted: Bool
+package struct SpotifyConnectDevice: Sendable, Hashable {
+    package var id: String?
+    package var name: String
+    package var type: String
+    package var isActive: Bool
+    package var isRestricted: Bool
 }
 
 public enum SpotifyDeviceMatcher {
     public static func normalizeRoomName(_ raw: String) -> String {
         var text = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        if let plusRange = text.range(of: #"\s*\+\s*\d+.*$"#, options: .regularExpression) {
-            text.removeSubrange(plusRange)
-        }
+        text.replace(/\s*\+\s*\d+.*$/, with: "")
         for suffix in [" speakers", " speaker", " sonos"] {
             if text.hasSuffix(suffix) {
                 text = String(text.dropLast(suffix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
@@ -613,7 +772,7 @@ public enum SpotifyDeviceMatcher {
     }
 }
 
-enum WebAPI {
+package enum WebAPI {
     static let playerURL = URL(string: "https://api.spotify.com/v1/me/player")!
     static let devicesURL = URL(string: "https://api.spotify.com/v1/me/player/devices")!
     static let queueURL = URL(string: "https://api.spotify.com/v1/me/player/queue")!
@@ -629,31 +788,38 @@ enum WebAPI {
             method: "GET",
             token: accessToken,
             body: nil
-        ), (200..<300).contains(status),
-        let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-        let list = json["devices"] as? [[String: Any]] else {
+        ), (200..<300).contains(status) else {
             return []
         }
-        return list.compactMap { dict -> SpotifyConnectDevice? in
-            guard let name = (dict["name"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+        return parseDevicesData(data)
+    }
+
+    package static func parseDevicesData(_ data: Data) -> [SpotifyConnectDevice] {
+        guard let payload = try? JSONDecoder().decode(SpotifyDevicesPayload.self, from: data),
+              let list = payload.devices else {
+            return []
+        }
+        return list.compactMap { device -> SpotifyConnectDevice? in
+            guard let name = device.name?.trimmingCharacters(in: .whitespacesAndNewlines),
                   !name.isEmpty else { return nil }
-            let rawID = (dict["id"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let rawID = device.id?.trimmingCharacters(in: .whitespacesAndNewlines)
             return SpotifyConnectDevice(
                 id: (rawID?.isEmpty == false) ? rawID : nil,
                 name: name,
-                type: (dict["type"] as? String) ?? "",
-                isActive: (dict["is_active"] as? Bool) ?? false,
-                isRestricted: (dict["is_restricted"] as? Bool) ?? false
+                type: device.type ?? "",
+                isActive: device.isActive ?? false,
+                isRestricted: device.isRestricted ?? false
             )
         }
     }
 
+    package static func encodeTransferPayload(deviceID: String, play: Bool) -> Data? {
+        guard !deviceID.isEmpty else { return nil }
+        return try? JSONEncoder().encode(SpotifyTransferPlaybackPayload(deviceIDs: [deviceID], play: play))
+    }
+
     static func transferPlayback(deviceID: String, play: Bool = true, accessToken: String) async -> Bool {
-        guard !deviceID.isEmpty,
-              let body = try? JSONSerialization.data(withJSONObject: [
-                  "device_ids": [deviceID],
-                  "play": play,
-              ]) else {
+        guard let body = encodeTransferPayload(deviceID: deviceID, play: play) else {
             return false
         }
         var request = URLRequest(url: playerURL, timeoutInterval: 10)
@@ -668,25 +834,23 @@ enum WebAPI {
         return (200..<300).contains(http.statusCode)
     }
 
-    static func parseQueueData(_ data: Data) -> [QueueItem] {
-        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let queueArray = json["queue"] as? [[String: Any]] else {
+    package static func parseQueueData(_ data: Data) -> [QueueItem] {
+        guard let payload = try? JSONDecoder().decode(SpotifyQueuePayload.self, from: data),
+              let queueArray = payload.queue else {
             return []
         }
         var seen = Set<String>()
         var items: [QueueItem] = []
         for (idx, item) in queueArray.prefix(20).enumerated() {
-            guard let title = (item["name"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+            guard let title = item.name?.trimmingCharacters(in: .whitespacesAndNewlines),
                   !title.isEmpty else { continue }
-            let uriString = (item["uri"] as? String) ?? ""
+            let uriString = item.uri ?? ""
             let spotifyURI = SpotifyURI(uriString)
-            let artists = (item["artists"] as? [[String: Any]])?.compactMap { $0["name"] as? String } ?? []
+            let artists = item.artists?.compactMap(\.name) ?? []
             let artistText = artists.joined(separator: ", ")
-            let albumDict = item["album"] as? [String: Any]
-            let albumName = albumDict?["name"] as? String
-            let images = albumDict?["images"] as? [[String: Any]]
-            let artwork = images?.compactMap { $0["url"] as? String }.first.flatMap(URL.init(string:))
-            let duration = int(item["duration_ms"]).map { Duration.milliseconds($0) }
+            let albumName = item.album?.name
+            let artwork = item.album?.images?.compactMap(\.url).first.flatMap(URL.init(string:))
+            let duration = item.durationMs.map { Duration.milliseconds($0) }
             let dedupeKey = spotifyURI?.description ?? "\(title)|\(artistText)"
             if seen.insert(dedupeKey).inserted {
                 items.append(
@@ -714,6 +878,27 @@ enum WebAPI {
         _ = try? await URLSession.shared.data(for: request)
     }
 
+    package static func encodeResumePayload(
+        contextURI: String?,
+        trackURI: SpotifyURI,
+        position: Duration?
+    ) -> Data? {
+        var payload = SpotifyResumePlaybackPayload()
+        if let contextURI,
+           !contextURI.isEmpty,
+           (contextURI.contains(":playlist:") || contextURI.contains(":album:")) {
+            payload.contextURI = contextURI
+            payload.offset = SpotifyResumePlaybackPayload.Offset(uri: trackURI.description)
+        } else {
+            payload.uris = [trackURI.description]
+        }
+        if let position {
+            let ms = max(0, Int(position.components.seconds * 1000) + Int(position.components.attoseconds / 1_000_000_000_000_000))
+            payload.positionMs = ms
+        }
+        return try? JSONEncoder().encode(payload)
+    }
+
     static func resume(
         accessToken: String,
         deviceID: String? = nil,
@@ -730,24 +915,10 @@ enum WebAPI {
         request.httpMethod = "PUT"
         request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
 
-        if let trackURI {
-            var payload: [String: Any] = [:]
-            if let contextURI,
-               !contextURI.isEmpty,
-               (contextURI.contains(":playlist:") || contextURI.contains(":album:")) {
-                payload["context_uri"] = contextURI
-                payload["offset"] = ["uri": trackURI.description]
-            } else {
-                payload["uris"] = [trackURI.description]
-            }
-            if let position {
-                let ms = max(0, Int(position.components.seconds * 1000) + Int(position.components.attoseconds / 1_000_000_000_000_000))
-                payload["position_ms"] = ms
-            }
-            if let body = try? JSONSerialization.data(withJSONObject: payload) {
-                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-                request.httpBody = body
-            }
+        if let trackURI,
+           let body = encodeResumePayload(contextURI: contextURI, trackURI: trackURI, position: position) {
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = body
         }
 
         guard let (_, response) = try? await URLSession.shared.data(for: request),
@@ -799,16 +970,41 @@ enum WebAPI {
         return try await token(bodyData: bodyData)
     }
 
+    package static func parseProfileName(from data: Data) -> String? {
+        guard let payload = try? JSONDecoder().decode(SpotifyUserProfilePayload.self, from: data) else {
+            return nil
+        }
+        let name = payload.displayName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !name.isEmpty { return name }
+        return payload.id ?? "Spotify"
+    }
+
+    package static func parseContextName(from data: Data, kind: String) -> String? {
+        guard let payload = try? JSONDecoder().decode(SpotifyNamedResourcePayload.self, from: data),
+              let name = payload.name?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !name.isEmpty else {
+            return nil
+        }
+        return kind == "playlist" ? "Playlist \"\(name)\"" : name
+    }
+
+    package static func parseOEmbedTitle(from data: Data, kind: String) -> String? {
+        guard let payload = try? JSONDecoder().decode(SpotifyOEmbedPayload.self, from: data),
+              let name = payload.title?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !name.isEmpty else {
+            return nil
+        }
+        return kind == "playlist" ? "Playlist \"\(name)\"" : name
+    }
+
     static func profileName(accessToken: String) async throws(SpotifyBridgeError) -> String {
         let (data, status) = try await load(
             url: URL(string: "https://api.spotify.com/v1/me")!, method: "GET", token: accessToken, body: nil)
         guard (200..<300).contains(status),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+              let resolved = parseProfileName(from: data) else {
             throw .network("profile HTTP \(status)")
         }
-        let name = (json["display_name"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        if !name.isEmpty { return name }
-        return (json["id"] as? String) ?? "Spotify"
+        return resolved
     }
 
     private static func formBody(_ fields: [String: String]) -> Data {
@@ -816,17 +1012,25 @@ enum WebAPI {
         return Data(joined.utf8)
     }
 
+    package static func parseTokenResponse(_ data: Data) -> SpotifyTokenSet? {
+        guard let payload = try? JSONDecoder().decode(SpotifyTokenPayload.self, from: data),
+              !payload.accessToken.isEmpty else {
+            return nil
+        }
+        return SpotifyTokenSet(
+            accessToken: payload.accessToken,
+            refreshToken: payload.refreshToken,
+            expiresIn: payload.expiresIn ?? 3600
+        )
+    }
+
     private static func token(bodyData: Data) async throws(SpotifyBridgeError) -> SpotifyTokenSet {
         let (data, status) = try await load(url: tokenURL, method: "POST", token: nil, body: bodyData)
         guard (200..<300).contains(status),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let access = json["access_token"] as? String else {
+              let tokenSet = parseTokenResponse(data) else {
             throw .authorizationFailed("token HTTP \(status)")
         }
-        return SpotifyTokenSet(
-            accessToken: access,
-            refreshToken: json["refresh_token"] as? String,
-            expiresIn: int(json["expires_in"]) ?? 3600)
+        return tokenSet
     }
 
     private static func load(url: URL, method: String, token: String?, body: Data?) async throws(SpotifyBridgeError) -> (Data, Int) {
@@ -857,52 +1061,40 @@ enum WebAPI {
         }
     }
 
-    static func parseCurrentlyPlaying(_ data: Data) throws(SpotifyBridgeError) -> SpotifyTrackContext? {
-        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+    package static func parseCurrentlyPlaying(_ data: Data) throws(SpotifyBridgeError) -> SpotifyTrackContext? {
+        guard let payload = try? JSONDecoder().decode(SpotifyCurrentlyPlayingPayload.self, from: data) else {
             throw .network("currently-playing")
         }
-        guard let item = json["item"] as? [String: Any] else { return nil }
-        let type = item["type"] as? String ?? ""
-        let isLocal = item["is_local"] as? Bool ?? false
-        let uriString = (item["uri"] as? String) ?? ""
+        guard let item = payload.item else { return nil }
+        let type = item.type ?? ""
+        let isLocal = item.isLocal ?? false
+        let uriString = item.uri ?? ""
         if isLocal || type != "track" || uriString.hasPrefix("spotify:local:") {
             throw .unplayableOnSonos(uriString.isEmpty ? type : uriString)
         }
         guard let uri = SpotifyURI(uriString) else { throw .unplayableOnSonos(uriString) }
-        let artists = (item["artists"] as? [[String: Any]])?.compactMap { $0["name"] as? String } ?? []
-        let album = item["album"] as? [String: Any]
-        let images = album?["images"] as? [[String: Any]]
-        let artwork = images?.compactMap { $0["url"] as? String }.first.flatMap(URL.init(string:))
+        let artists = item.artists?.compactMap(\.name) ?? []
+        let artwork = item.album?.images?.compactMap(\.url).first.flatMap(URL.init(string:))
         let metadata = SpotifyTrackMetadata(
-            title: item["name"] as? String ?? "",
+            title: item.name ?? "",
             artist: artists.joined(separator: ", "),
-            album: album?["name"] as? String,
+            album: item.album?.name,
             artworkURL: artwork,
-            duration: int(item["duration_ms"]).map { .milliseconds($0) })
-        let contextDict = json["context"] as? [String: Any]
-        let contextURI = contextDict?["uri"] as? String
-        let deviceDict = json["device"] as? [String: Any]
-        let rawDeviceID = (deviceDict?["id"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            duration: item.durationMs.map { .milliseconds($0) }
+        )
+        let rawDeviceID = payload.device?.id?.trimmingCharacters(in: .whitespacesAndNewlines)
         let deviceID = (rawDeviceID?.isEmpty == false) ? rawDeviceID : nil
-        let deviceName = deviceDict?["name"] as? String
-        let isPlaying = (json["is_playing"] as? Bool) ?? false
         return SpotifyTrackContext(
             uri: uri,
             metadata: metadata,
-            position: int(json["progress_ms"]).map { .milliseconds($0) },
+            position: payload.progressMs.map { .milliseconds($0) },
             contextTitle: nil,
-            contextURI: contextURI,
+            contextURI: payload.context?.uri,
             deviceID: deviceID,
-            deviceName: deviceName,
-            isPlaying: isPlaying,
+            deviceName: payload.device?.name,
+            isPlaying: payload.isPlaying ?? false,
             upNext: []
         )
-    }
-
-    private static func int(_ value: Any?) -> Int? {
-        if let value = value as? Int { return value }
-        if let value = value as? NSNumber { return value.intValue }
-        return nil
     }
 
     private static func form(_ value: String) -> String {

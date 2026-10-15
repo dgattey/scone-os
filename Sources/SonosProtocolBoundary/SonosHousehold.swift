@@ -1146,9 +1146,75 @@ private final class SonosLocalTLSDelegate: NSObject, URLSessionDelegate, Sendabl
     }
 }
 
-enum SonosMuseClient {
+package enum SonosMuseClient {
     private static let apiKey = "123e4567-e89b-12d3-a456-426655440000"
     private static let subprotocol = "v1.api.smartspeaker.audio"
+
+    private struct PlayerInfoPayload: Decodable, Sendable {
+        let householdId: String?
+    }
+
+    private struct CommandHeader: Encodable, Sendable {
+        let namespace: String
+        let command: String
+        let householdId: String
+        let cmdId: String
+    }
+
+    private struct EmptyObject: Codable, Sendable {}
+
+    private struct OutboundCommandEnvelope: Encodable, Sendable {
+        let header: CommandHeader
+
+        func encode(to encoder: any Encoder) throws {
+            var container = encoder.unkeyedContainer()
+            try container.encode(header)
+            try container.encode(EmptyObject())
+        }
+    }
+
+    private struct AreaPayload: Decodable, Sendable {
+        let id: String?
+        let name: String?
+        let isReadOnly: Bool?
+        let playerIds: [String]?
+    }
+
+    private struct AreasBodyPayload: Decodable, Sendable {
+        let areas: [AreaPayload]?
+    }
+
+    private struct AreasResponseEnvelope: Decodable, Sendable {
+        let body: AreasBodyPayload
+
+        init(from decoder: any Decoder) throws {
+            var container = try decoder.unkeyedContainer()
+            _ = try container.decode(EmptyObject.self)
+            self.body = try container.decode(AreasBodyPayload.self)
+        }
+    }
+
+    package static func parsePlayerHouseholdID(_ data: Data) -> String? {
+        guard let info = try? JSONDecoder().decode(PlayerInfoPayload.self, from: data),
+              let householdId = info.householdId?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !householdId.isEmpty else {
+            return nil
+        }
+        return householdId
+    }
+
+    package static func encodeGetAreasCommand(householdId: String) -> String? {
+        let envelope = OutboundCommandEnvelope(
+            header: CommandHeader(
+                namespace: "areas",
+                command: "getAreas",
+                householdId: householdId,
+                cmdId: "1"
+            )
+        )
+        guard let data = try? JSONEncoder().encode(envelope) else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
 
     static func fetchAreas(at endpoint: URL, validSpeakers: Set<SpeakerUUID>) async -> [PresetPill]? {
         guard let host = endpoint.host,
@@ -1166,9 +1232,8 @@ enum SonosMuseClient {
         var infoRequest = URLRequest(url: infoURL, timeoutInterval: 4)
         infoRequest.setValue(apiKey, forHTTPHeaderField: "X-Sonos-Api-Key")
         guard let (infoData, _) = try? await session.data(for: infoRequest),
-              let infoJSON = try? JSONSerialization.jsonObject(with: infoData) as? [String: Any],
-              let householdId = infoJSON["householdId"] as? String,
-              !householdId.isEmpty else {
+              let householdId = parsePlayerHouseholdID(infoData),
+              let payload = encodeGetAreasCommand(householdId: householdId) else {
             return nil
         }
 
@@ -1180,9 +1245,6 @@ enum SonosMuseClient {
         ws.resume()
         defer { ws.cancel(with: .normalClosure, reason: nil) }
 
-        let payload = """
-        [{"namespace":"areas","command":"getAreas","householdId":"\(householdId)","cmdId":"1"},{}]
-        """
         do {
             try await ws.send(.string(payload))
             let message = try await ws.receive()
@@ -1193,22 +1255,19 @@ enum SonosMuseClient {
         }
     }
 
-    static func parseAreasMessage(_ text: String, validSpeakers: Set<SpeakerUUID>) -> [PresetPill]? {
+    package static func parseAreasMessage(_ text: String, validSpeakers: Set<SpeakerUUID>) -> [PresetPill]? {
         guard let data = text.data(using: .utf8),
-              let array = try? JSONSerialization.jsonObject(with: data) as? [Any],
-              array.count >= 2,
-              let body = array[1] as? [String: Any],
-              let areas = body["areas"] as? [[String: Any]] else {
+              let envelope = try? JSONDecoder().decode(AreasResponseEnvelope.self, from: data),
+              let areas = envelope.body.areas else {
             return nil
         }
 
         var pills: [PresetPill] = []
         for area in areas {
-            let isReadOnly = (area["isReadOnly"] as? Bool) ?? false
-            if isReadOnly { continue }
-            guard let name = (area["name"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+            if area.isReadOnly == true { continue }
+            guard let name = area.name?.trimmingCharacters(in: .whitespacesAndNewlines),
                   !name.isEmpty,
-                  let playerStrings = area["playerIds"] as? [String] else {
+                  let playerStrings = area.playerIds else {
                 continue
             }
             let allIDs = playerStrings.compactMap(SpeakerUUID.init(rawValue:))
@@ -1216,7 +1275,7 @@ enum SonosMuseClient {
             let effectiveIDs = onlineMatched.isEmpty ? allIDs : onlineMatched
             guard let coordinator = effectiveIDs.first else { continue }
             let members = Set(effectiveIDs.dropFirst())
-            let presetID: PresetID = if let idStr = area["id"] as? String, let uuid = UUID(uuidString: idStr) {
+            let presetID: PresetID = if let idStr = area.id, let uuid = UUID(uuidString: idStr) {
                 PresetID(rawValue: uuid)
             } else {
                 PresetID()

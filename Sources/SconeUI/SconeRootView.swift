@@ -797,6 +797,10 @@ struct SconeSettingsView: View {
     @Environment(SconeStore.self) private var store
     var onConnectSpotify: () -> Void
 
+    private var appVersion: String {
+        (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "0.1.2"
+    }
+
     var body: some View {
         List {
             Section {
@@ -826,7 +830,7 @@ struct SconeSettingsView: View {
                     Text("Version")
                         .foregroundStyle(MidnightGlass.primaryText)
                     Spacer()
-                    Text("0.1.0")
+                    Text(appVersion)
                         .font(.subheadline.monospacedDigit())
                         .foregroundStyle(MidnightGlass.secondaryText)
                 }

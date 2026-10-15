@@ -85,18 +85,20 @@ enum SpotifyOnSonos {
 
     private static func account(in blob: String) -> Account? {
         guard blob.lowercased().contains("x-sonos-spotify:") else { return nil }
-        guard let sid = firstCapture(#"[?&]sid=(\d+)"#, in: blob).flatMap(Int.init),
-              let serial = firstCapture(#"[?&]sn=(\d+)"#, in: blob).flatMap(Int.init) else { return nil }
+        guard let sidMatch = blob.firstMatch(of: /[?&]sid=(\d+)/),
+              let sid = Int(sidMatch.1),
+              let snMatch = blob.firstMatch(of: /[?&]sn=(\d+)/),
+              let serial = Int(snMatch.1) else { return nil }
         return Account(serviceID: sid, serialNumber: serial, regionToken: regionToken(in: blob) ?? householdDefault.regionToken)
     }
 
     private static func regionToken(in blob: String) -> String? {
         if let root = try? XMLNode.parse(Data(blob.utf8)),
-           let desc = root.descendants("desc").first?.text, desc.contains("SA_RINCON") {
+           let desc = root.firstDescendant("desc")?.text, desc.contains("SA_RINCON") {
             return desc
         }
-        guard let range = blob.range(of: #"SA_RINCON[^<"\s]+"#, options: .regularExpression) else { return nil }
-        return String(blob[range])
+        guard let match = blob.firstMatch(of: /SA_RINCON[^<"\s]+/) else { return nil }
+        return String(match.0)
     }
 
     private static func decoded(_ text: String) -> String {
@@ -107,13 +109,5 @@ enum SpotifyOnSonos {
             .replacingOccurrences(of: "&quot;", with: "\"")
             .replacingOccurrences(of: "&apos;", with: "'")
             .replacingOccurrences(of: "&amp;", with: "&")
-    }
-
-    private static func firstCapture(_ pattern: String, in text: String) -> String? {
-        guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
-        let range = NSRange(text.startIndex..., in: text)
-        guard let match = regex.firstMatch(in: text, range: range),
-              let slice = Range(match.range(at: 1), in: text) else { return nil }
-        return String(text[slice])
     }
 }

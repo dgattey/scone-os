@@ -126,12 +126,12 @@ enum TransportService {
         }
         let items = root.descendants("item")
         return items.enumerated().compactMap { offset, itemNode -> QueueItem? in
-            let title = itemNode.descendants("title").first?.text.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let title = itemNode.firstDescendant("title")?.text.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             guard !title.isEmpty else { return nil }
-            let creator = itemNode.descendants("creator").first?.text.trimmingCharacters(in: .whitespacesAndNewlines)
-            let album = itemNode.descendants("album").first?.text.trimmingCharacters(in: .whitespacesAndNewlines)
-            let artRaw = itemNode.descendants("albumArtURI").first?.text ?? ""
-            let resNode = itemNode.descendants("res").first
+            let creator = itemNode.firstDescendant("creator")?.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            let album = itemNode.firstDescendant("album")?.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            let artRaw = itemNode.firstDescendant("albumArtURI")?.text ?? ""
+            let resNode = itemNode.firstDescendant("res")
             let resText = resNode?.text ?? ""
             let duration = resNode?.attribute("duration").flatMap(clock)
             let itemIDAttr = itemNode.attribute("id") ?? ""
@@ -245,7 +245,7 @@ enum TransportService {
     private static func facts(from xml: String) -> DIDLFacts {
         guard let root = parseDIDLRoot(xml) else { return DIDLFacts() }
         func text(_ name: String) -> String {
-            root.descendants(name).first?.text ?? ""
+            root.firstDescendant(name)?.text ?? ""
         }
         return DIDLFacts(
             title: text("title"),
