@@ -139,34 +139,58 @@ struct SpeakerGroupContextMenu: View {
     }
 }
 
-struct SpotifyAccountView: View {
+struct SpotifySidebarCard: View {
     @Environment(SpotifyBridge.self) private var spotify
-    var compact: Bool = false
+    var inSidebarFooter: Bool = false
     var onConnect: () -> Void
 
     @State private var isHovered = false
 
+    private func initials(for name: String) -> String {
+        let words = name.split(whereSeparator: \.isWhitespace)
+        if words.count >= 2, let first = words.first?.first, let last = words.last?.first {
+            return "\(first)\(last)".uppercased()
+        }
+        return String(name.prefix(2)).uppercased()
+    }
+
     var body: some View {
         switch spotify.authorization {
         case .connected(let displayName):
-            HStack(alignment: .center, spacing: compact ? 8 : 12) {
-                if !compact {
-                    Image(systemName: "checkmark.circle.fill")
-                        .font(.title3)
-                        .foregroundStyle(Color.green)
+            let resolvedName = displayName.isEmpty ? "Spotify" : displayName
+            HStack(alignment: .center, spacing: 10) {
+                ZStack {
+                    Circle()
+                        .fill(
+                            LinearGradient(
+                                colors: [MidnightGlass.gold, MidnightGlass.copper],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                    Text(initials(for: resolvedName))
+                        .font(.system(size: inSidebarFooter ? 11 : 13, weight: .bold, design: .rounded))
+                        .foregroundStyle(MidnightGlass.ink)
                 }
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(displayName.isEmpty ? "Connected to Spotify" : displayName)
-                        .font((compact ? Font.caption : Font.body).weight(compact ? .medium : .semibold))
-                        .foregroundStyle(compact ? MidnightGlass.secondaryText : MidnightGlass.primaryText)
+                .frame(width: inSidebarFooter ? 28 : 34, height: inSidebarFooter ? 28 : 34)
+
+                VStack(alignment: .leading, spacing: 1.5) {
+                    Text(resolvedName)
+                        .font((inSidebarFooter ? Font.footnote : Font.subheadline).weight(.semibold))
+                        .foregroundStyle(MidnightGlass.primaryText)
                         .lineLimit(1)
-                    Text(compact ? "Powered by Spotify + Sonos" : "Track metadata, album artwork, queue & Sonos handoff")
-                        .font(compact ? .system(size: 10) : .caption)
-                        .foregroundStyle(compact ? MidnightGlass.tertiaryText : MidnightGlass.secondaryText)
-                        .lineLimit(compact ? 1 : 2)
+                    HStack(spacing: 5) {
+                        Circle()
+                            .fill(Color.green)
+                            .frame(width: 5.5, height: 5.5)
+                        Text("Spotify Premium · Live")
+                            .font(inSidebarFooter ? .system(size: 10.5, weight: .medium) : .caption)
+                            .foregroundStyle(MidnightGlass.secondaryText)
+                            .lineLimit(1)
+                    }
                 }
                 Spacer(minLength: 4)
-                if !compact || isHovered {
+                if !inSidebarFooter || isHovered {
                     Button(role: .destructive) {
                         spotify.disconnect()
                     } label: {
@@ -181,8 +205,8 @@ struct SpotifyAccountView: View {
                     .buttonStyle(.plain)
                 }
             }
-            .padding(.horizontal, compact ? 8 : 0)
-            .padding(.vertical, compact ? 6 : 4)
+            .padding(.horizontal, inSidebarFooter ? 10 : 0)
+            .padding(.vertical, inSidebarFooter ? 7 : 2)
             .contentShape(Rectangle())
             .onHover { hovering in
                 withAnimation(.snappy(duration: 0.18)) {
@@ -198,21 +222,21 @@ struct SpotifyAccountView: View {
                         .frame(width: 8, height: 8)
                     VStack(alignment: .leading, spacing: 1) {
                         Text("Connect Spotify")
-                            .font((compact ? Font.caption : Font.subheadline).weight(.bold))
+                            .font((inSidebarFooter ? Font.caption : Font.subheadline).weight(.bold))
                             .foregroundStyle(MidnightGlass.primaryText)
                         Text("Sign in for track metadata, artwork & live queue")
                             .font(.caption2)
                             .foregroundStyle(MidnightGlass.secondaryText)
-                            .lineLimit(compact ? 1 : 2)
+                            .lineLimit(inSidebarFooter ? 1 : 2)
                     }
                     Spacer(minLength: 4)
                     Image(systemName: "arrow.up.right.circle.fill")
-                        .font(.system(size: compact ? 16 : 18, weight: .semibold))
+                        .font(.system(size: inSidebarFooter ? 16 : 18, weight: .semibold))
                         .foregroundStyle(MidnightGlass.gold)
                 }
-                .padding(.horizontal, compact ? 12 : 4)
-                .padding(.vertical, compact ? 10 : 6)
-                .modifier(OptionalMidnightGlassModifier(enabled: compact))
+                .padding(.horizontal, inSidebarFooter ? 12 : 4)
+                .padding(.vertical, inSidebarFooter ? 10 : 6)
+                .modifier(OptionalMidnightGlassModifier(enabled: inSidebarFooter))
             }
             .buttonStyle(PressableStyle())
         }

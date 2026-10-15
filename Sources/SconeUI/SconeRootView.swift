@@ -458,28 +458,10 @@ public struct SconeRootView: View {
             MidnightBackground()
             content()
         }
+        .navigationTitle(title)
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
-        .toolbar {
-            ToolbarItem(placement: .navigation) {
-                HStack(spacing: 8) {
-                    SconeBrandEmblem(size: 26)
-                    Text(title)
-                        .font(.headline.weight(.semibold))
-                        .foregroundStyle(MidnightGlass.primaryText)
-                }
-            }
-            ToolbarItem(placement: .primaryAction) {
-                Text(store.state.speakerCountSummary)
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(MidnightGlass.secondaryText)
-                    .padding(.horizontal, 9)
-                    .padding(.vertical, 4)
-                    .background(Capsule().fill(MidnightGlass.cardFill))
-                    .overlay(Capsule().strokeBorder(MidnightGlass.cardBorder, lineWidth: 1))
-            }
-        }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if let group = activeDockGroup {
                 NowPlayingDock(
@@ -575,10 +557,10 @@ public struct SconeRootView: View {
                 .padding(.bottom, 12)
             }
 
-            SpotifyAccountView(compact: true, onConnect: triggerSpotifyConnect)
-                .padding(.horizontal, 16)
-                .padding(.top, 8)
-                .padding(.bottom, 18)
+            SpotifySidebarCard(inSidebarFooter: true, onConnect: triggerSpotifyConnect)
+                .padding(.horizontal, 14)
+                .padding(.top, 6)
+                .padding(.bottom, 16)
         }
     }
 
@@ -803,25 +785,8 @@ struct SconeSettingsView: View {
     var body: some View {
         List {
             Section {
-                HStack(spacing: 14) {
-                    SconeBrandEmblem(size: 46)
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text("Sconeos")
-                            .font(.headline.weight(.bold))
-                            .foregroundStyle(MidnightGlass.primaryText)
-                        Text(store.state.networkAndSpeakerSummary)
-                            .font(.subheadline)
-                            .foregroundStyle(MidnightGlass.secondaryText)
-                    }
-                    Spacer()
-                }
-                .padding(.vertical, 4)
-                .listRowBackground(MidnightGlass.cardFill)
-            }
-            .textCase(nil)
-
-            Section {
-                SpotifyAccountView(compact: false, onConnect: onConnectSpotify)
+                SpotifySidebarCard(inSidebarFooter: false, onConnect: onConnectSpotify)
+                    .listRowInsets(EdgeInsets(top: 10, leading: 14, bottom: 10, trailing: 14))
                     .listRowBackground(MidnightGlass.cardFill)
             } header: {
                 Text("Spotify")
@@ -831,25 +796,26 @@ struct SconeSettingsView: View {
             .textCase(nil)
 
             Section {
-                if let networkName = store.state.networkName, !networkName.isEmpty {
-                    HStack {
-                        Text("Household")
+                HStack(spacing: 14) {
+                    SconeBrandEmblem(size: 44)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(store.state.networkName ?? "Sconeos")
+                            .font(.headline.weight(.bold))
                             .foregroundStyle(MidnightGlass.primaryText)
-                        Spacer()
-                        Text(networkName)
+                        Text(store.state.speakerCountSummary)
                             .font(.subheadline)
                             .foregroundStyle(MidnightGlass.secondaryText)
                     }
-                    .listRowBackground(MidnightGlass.cardFill)
-                }
-                HStack {
-                    Text("Version")
-                        .foregroundStyle(MidnightGlass.primaryText)
                     Spacer()
-                    Text("0.1.0")
-                        .font(.subheadline.monospacedDigit())
+                    Text("v0.1.0")
+                        .font(.caption.weight(.semibold).monospacedDigit())
                         .foregroundStyle(MidnightGlass.secondaryText)
+                        .padding(.horizontal, 9)
+                        .padding(.vertical, 4)
+                        .background(Capsule().fill(MidnightGlass.subtleFill))
+                        .overlay(Capsule().strokeBorder(MidnightGlass.cardBorder, lineWidth: 0.75))
                 }
+                .padding(.vertical, 4)
                 .listRowBackground(MidnightGlass.cardFill)
             } header: {
                 Text("About")
