@@ -3,14 +3,14 @@
     <channel>
         <title>Sconeos</title>
         <item>
-            <title>1.0.3</title>
-            <pubDate>Thu, 15 Oct 2026 20:23:41 +0000</pubDate>
+            <title>1.0.4</title>
+            <pubDate>Thu, 15 Oct 2026 22:50:01 +0000</pubDate>
             <link>https://sconeos.gattey.com</link>
-            <sparkle:version>13</sparkle:version>
-            <sparkle:shortVersionString>1.0.3</sparkle:shortVersionString>
+            <sparkle:version>14</sparkle:version>
+            <sparkle:shortVersionString>1.0.4</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
             <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
-            <enclosure url="https://sconeos.gattey.com/Sconeos-1.0.3.zip" length="3351129" type="application/octet-stream" sparkle:edSignature="VY+FecRPb8JwVgSnqqbWxSkQvTJr0Keq4u1x4R0MJYchauJcYnJRuUNkGW+IPPOjtjelRTgCRz7ChbgtJi6ABg=="/>
+            <enclosure url="https://sconeos.gattey.com/Sconeos-1.0.4.zip" length="3415894" type="application/octet-stream" sparkle:edSignature="+XbWxAr/zVuvgqc5boYfQwTVFAh1i9Dk8cZ20mwi1r59j5hLM1KQyu5Y5OIBkGCGzHuGLM7UOhPFFewTxEFSBQ=="/>
         </item>
     </channel>
 </rss>
