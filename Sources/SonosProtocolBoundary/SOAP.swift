@@ -96,8 +96,8 @@ func sonosURL(endpoint: URL, path: String) -> URL? {
 struct SOAPClient: Sendable {
     private static let session: URLSession = {
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.timeoutIntervalForRequest = 4
-        configuration.timeoutIntervalForResource = 4
+        configuration.timeoutIntervalForRequest = 8
+        configuration.timeoutIntervalForResource = 10
         configuration.waitsForConnectivity = false
         return URLSession(configuration: configuration)
     }()
@@ -114,7 +114,7 @@ struct SOAPClient: Sendable {
         guard let url = sonosURL(endpoint: endpoint, path: path) else {
             throw .speakerRejected(detail: "GET \(path)")
         }
-        var urlRequest = URLRequest(url: url, timeoutInterval: 4)
+        var urlRequest = URLRequest(url: url, timeoutInterval: 6)
         urlRequest.httpMethod = "GET"
         let data: Data
         let response: URLResponse
@@ -132,7 +132,7 @@ struct SOAPClient: Sendable {
 
     private func perform(_ request: SOAPRequest, at endpoint: URL, failure: SonosCommandError) async throws(SonosCommandError) -> XMLNode {
         guard let url = sonosURL(endpoint: endpoint, path: request.service.controlPath) else { throw failure }
-        var urlRequest = URLRequest(url: url, timeoutInterval: 4)
+        var urlRequest = URLRequest(url: url, timeoutInterval: 8)
         urlRequest.httpMethod = "POST"
         urlRequest.setValue("text/xml; charset=\"utf-8\"", forHTTPHeaderField: "Content-Type")
         urlRequest.setValue("\"\(request.service.urn)#\(request.action)\"", forHTTPHeaderField: "SOAPACTION")
@@ -142,12 +142,21 @@ struct SOAPClient: Sendable {
         do {
             (data, response) = try await Self.session.data(for: urlRequest)
         } catch {
-            let nsErr = error as NSError
-            if nsErr.domain != NSURLErrorDomain || nsErr.code != NSURLErrorCancelled {
-                let underlying = (nsErr.userInfo[NSUnderlyingErrorKey] as? NSError).map { "\($0.domain):\($0.code)" } ?? "none"
-                NetworkDebugLog.write("SOAP \(request.action) -> \(url.absoluteString) FAILED: \(nsErr.domain) code=\(nsErr.code) underlying=\(underlying) desc=\(nsErr.localizedDescription)")
+            let firstErr = error as NSError
+            if firstErr.domain == NSURLErrorDomain, firstErr.code == NSURLErrorCancelled {
+                throw failure
             }
-            throw failure
+            try? await Task.sleep(for: .milliseconds(150))
+            do {
+                (data, response) = try await Self.session.data(for: urlRequest)
+            } catch {
+                let nsErr = error as NSError
+                if nsErr.domain != NSURLErrorDomain || nsErr.code != NSURLErrorCancelled {
+                    let underlying = (nsErr.userInfo[NSUnderlyingErrorKey] as? NSError).map { "\($0.domain):\($0.code)" } ?? "none"
+                    NetworkDebugLog.write("SOAP \(request.action) -> \(url.absoluteString) FAILED: \(nsErr.domain) code=\(nsErr.code) underlying=\(underlying) desc=\(nsErr.localizedDescription)")
+                }
+                throw failure
+            }
         }
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         let node = try? XMLNode.parse(data)

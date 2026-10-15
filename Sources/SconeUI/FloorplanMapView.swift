@@ -2,11 +2,6 @@ import SwiftUI
 import SconeDomain
 import SconeStore
 
-private enum MapDropTarget: Hashable {
-    case speaker(SpeakerUUID)
-    case musicHub(GroupID)
-}
-
 private struct SpeakerTether: Equatable {
     let speakerID: SpeakerUUID
     let roomName: String
@@ -31,9 +26,6 @@ private struct MapGeometryKey: Equatable {
     let height: Int
     let nodes: [NodeKey]
     let hubs: [HubKey]
-    let dragging: SpeakerUUID?
-    let dragX: Int?
-    let dragY: Int?
 }
 
 private struct PrecomputedMapGeometry {
@@ -72,7 +64,7 @@ struct FloorplanMapView: View {
     @State private var hoveredTetherSpeaker: SpeakerUUID?
     @State private var geometryMemoizer = MapGeometryMemoizer()
 
-    private let dropRadius: CGFloat = 96
+    private let dropRadius: CGFloat = FloorplanDragHitTesting.defaultDropRadius
 
     var body: some View {
         let nodes = store.state.floorplan
@@ -201,10 +193,7 @@ struct FloorplanMapView: View {
             },
             hubs: hubGroups.map {
                 MapGeometryKey.HubKey(id: $0.id, memberIDs: $0.speakers.map(\.id))
-            },
-            dragging: dragging,
-            dragX: dragPoint.map { Int($0.x.rounded()) },
-            dragY: dragPoint.map { Int($0.y.rounded()) }
+            }
         )
 
         return geometryMemoizer.resolve(key: key) {
@@ -249,7 +238,7 @@ struct FloorplanMapView: View {
                         id: node.id,
                         center: displayPoints[node.id] ?? baseDisplayPoint(node, bands: bands, plot: plot),
                         hasSatellites: !node.speaker.bondedSatellites.isEmpty,
-                        isFixed: node.id == dragging
+                        isFixed: false
                     )
                 }
                 let bandHubs = hubLocations.filter { _, pt in band.frame.contains(pt) }
@@ -387,11 +376,12 @@ struct FloorplanMapView: View {
         let group = node.group.flatMap { id in groups.first { $0.id == id } }
         let playing = group.map { playbackIsActive($0.playback) } ?? false
         let connectedToHub = group.map { geometry.hubLocations[$0.id] != nil } ?? false
-        let point = geometry.displayPoints[node.id] ?? baseDisplayPoint(node, bands: geometry.bands, plot: plot)
+        let settledPoint = geometry.displayPoints[node.id] ?? baseDisplayPoint(node, bands: geometry.bands, plot: plot)
         let isHovered = hovered == node.id
         let isSelected = selected == node.id
         let isDropTarget = (dropTarget == .speaker(node.id))
         let isBeingDragged = dragging == node.id
+        let activePoint = (isBeingDragged ? dragPoint : nil) ?? settledPoint
 
         return RoomContainerNode(
             node: node,
@@ -432,7 +422,7 @@ struct FloorplanMapView: View {
                 onOpenGroup: onSelectGroup
             )
         }
-        .position(point)
+        .position(activePoint)
         .zIndex(isBeingDragged ? 4 : (isDropTarget || isSelected ? 3 : 2))
     }
 
@@ -605,7 +595,6 @@ struct FloorplanMapView: View {
         bands: [FloorBandLayout],
         plot: CGRect
     ) -> CGPoint {
-        if node.id == dragging, let dragPoint { return dragPoint }
         let hasSats = !node.speaker.bondedSatellites.isEmpty
         if let band = bands.first(where: { $0.level == node.level }) {
             return band.point(for: node.coordinate, hasSatellites: hasSats)
@@ -623,7 +612,6 @@ struct FloorplanMapView: View {
         plot: CGRect
     ) -> CGPoint {
         let base = baseDisplayPoint(node, bands: bands, plot: plot)
-        if node.id == dragging { return base }
         guard let band = bands.first(where: { $0.level == node.level }),
               !hubLocations.isEmpty else {
             return base
@@ -661,26 +649,15 @@ struct FloorplanMapView: View {
         excluding id: SpeakerUUID,
         geometry: PrecomputedMapGeometry
     ) -> MapDropTarget? {
-        var best: MapDropTarget?
-        var bestDistance = dropRadius
         let draggedGroup = store.state.floorplan.first(where: { $0.id == id })?.group
-
-        for (groupID, hubCenter) in geometry.hubLocations where groupID != draggedGroup {
-            let distance = hypot(hubCenter.x - point.x, hubCenter.y - point.y)
-            if distance <= bestDistance {
-                bestDistance = distance
-                best = .musicHub(groupID)
-            }
-        }
-        for node in store.state.floorplan where node.id != id {
-            guard let center = geometry.displayPoints[node.id] else { continue }
-            let distance = hypot(center.x - point.x, center.y - point.y)
-            if distance <= bestDistance {
-                bestDistance = distance
-                best = .speaker(node.id)
-            }
-        }
-        return best
+        return FloorplanDragHitTesting.nearestTarget(
+            to: point,
+            excluding: id,
+            draggedGroup: draggedGroup,
+            displayPoints: geometry.displayPoints,
+            hubLocations: geometry.hubLocations,
+            dropRadius: dropRadius
+        )
     }
 }
 

@@ -1834,6 +1834,145 @@ struct SconeFileTests {
         #expect(setVolCommands.count == 1)
         #expect(setVolCommands.last == .v45)
     }
+
+    @Test @MainActor func spotifyDeviceMatcherAndPlayHandOffAndCoordinatorPreservation() async throws {
+        // 1. SpotifyDeviceMatcher normalizes "+ N" group suffixes and room speaker suffixes
+        #expect(SpotifyDeviceMatcher.matches(deviceName: "Bedroom Speaker + 4", roomName: "Bedroom Speaker"))
+        #expect(SpotifyDeviceMatcher.matches(deviceName: "Bedroom Speaker + 4", roomName: "Bedroom"))
+        #expect(SpotifyDeviceMatcher.matches(deviceName: "Dining Room Speaker", roomName: "Dining Room Speaker"))
+        #expect(!SpotifyDeviceMatcher.matches(deviceName: "Bedroom Speaker + 4", roomName: "Kitchen Speaker"))
+
+        // 2. Drag hit-testing resolves nearest stationary speaker or music hub within dropRadius
+        let stationaryPositions: [SpeakerUUID: CGPoint] = [
+            House.kitchen: CGPoint(x: 180, y: 160),
+            House.dining: CGPoint(x: 340, y: 160),
+            House.bedroom: CGPoint(x: 500, y: 160),
+        ]
+        let hubs: [GroupID: CGPoint] = [
+            GroupID(coordinator: House.bedroom): CGPoint(x: 500, y: 95),
+        ]
+        let hitSpeaker = FloorplanDragHitTesting.nearestTarget(
+            to: CGPoint(x: 352, y: 168),
+            excluding: House.kitchen,
+            draggedGroup: GroupID(coordinator: House.kitchen),
+            displayPoints: stationaryPositions,
+            hubLocations: hubs,
+            dropRadius: 78
+        )
+        #expect(hitSpeaker == .speaker(House.dining))
+
+        let hitHub = FloorplanDragHitTesting.nearestTarget(
+            to: CGPoint(x: 495, y: 102),
+            excluding: House.kitchen,
+            draggedGroup: GroupID(coordinator: House.kitchen),
+            displayPoints: stationaryPositions,
+            hubLocations: hubs,
+            dropRadius: 78
+        )
+        #expect(hitHub == .musicHub(GroupID(coordinator: House.bedroom)))
+
+        let missFar = FloorplanDragHitTesting.nearestTarget(
+            to: CGPoint(x: 50, y: 400),
+            excluding: House.kitchen,
+            draggedGroup: GroupID(coordinator: House.kitchen),
+            displayPoints: stationaryPositions,
+            hubLocations: hubs,
+            dropRadius: 78
+        )
+        #expect(missFar == nil)
+
+        // 3. Pressing Play on a paused Spotify stream wakes/resumes Spotify instead of raw UPnP Play,
+        // and grouping Everywhere preserves the active Spotify Connect coordinator ("Bedroom Speaker + 4").
+        let trackURI = SpotifyURI("spotify:track:4iV5W9uYEdYUVa79Axb7Rh")!
+        let pausedSpotifyTrack = NowPlayingTrack(
+            title: "Show Me Love",
+            artist: "WizTheMc, bees & honey",
+            album: "Show Me Love",
+            artworkURL: nil,
+            duration: .seconds(175),
+            queuePosition: 1,
+            spotifyURI: trackURI,
+            source: .spotify(contextTitle: nil)
+        )
+        let bedroom = speaker(House.bedroom, room: "Bedroom Speaker", ip: "192.168.68.64", volume: .v25)
+        let dining = speaker(House.dining, room: "Dining Room Speaker", ip: "192.168.68.58", volume: .v25)
+        let kitchen = speaker(House.kitchen, room: "Kitchen Speaker", ip: "192.168.68.61", volume: .v25)
+        let snap = snapshot(
+            [bedroom, dining, kitchen],
+            coordinatorOf: [
+                House.bedroom: House.bedroom,
+                House.dining: House.bedroom,
+                House.kitchen: House.kitchen,
+            ],
+            status: [
+                GroupID(coordinator: House.bedroom): GroupStatus(
+                    playback: .paused(.track(pausedSpotifyTrack), elapsed: .seconds(8)),
+                    volume: .v25
+                ),
+                GroupID(coordinator: House.kitchen): GroupStatus(
+                    playback: .paused(.track(pausedSpotifyTrack), elapsed: .seconds(8)),
+                    volume: .v25
+                ),
+            ]
+        )
+        let spotifyCtx = SpotifyTrackContext(
+            uri: trackURI,
+            metadata: SpotifyTrackMetadata(
+                title: "Show Me Love",
+                artist: "WizTheMc, bees & honey",
+                album: "Show Me Love",
+                artworkURL: nil,
+                duration: .seconds(175)
+            ),
+            position: .seconds(8),
+            contextTitle: "Playlist \"Liked Songs\"",
+            contextURI: "spotify:collection:tracks",
+            deviceName: "Bedroom Speaker + 4",
+            isPlaying: false,
+            upNext: [
+                QueueItem(
+                    id: "2",
+                    title: "Next Song",
+                    artist: "Artist 2",
+                    spotifyURI: SpotifyURI("spotify:track:1301WleyT98MSxVHPZCA6M")
+                ),
+            ]
+        )
+        let sonosRecorder = RecordingSonos(yielded: [snap])
+        let spotifyMock = CountingSpotify(response: .success(spotifyCtx))
+        let directory = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let files = SconeFiles(directory: directory)
+        let store = SconeStore(
+            loaded: LoadedFiles(cache: nil, positions: nil, quarantined: []),
+            files: files,
+            sonos: sonosRecorder,
+            spotify: spotifyMock
+        )
+        await store.run()
+
+        // Group Everywhere should pick Bedroom (matching "Bedroom Speaker + 4") as coordinator
+        store.groupEverywhere()
+        try? await Task.sleep(for: .milliseconds(50))
+        let appliedPreset = sonosRecorder.commands.compactMap { cmd -> PresetPill? in
+            if case .applyPreset(let p) = cmd { return p }
+            return nil
+        }.last
+        #expect(appliedPreset?.coordinatorUUID == House.bedroom)
+
+        // Pressing Play on paused Spotify stream invokes Spotify / enqueueAndPlaySpotify with upNext
+        if let bedroomGroup = store.state.groups.first(where: { $0.id == GroupID(coordinator: House.bedroom) }) {
+            store.togglePlayOrHandOffSpotify(for: bedroomGroup)
+            try? await Task.sleep(for: .milliseconds(80))
+            let enqueuedCmd = sonosRecorder.commands.contains { cmd in
+                if case .enqueueAndPlaySpotify(let uri, _, let coord, _, _, let upNext) = cmd {
+                    return uri == trackURI && coord == GroupID(coordinator: House.bedroom) && upNext.count == 1
+                }
+                return false
+            }
+            #expect(enqueuedCmd)
+        }
+    }
 }
 
 @MainActor

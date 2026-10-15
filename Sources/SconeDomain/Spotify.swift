@@ -72,7 +72,9 @@ public struct SpotifyTrackContext: Hashable, Sendable {
     public let position: Duration?
     public let contextTitle: String?
     public let contextURI: String?
+    public let deviceID: String?
     public let deviceName: String?
+    public let isPlaying: Bool
     public let upNext: [QueueItem]
 
     public init(
@@ -81,7 +83,9 @@ public struct SpotifyTrackContext: Hashable, Sendable {
         position: Duration?,
         contextTitle: String? = nil,
         contextURI: String? = nil,
+        deviceID: String? = nil,
         deviceName: String? = nil,
+        isPlaying: Bool = false,
         upNext: [QueueItem] = []
     ) {
         self.uri = uri
@@ -89,7 +93,9 @@ public struct SpotifyTrackContext: Hashable, Sendable {
         self.position = position
         self.contextTitle = contextTitle
         self.contextURI = contextURI
+        self.deviceID = deviceID
         self.deviceName = deviceName
+        self.isPlaying = isPlaying
         self.upNext = upNext
     }
 }

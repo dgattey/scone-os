@@ -451,10 +451,20 @@ public actor SonosHousehold {
             throw .groupDissolved(group)
         case .steps(let steps, let skipped):
             if steps.isEmpty { return .alreadySatisfied }
+            var stepFailures = skipped
+            var lastStepError: SonosCommandError?
             for step in steps {
+                if case .join(let member, _) = step {
+                    playback[member] = .stopped
+                }
                 let action = TopologyService.request(for: step)
-                let endpoint = try endpoint(for: action.target)
-                _ = try await client.call(action.request, on: action.target, at: endpoint)
+                do {
+                    _ = try await callWithEndpointRefresh(action.request, on: action.target)
+                } catch {
+                    lastStepError = error
+                    stepFailures.insert(action.target)
+                    continue
+                }
                 if case .delegateCoordination(let oldCoord, let newCoord, false) = step {
                     if let existingPlayback = playback[oldCoord] {
                         playback[newCoord] = existingPlayback
@@ -462,12 +472,23 @@ public actor SonosHousehold {
                     playback[oldCoord] = .stopped
                 }
             }
-            let parsed = try await waitForTopology(target, ignoring: skipped)
-            addressBook.absorb(parsed)
-            lastParsed = parsed
-            await refreshTransport(parsed)
-            publishAssembled()
-            return skipped.isEmpty ? .applied : .partiallyApplied(unreachable: skipped)
+            if let parsed = try? await waitForTopology(target, ignoring: skipped) {
+                addressBook.absorb(parsed)
+                lastParsed = parsed
+                await refreshTransport(parsed)
+                publishAssembled()
+                return skipped.isEmpty ? .applied : .partiallyApplied(unreachable: skipped)
+            }
+            if stepFailures != skipped,
+               let parsed = try? await waitForTopology(target, ignoring: stepFailures) {
+                addressBook.absorb(parsed)
+                lastParsed = parsed
+                await refreshTransport(parsed)
+                publishAssembled()
+                return .partiallyApplied(unreachable: stepFailures)
+            }
+            if let lastStepError { throw lastStepError }
+            throw .notConverged(after: configuration.convergenceTimeout)
         }
     }
 
@@ -499,8 +520,15 @@ public actor SonosHousehold {
             return try await skipPrevious(group)
         case .seekToQueueTrack(let number, let group):
             return try await seekToQueueTrack(number, group: group)
-        case .enqueueAndPlaySpotify(let uri, let metadata, let group, let startingAt):
-            return try await enqueueSpotify(uri, metadata: metadata, group: group, startingAt: startingAt)
+        case .enqueueAndPlaySpotify(let uri, let metadata, let group, let startingAt, let contextURI, let upNext):
+            return try await enqueueSpotify(
+                uri,
+                metadata: metadata,
+                group: group,
+                startingAt: startingAt,
+                contextURI: contextURI,
+                upNext: upNext
+            )
         case .savePresets(let presets):
             return try await writePresetsToSonos(presets)
         case .setSystemName(let name):
@@ -666,124 +694,237 @@ public actor SonosHousehold {
         return .applied
     }
 
+    private func resolvedEndpoint(for speaker: SpeakerUUID) async throws(SonosCommandError) -> URL {
+        if let cached = addressBook.endpoint(for: speaker) {
+            return cached
+        }
+        try await refreshBook(anchor: speaker)
+        return try endpoint(for: speaker)
+    }
+
+    @discardableResult
+    private func callWithEndpointRefresh(_ request: SOAPRequest, on speaker: SpeakerUUID) async throws(SonosCommandError) -> XMLNode {
+        let targetEndpoint = try await resolvedEndpoint(for: speaker)
+        do {
+            return try await client.call(request, on: speaker, at: targetEndpoint)
+        } catch .speakerUnreachable {
+            try await refreshBook(anchor: speaker)
+            let refreshedEndpoint = try endpoint(for: speaker)
+            return try await client.call(request, on: speaker, at: refreshedEndpoint)
+        }
+    }
+
     private func setTransport(_ desired: PlayPause, group: GroupID) async throws(SonosCommandError) -> CommandOutcome {
         let coordinator = group.coordinator
-        try await refreshBook(anchor: coordinator)
-        let endpoint = try endpoint(for: coordinator)
-        let state = try await playbackState(of: coordinator, at: endpoint)
-        playback[coordinator] = state
-        if transportMatches(state, desired) {
-            publishAssembled()
-            return .alreadySatisfied
+        let targetEndpoint = try await resolvedEndpoint(for: coordinator)
+        let priorState = (try? await playbackState(of: coordinator, at: targetEndpoint)) ?? playback[coordinator]
+        if let priorState {
+            playback[coordinator] = priorState
+            if transportMatches(priorState, desired) {
+                publishAssembled()
+                return .alreadySatisfied
+            }
         }
-        _ = try await client.call(TransportService.transport(desired), on: coordinator, at: endpoint)
-        playback[coordinator] = (try? await playbackState(of: coordinator, at: endpoint)) ?? state
+        do {
+            _ = try await callWithEndpointRefresh(TransportService.transport(desired), on: coordinator)
+        } catch .speakerUnreachable(let unreachableSpeaker) {
+            if let currentEndpoint = addressBook.endpoint(for: coordinator),
+               let postState = try? await playbackState(of: coordinator, at: currentEndpoint),
+               transportMatches(postState, desired) {
+                playback[coordinator] = postState
+                publishAssembled()
+                return .applied
+            }
+            throw .speakerUnreachable(unreachableSpeaker)
+        }
+        if let currentEndpoint = addressBook.endpoint(for: coordinator),
+           let updatedState = try? await playbackState(of: coordinator, at: currentEndpoint) {
+            playback[coordinator] = updatedState
+        }
         publishAssembled()
         return .applied
     }
 
     private func skipNext(_ group: GroupID) async throws(SonosCommandError) -> CommandOutcome {
         let coordinator = group.coordinator
-        try await refreshBook(anchor: coordinator)
-        let endpoint = try endpoint(for: coordinator)
-        let state = try await playbackState(of: coordinator, at: endpoint)
+        let targetEndpoint = try await resolvedEndpoint(for: coordinator)
+        let state = (try? await playbackState(of: coordinator, at: targetEndpoint)) ?? playback[coordinator] ?? .stopped
         if let position = queuePosition(state) {
-            _ = try await client.call(TransportService.seek(toTrack: position + 1), on: coordinator, at: endpoint)
+            _ = try await callWithEndpointRefresh(TransportService.seek(toTrack: position + 1), on: coordinator)
         } else {
-            _ = try await client.call(TransportService.next, on: coordinator, at: endpoint)
+            _ = try await callWithEndpointRefresh(TransportService.next, on: coordinator)
         }
-        playback[coordinator] = (try? await playbackState(of: coordinator, at: endpoint)) ?? state
+        if let currentEndpoint = addressBook.endpoint(for: coordinator) {
+            playback[coordinator] = (try? await playbackState(of: coordinator, at: currentEndpoint)) ?? state
+        }
         publishAssembled()
         return .applied
     }
 
     private func skipPrevious(_ group: GroupID) async throws(SonosCommandError) -> CommandOutcome {
         let coordinator = group.coordinator
-        try await refreshBook(anchor: coordinator)
-        let endpoint = try endpoint(for: coordinator)
-        let state = try await playbackState(of: coordinator, at: endpoint)
+        let targetEndpoint = try await resolvedEndpoint(for: coordinator)
+        let state = (try? await playbackState(of: coordinator, at: targetEndpoint)) ?? playback[coordinator] ?? .stopped
         let elapsed = elapsedTime(state) ?? .zero
         if let position = queuePosition(state) {
             let request = elapsed > .seconds(3) || position <= 1
                 ? TransportService.seek(to: .zero)
                 : TransportService.seek(toTrack: position - 1)
-            _ = try await client.call(request, on: coordinator, at: endpoint)
+            _ = try await callWithEndpointRefresh(request, on: coordinator)
         } else {
             let request = elapsed > .seconds(3)
                 ? TransportService.seek(to: .zero)
                 : TransportService.previous
-            _ = try await client.call(request, on: coordinator, at: endpoint)
+            _ = try await callWithEndpointRefresh(request, on: coordinator)
         }
-        playback[coordinator] = (try? await playbackState(of: coordinator, at: endpoint)) ?? state
+        if let currentEndpoint = addressBook.endpoint(for: coordinator) {
+            playback[coordinator] = (try? await playbackState(of: coordinator, at: currentEndpoint)) ?? state
+        }
         publishAssembled()
         return .applied
     }
 
     private func seekToQueueTrack(_ number: Int, group: GroupID) async throws(SonosCommandError) -> CommandOutcome {
         let coordinator = group.coordinator
-        try await refreshBook(anchor: coordinator)
-        let endpoint = try endpoint(for: coordinator)
-        _ = try await client.call(TransportService.seek(toTrack: max(1, number)), on: coordinator, at: endpoint)
-        _ = try? await client.call(TransportService.transport(.play), on: coordinator, at: endpoint)
-        playback[coordinator] = (try? await playbackState(of: coordinator, at: endpoint)) ?? .stopped
+        _ = try await callWithEndpointRefresh(TransportService.seek(toTrack: max(1, number)), on: coordinator)
+        _ = try? await callWithEndpointRefresh(TransportService.transport(.play), on: coordinator)
+        if let currentEndpoint = addressBook.endpoint(for: coordinator) {
+            playback[coordinator] = (try? await playbackState(of: coordinator, at: currentEndpoint)) ?? .stopped
+        }
         publishAssembled()
         return .applied
     }
 
     private func enqueueSpotify(
-        _ uri: SpotifyURI, metadata: SpotifyTrackMetadata, group: GroupID, startingAt: Duration?
+        _ uri: SpotifyURI,
+        metadata: SpotifyTrackMetadata,
+        group: GroupID,
+        startingAt: Duration?,
+        contextURI: SpotifyURI? = nil,
+        upNext: [QueueItem] = []
     ) async throws(SonosCommandError) -> CommandOutcome {
         let coordinator = group.coordinator
-        try await refreshBook(anchor: coordinator)
-        let endpoint = try endpoint(for: coordinator)
-        let state = try await playbackState(of: coordinator, at: endpoint)
+        let endpoint = try await resolvedEndpoint(for: coordinator)
+        let state = (try? await playbackState(of: coordinator, at: endpoint)) ?? playback[coordinator] ?? .stopped
         playback[coordinator] = state
+
+        let media = try await callWithEndpointRefresh(TransportService.getMediaInfo, on: coordinator)
+        let currentURI = media.value("CurrentURI")
+        let queuePrefix = "x-rincon-queue:\(coordinator.rawValue)"
+        let alreadyQueued = currentURI.hasPrefix(queuePrefix)
+
         if case .playing(.track(let track), _, _) = state, track.spotifyURI == uri {
             publishAssembled()
             return .alreadySatisfied
         }
-        if case .paused(.track(let track), _) = state, track.spotifyURI == uri {
-            _ = try await client.call(TransportService.transport(.play), on: coordinator, at: endpoint)
-            if let startingAt {
-                _ = try await client.call(TransportService.seek(to: startingAt), on: coordinator, at: endpoint)
+        if alreadyQueued,
+           case .paused(.track(let track), _) = state,
+           track.spotifyURI == uri,
+           !track.upNext.isEmpty {
+            _ = try await callWithEndpointRefresh(TransportService.transport(.play), on: coordinator)
+            if let startingAt, startingAt > .seconds(1) {
+                _ = try? await client.call(TransportService.seek(to: startingAt), on: coordinator, at: endpoint)
             }
             playback[coordinator] = (try? await playbackState(of: coordinator, at: endpoint)) ?? state
             publishAssembled()
             return .applied
         }
+
         let account = try await spotifyAccount(for: coordinator, at: endpoint)
-        let media = try await client.call(TransportService.getMediaInfo, on: coordinator, at: endpoint)
-        let currentURI = media.value("CurrentURI")
-        let queuePrefix = "x-rincon-queue:\(coordinator.rawValue)"
-        let alreadyQueued = currentURI.hasPrefix(queuePrefix)
         if !alreadyQueued {
+            _ = try? await client.call(SOAPRequest(
+                service: .avTransport,
+                action: "RemoveAllTracksFromQueue",
+                arguments: [("InstanceID", "0")]
+            ), on: coordinator, at: endpoint)
             // AddURIToQueue is rejected unless AVTransport is already this coordinator's queue.
-            _ = try await client.call(SOAPRequest(
-                service: .avTransport, action: "SetAVTransportURI",
+            _ = try await callWithEndpointRefresh(SOAPRequest(
+                service: .avTransport,
+                action: "SetAVTransportURI",
                 arguments: [
                     ("InstanceID", "0"),
                     ("CurrentURI", "\(queuePrefix)#0"),
                     ("CurrentURIMetaData", ""),
-                ]), on: coordinator, at: endpoint)
+                ]), on: coordinator)
         }
         let enqueued = SpotifyOnSonos.enqueueURI(for: uri, account: account)
         let didl = SpotifyOnSonos.didl(for: metadata, uri: uri, account: account)
         let position = alreadyQueued ? queuePosition(state) : nil
-        var planned = SpotifyOnSonos.requests(
-            uri: enqueued, didl: didl, currentQueuePosition: position, startingAt: startingAt)
-        guard let add = planned.first else { return .alreadySatisfied }
-        let response = try await client.call(add, on: coordinator, at: endpoint)
-        planned.removeFirst()
-        if let actual = Int(response.value("FirstTrackNumberEnqueued")), actual > 0 {
-            for index in planned.indices where planned[index].action == "Seek"
-                && planned[index].arguments.contains(where: { $0.0 == "Unit" && $0.1 == "TRACK_NR" }) {
-                planned[index] = TransportService.seek(toTrack: actual)
-                break
+        let targetPosition = (position ?? 0) + 1
+        let addRequest = SOAPRequest(
+            service: .avTransport,
+            action: "AddURIToQueue",
+            arguments: [
+                ("InstanceID", "0"),
+                ("EnqueuedURI", enqueued),
+                ("EnqueuedURIMetaData", didl),
+                ("DesiredFirstTrackNumberEnqueued", String(targetPosition)),
+                ("EnqueueAsNext", "1"),
+            ]
+        )
+        let response = try await callWithEndpointRefresh(addRequest, on: coordinator)
+        let actualTrack = Int(response.value("FirstTrackNumberEnqueued")).flatMap { $0 > 0 ? $0 : nil } ?? targetPosition
+        _ = try await callWithEndpointRefresh(TransportService.seek(toTrack: actualTrack), on: coordinator)
+        _ = try await callWithEndpointRefresh(TransportService.transport(.play), on: coordinator)
+        if let startingAt, startingAt > .seconds(1) {
+            _ = try? await client.call(TransportService.seek(to: startingAt), on: coordinator, at: endpoint)
+        }
+
+        // Enqueue upcoming Spotify queue tracks behind the current track so playback continues seamlessly.
+        let upcomingTracks = upNext.prefix(15).compactMap { item -> (SpotifyURI, SpotifyTrackMetadata)? in
+            guard let itemURI = item.spotifyURI, itemURI != uri else { return nil }
+            let meta = SpotifyTrackMetadata(
+                title: item.title,
+                artist: item.artist ?? "",
+                album: item.album,
+                artworkURL: item.artworkURL,
+                duration: item.duration
+            )
+            return (itemURI, meta)
+        }
+        if !upcomingTracks.isEmpty {
+            for (nextURI, nextMeta) in upcomingTracks {
+                let nextEnqueued = SpotifyOnSonos.enqueueURI(for: nextURI, account: account)
+                let nextDIDL = SpotifyOnSonos.didl(for: nextMeta, uri: nextURI, account: account)
+                let appendReq = SOAPRequest(
+                    service: .avTransport,
+                    action: "AddURIToQueue",
+                    arguments: [
+                        ("InstanceID", "0"),
+                        ("EnqueuedURI", nextEnqueued),
+                        ("EnqueuedURIMetaData", nextDIDL),
+                        ("DesiredFirstTrackNumberEnqueued", "0"),
+                        ("EnqueueAsNext", "0"),
+                    ]
+                )
+                _ = try? await client.call(appendReq, on: coordinator, at: endpoint)
             }
+        } else if let contextURI, contextURI.kind == .playlist || contextURI.kind == .album {
+            let containerURI = SpotifyOnSonos.enqueueURI(for: contextURI, account: account)
+            let containerMeta = SpotifyTrackMetadata(
+                title: metadata.album ?? metadata.title,
+                artist: metadata.artist,
+                album: metadata.album,
+                artworkURL: metadata.artworkURL,
+                duration: nil
+            )
+            let containerDIDL = SpotifyOnSonos.didl(for: containerMeta, uri: contextURI, account: account)
+            let appendContainer = SOAPRequest(
+                service: .avTransport,
+                action: "AddURIToQueue",
+                arguments: [
+                    ("InstanceID", "0"),
+                    ("EnqueuedURI", containerURI),
+                    ("EnqueuedURIMetaData", containerDIDL),
+                    ("DesiredFirstTrackNumberEnqueued", "0"),
+                    ("EnqueueAsNext", "0"),
+                ]
+            )
+            _ = try? await client.call(appendContainer, on: coordinator, at: endpoint)
         }
-        for request in planned {
-            _ = try await client.call(request, on: coordinator, at: endpoint)
-        }
+
+        cachedQueueKey[coordinator] = nil
+        cachedQueueItems[coordinator] = nil
         playback[coordinator] = (try? await playbackState(of: coordinator, at: endpoint)) ?? state
         publishAssembled()
         return .applied
@@ -910,7 +1051,7 @@ public actor SonosHousehold {
         case .setVolume(_, .speaker(let speaker)): speaker
         case .setVolume(_, .group(let group)): group.coordinator
         case .playPause(_, let group), .nextTrack(let group), .previousTrack(let group), .seekToQueueTrack(_, let group): group.coordinator
-        case .enqueueAndPlaySpotify(_, _, let group, _): group.coordinator
+        case .enqueueAndPlaySpotify(_, _, let group, _, _, _): group.coordinator
         case .group(let member, _), .ungroup(let member): member
         case .applyPreset(let preset): preset.coordinatorUUID
         case .savePresets(let presets): presets.first?.coordinatorUUID ?? lastParsed?.members.keys.first ?? SpeakerUUID(rawValue: "RINCON_00000000000001400")!

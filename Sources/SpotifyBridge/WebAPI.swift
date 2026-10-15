@@ -450,7 +450,9 @@ actor SpotifyAPIClient {
             position: base.position,
             contextTitle: contextTitle,
             contextURI: base.contextURI,
+            deviceID: base.deviceID,
             deviceName: base.deviceName,
+            isPlaying: base.isPlaying,
             upNext: upNext
         )
     }
@@ -573,13 +575,97 @@ actor SpotifyAPIClient {
     }
 }
 
+struct SpotifyConnectDevice: Sendable, Hashable {
+    var id: String?
+    var name: String
+    var type: String
+    var isActive: Bool
+    var isRestricted: Bool
+}
+
+public enum SpotifyDeviceMatcher {
+    public static func normalizeRoomName(_ raw: String) -> String {
+        var text = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if let plusRange = text.range(of: #"\s*\+\s*\d+.*$"#, options: .regularExpression) {
+            text.removeSubrange(plusRange)
+        }
+        for suffix in [" speakers", " speaker", " sonos"] {
+            if text.hasSuffix(suffix) {
+                text = String(text.dropLast(suffix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+        }
+        return text.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    public static func matches(deviceName: String?, roomName: String) -> Bool {
+        guard let deviceName, !deviceName.isEmpty else { return false }
+        let normDevice = normalizeRoomName(deviceName)
+        let normRoom = normalizeRoomName(roomName)
+        guard !normDevice.isEmpty, !normRoom.isEmpty else { return false }
+        if normDevice == normRoom { return true }
+        let shortDevice = RoomNaming.shortName(normDevice, merged: false).lowercased()
+        let shortRoom = RoomNaming.shortName(normRoom, merged: false).lowercased()
+        return !shortDevice.isEmpty && shortDevice == shortRoom
+    }
+
+    public static func matchesAny(deviceName: String?, roomNames: [String]) -> Bool {
+        roomNames.contains { matches(deviceName: deviceName, roomName: $0) }
+    }
+}
+
 enum WebAPI {
     static let playerURL = URL(string: "https://api.spotify.com/v1/me/player")!
+    static let devicesURL = URL(string: "https://api.spotify.com/v1/me/player/devices")!
     static let queueURL = URL(string: "https://api.spotify.com/v1/me/player/queue")!
     private static let tokenURL = URL(string: "https://accounts.spotify.com/api/token")!
 
-    static func currentlyPlaying(accessToken: String) async throws(SpotifyBridgeError) -> SpotifyTrackContext? {
-        try await SpotifyAPIClient.shared.currentlyPlaying(accessToken: accessToken)
+    static func currentlyPlaying(accessToken: String, minCacheAge: TimeInterval = 4.0) async throws(SpotifyBridgeError) -> SpotifyTrackContext? {
+        try await SpotifyAPIClient.shared.currentlyPlaying(accessToken: accessToken, minCacheAge: minCacheAge)
+    }
+
+    static func availableDevices(accessToken: String) async -> [SpotifyConnectDevice] {
+        guard let (data, status, _) = try? await loadWithHeaders(
+            url: devicesURL,
+            method: "GET",
+            token: accessToken,
+            body: nil
+        ), (200..<300).contains(status),
+        let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+        let list = json["devices"] as? [[String: Any]] else {
+            return []
+        }
+        return list.compactMap { dict -> SpotifyConnectDevice? in
+            guard let name = (dict["name"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !name.isEmpty else { return nil }
+            let rawID = (dict["id"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            return SpotifyConnectDevice(
+                id: (rawID?.isEmpty == false) ? rawID : nil,
+                name: name,
+                type: (dict["type"] as? String) ?? "",
+                isActive: (dict["is_active"] as? Bool) ?? false,
+                isRestricted: (dict["is_restricted"] as? Bool) ?? false
+            )
+        }
+    }
+
+    static func transferPlayback(deviceID: String, play: Bool = true, accessToken: String) async -> Bool {
+        guard !deviceID.isEmpty,
+              let body = try? JSONSerialization.data(withJSONObject: [
+                  "device_ids": [deviceID],
+                  "play": play,
+              ]) else {
+            return false
+        }
+        var request = URLRequest(url: playerURL, timeoutInterval: 10)
+        request.httpMethod = "PUT"
+        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = body
+        guard let (_, response) = try? await URLSession.shared.data(for: request),
+              let http = response as? HTTPURLResponse else {
+            return false
+        }
+        return (200..<300).contains(http.statusCode)
     }
 
     static func parseQueueData(_ data: Data) -> [QueueItem] {
@@ -628,11 +714,42 @@ enum WebAPI {
         _ = try? await URLSession.shared.data(for: request)
     }
 
-    static func resume(accessToken: String) async -> Bool {
-        var request = URLRequest(url: URL(string: "https://api.spotify.com/v1/me/player/play")!)
+    static func resume(
+        accessToken: String,
+        deviceID: String? = nil,
+        contextURI: String? = nil,
+        trackURI: SpotifyURI? = nil,
+        position: Duration? = nil
+    ) async -> Bool {
+        var components = URLComponents(string: "https://api.spotify.com/v1/me/player/play")!
+        if let deviceID, !deviceID.isEmpty {
+            components.queryItems = [URLQueryItem(name: "device_id", value: deviceID)]
+        }
+        guard let url = components.url else { return false }
+        var request = URLRequest(url: url, timeoutInterval: 10)
         request.httpMethod = "PUT"
-        request.timeoutInterval = 15
         request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+
+        if let trackURI {
+            var payload: [String: Any] = [:]
+            if let contextURI,
+               !contextURI.isEmpty,
+               (contextURI.contains(":playlist:") || contextURI.contains(":album:")) {
+                payload["context_uri"] = contextURI
+                payload["offset"] = ["uri": trackURI.description]
+            } else {
+                payload["uris"] = [trackURI.description]
+            }
+            if let position {
+                let ms = max(0, Int(position.components.seconds * 1000) + Int(position.components.attoseconds / 1_000_000_000_000_000))
+                payload["position_ms"] = ms
+            }
+            if let body = try? JSONSerialization.data(withJSONObject: payload) {
+                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                request.httpBody = body
+            }
+        }
+
         guard let (_, response) = try? await URLSession.shared.data(for: request),
               let http = response as? HTTPURLResponse else {
             return false
@@ -765,14 +882,19 @@ enum WebAPI {
         let contextDict = json["context"] as? [String: Any]
         let contextURI = contextDict?["uri"] as? String
         let deviceDict = json["device"] as? [String: Any]
+        let rawDeviceID = (deviceDict?["id"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let deviceID = (rawDeviceID?.isEmpty == false) ? rawDeviceID : nil
         let deviceName = deviceDict?["name"] as? String
+        let isPlaying = (json["is_playing"] as? Bool) ?? false
         return SpotifyTrackContext(
             uri: uri,
             metadata: metadata,
             position: int(json["progress_ms"]).map { .milliseconds($0) },
             contextTitle: nil,
             contextURI: contextURI,
+            deviceID: deviceID,
             deviceName: deviceName,
+            isPlaying: isPlaying,
             upNext: []
         )
     }

@@ -184,14 +184,13 @@ public final class SconeStore {
                 guard case .track(let track) = group.playback.nowPlaying else { return false }
                 let sameURI = (track.spotifyURI != nil && track.spotifyURI == ctx.uri)
                 let sameTitle = !track.title.isEmpty && track.title.caseInsensitiveCompare(ctx.metadata.title) == .orderedSame
-                let sameDevice = ctx.deviceName.map { dev in
-                    group.speakers.contains { $0.roomName.caseInsensitiveCompare(dev) == .orderedSame }
-                } ?? false
+                let sameDevice = SpotifyDeviceMatcher.matches(deviceName: ctx.deviceName, roomName: group.coordinator.roomName)
+                    || SpotifyDeviceMatcher.matchesAny(deviceName: ctx.deviceName, roomNames: group.speakers.map(\.roomName))
                 return sameURI || sameTitle || sameDevice
             }
             primarySpotifyGroupID = matchingGroups.max { lhs, rhs in
-                let lhsRank = playbackRank(lhs.playback)
-                let rhsRank = playbackRank(rhs.playback)
+                let lhsRank = groupRank(for: lhs)
+                let rhsRank = groupRank(for: rhs)
                 if lhsRank != rhsRank { return lhsRank < rhsRank }
                 if lhs.speakers.count != rhs.speakers.count { return lhs.speakers.count < rhs.speakers.count }
                 return lhs.id > rhs.id
@@ -291,19 +290,33 @@ public final class SconeStore {
         }
     }
 
-    public func handOffSpotify(to group: GroupID) {
+    public func handOffSpotify(to groupID: GroupID) {
         Task {
-            let context: SpotifyTrackContext
-            do throws(SpotifyBridgeError) {
-                context = try await spotify.currentContext()
-            } catch {
-                mutateState { $0.report(.spotify(error)) }
-                return
+            if let group = state.groups.first(where: { $0.id == groupID }) {
+                await startOrResumeSpotifyPlayback(on: group, reportIfNotConnected: true)
+            } else {
+                let context: SpotifyTrackContext
+                do throws(SpotifyBridgeError) {
+                    context = try await spotify.currentContext(forceRefresh: true)
+                } catch {
+                    mutateState { $0.report(.spotify(error)) }
+                    return
+                }
+                cachedSpotifyContext = context
+                let result = await perform(
+                    .enqueueAndPlaySpotify(
+                        uri: context.uri,
+                        metadata: context.metadata,
+                        onCoordinator: groupID,
+                        startingAt: context.position,
+                        contextURI: context.contextURI.flatMap(SpotifyURI.init),
+                        upNext: context.upNext
+                    )
+                )
+                if case .success = result, context.isPlaying, !isHouseholdSonosDevice(context.deviceName) {
+                    await spotify.pauseSourcePlayback()
+                }
             }
-            let result = await perform(
-                .enqueueAndPlaySpotify(
-                    uri: context.uri, metadata: context.metadata, onCoordinator: group, startingAt: context.position))
-            if case .success = result { await spotify.pauseSourcePlayback() }
         }
     }
 
@@ -346,8 +359,8 @@ public final class SconeStore {
         }
         guard sourceGroup.id != targetGroup.id else { return }
 
-        let sourceRank = playbackRank(sourceGroup.playback)
-        let targetRank = playbackRank(targetGroup.playback)
+        let sourceRank = groupRank(for: sourceGroup)
+        let targetRank = groupRank(for: targetGroup)
 
         if sourceGroup.speakers.count == 1 && targetGroup.speakers.count == 1 {
             if sourceRank > targetRank {
@@ -419,8 +432,8 @@ public final class SconeStore {
         let online = state.speakers.filter(\.reachability.isOnline)
         guard online.count > 1 else { return }
         let bestCoordinator = state.groups
-            .max { playbackRank($0.playback) < playbackRank($1.playback) }
-            .flatMap { playbackRank($0.playback) > 0 ? $0.coordinator.id : nil }
+            .max { groupRank(for: $0) < groupRank(for: $1) }
+            .flatMap { groupRank(for: $0) > 0 ? $0.coordinator.id : nil }
         let lead = bestCoordinator ?? online[0].id
         let members = Set(online.map(\.id)).subtracting([lead])
         send(.applyPreset(PresetPill(name: "Everywhere", coordinatorUUID: lead, memberUUIDs: members)))
@@ -433,9 +446,9 @@ public final class SconeStore {
         }
         let defaultRank = state.groups
             .first { $0.coordinator.id == preset.coordinatorUUID }
-            .map { playbackRank($0.playback) } ?? 0
-        if let bestGroup = candidateGroups.max(by: { playbackRank($0.playback) < playbackRank($1.playback) }),
-           playbackRank(bestGroup.playback) > defaultRank,
+            .map { groupRank(for: $0) } ?? 0
+        if let bestGroup = candidateGroups.max(by: { groupRank(for: $0) < groupRank(for: $1) }),
+           groupRank(for: bestGroup) > defaultRank,
            allIDs.contains(bestGroup.coordinator.id) {
             let lead = bestGroup.coordinator.id
             let members = allIDs.subtracting([lead])
@@ -467,64 +480,119 @@ public final class SconeStore {
             send(.playPause(.pause, group: group.id))
         case .paused(let nowPlaying, let elapsed):
             Task {
+                if nowPlaying.isSpotifyOrStreaming {
+                    await startOrResumeSpotifyPlayback(
+                        on: group,
+                        fallbackNowPlaying: nowPlaying,
+                        fallbackElapsed: elapsed,
+                        reportIfNotConnected: false
+                    )
+                    return
+                }
                 let result = await perform(.playPause(.play, group: group.id))
-                if case .failure(.speakerRejected(let detail)) = result {
+                if case .failure = result {
                     mutateState { $0.dismissAlert() }
-                    if await spotify.resumeSourcePlayback() {
-                        return
-                    }
-                    if case .track(let track) = nowPlaying, let uri = track.spotifyURI {
-                        let metadata = SpotifyTrackMetadata(
-                            title: track.title,
-                            artist: track.artist ?? "",
-                            album: track.album,
-                            artworkURL: track.artworkURL,
-                            duration: track.duration
-                        )
-                        _ = await perform(
-                            .enqueueAndPlaySpotify(
-                                uri: uri,
-                                metadata: metadata,
-                                onCoordinator: group.id,
-                                startingAt: elapsed
-                            )
-                        )
-                    } else {
-                        do throws(SpotifyBridgeError) {
-                            let context = try await spotify.currentContext()
-                            let handoff = await perform(
-                                .enqueueAndPlaySpotify(
-                                    uri: context.uri,
-                                    metadata: context.metadata,
-                                    onCoordinator: group.id,
-                                    startingAt: context.position))
-                            if case .success = handoff { await spotify.pauseSourcePlayback() }
-                        } catch {
-                            mutateState { $0.report(.commandFailed(.playPause(.play, group: group.id), .speakerRejected(detail: detail))) }
-                        }
-                    }
+                    await startOrResumeSpotifyPlayback(
+                        on: group,
+                        fallbackNowPlaying: nowPlaying,
+                        fallbackElapsed: elapsed,
+                        reportIfNotConnected: false
+                    )
                 }
             }
         case .stopped:
             Task {
-                do throws(SpotifyBridgeError) {
-                    let context = try await spotify.currentContext()
-                    let result = await perform(
-                        .enqueueAndPlaySpotify(
-                            uri: context.uri,
-                            metadata: context.metadata,
-                            onCoordinator: group.id,
-                            startingAt: context.position))
-                    if case .success = result { await spotify.pauseSourcePlayback() }
-                } catch {
-                    if error == .notConnected {
-                        mutateState { $0.report(.spotify(error)) }
-                    } else {
-                        _ = await perform(.playPause(.play, group: group.id))
-                    }
-                }
+                await startOrResumeSpotifyPlayback(
+                    on: group,
+                    fallbackNowPlaying: lastKnownTracks[group.id].map(NowPlaying.track),
+                    fallbackElapsed: nil,
+                    reportIfNotConnected: true
+                )
             }
         }
+    }
+
+    private func startOrResumeSpotifyPlayback(
+        on group: SonosGroup,
+        fallbackNowPlaying: NowPlaying? = nil,
+        fallbackElapsed: Duration? = nil,
+        reportIfNotConnected: Bool
+    ) async {
+        var fetchedError: SpotifyBridgeError?
+        let liveContext: SpotifyTrackContext?
+        do throws(SpotifyBridgeError) {
+            let ctx = try await spotify.currentContext(forceRefresh: true)
+            cachedSpotifyContext = ctx
+            liveContext = ctx
+        } catch {
+            fetchedError = error
+            liveContext = cachedSpotifyContext
+        }
+
+        // 1. Try native Spotify Connect playback / transfer directly on the Sonos group coordinator.
+        if await spotify.playOnSonosGroup(
+            coordinatorRoomName: group.coordinator.roomName,
+            memberRoomNames: group.speakers.map(\.roomName),
+            context: liveContext
+        ) {
+            schedulePostTransportSpotifyRefresh()
+            return
+        }
+
+        // 2. If Spotify returned a current track context, enqueue that track + upNext queue on Sonos.
+        if let context = liveContext {
+            let result = await perform(
+                .enqueueAndPlaySpotify(
+                    uri: context.uri,
+                    metadata: context.metadata,
+                    onCoordinator: group.id,
+                    startingAt: context.position,
+                    contextURI: context.contextURI.flatMap(SpotifyURI.init),
+                    upNext: context.upNext
+                )
+            )
+            if case .success = result, context.isPlaying, !isHouseholdSonosDevice(context.deviceName) {
+                await spotify.pauseSourcePlayback()
+            }
+            schedulePostTransportSpotifyRefresh()
+            return
+        }
+
+        // 3. Fallback to any known Spotify track on the group before attempting raw UPnP Play.
+        if case .track(let track) = fallbackNowPlaying, let uri = track.spotifyURI {
+            let metadata = SpotifyTrackMetadata(
+                title: track.title,
+                artist: track.artist ?? "",
+                album: track.album,
+                artworkURL: track.artworkURL,
+                duration: track.duration
+            )
+            _ = await perform(
+                .enqueueAndPlaySpotify(
+                    uri: uri,
+                    metadata: metadata,
+                    onCoordinator: group.id,
+                    startingAt: fallbackElapsed,
+                    upNext: track.upNext
+                )
+            )
+            schedulePostTransportSpotifyRefresh()
+            return
+        }
+
+        if fetchedError == .notConnected && reportIfNotConnected {
+            mutateState { $0.report(.spotify(.notConnected)) }
+        } else {
+            _ = await perform(.playPause(.play, group: group.id))
+            schedulePostTransportSpotifyRefresh()
+        }
+    }
+
+    private func isHouseholdSonosDevice(_ deviceName: String?) -> Bool {
+        SpotifyDeviceMatcher.matchesAny(
+            deviceName: deviceName,
+            roomNames: state.speakers.map(\.roomName)
+        )
     }
 
     public func renamePreset(_ id: PresetID, to name: String) {
@@ -546,11 +614,26 @@ public final class SconeStore {
 
     public func dismissAlert() { mutateState { $0.dismissAlert() } }
 
-    private func playbackRank(_ playback: PlaybackState) -> Int {
-        switch playback {
-        case .playing: return 2
-        case .paused: return 1
-        case .stopped: return 0
+    private func groupRank(for group: SonosGroup) -> Int {
+        let matchesSpotifyCoordinator = SpotifyDeviceMatcher.matches(
+            deviceName: cachedSpotifyContext?.deviceName,
+            roomName: group.coordinator.roomName
+        )
+        switch group.playback {
+        case .playing:
+            return matchesSpotifyCoordinator ? 6 : 5
+        case .paused(let nowPlaying, _):
+            if matchesSpotifyCoordinator { return 4 }
+            if case .track(let track) = nowPlaying,
+               let ctx = cachedSpotifyContext,
+               track.spotifyURI != nil,
+               track.spotifyURI == ctx.uri {
+                return 3
+            }
+            if nowPlaying.isSpotifyOrStreaming { return 2 }
+            return 1
+        case .stopped:
+            return matchesSpotifyCoordinator ? 2 : 0
         }
     }
 

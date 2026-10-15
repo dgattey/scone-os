@@ -8,7 +8,13 @@ public enum SonosCommand: Hashable, Sendable {
     case previousTrack(group: GroupID)
     case seekToQueueTrack(number: Int, group: GroupID)
     case enqueueAndPlaySpotify(
-        uri: SpotifyURI, metadata: SpotifyTrackMetadata, onCoordinator: GroupID, startingAt: Duration? = nil)
+        uri: SpotifyURI,
+        metadata: SpotifyTrackMetadata,
+        onCoordinator: GroupID,
+        startingAt: Duration? = nil,
+        contextURI: SpotifyURI? = nil,
+        upNext: [QueueItem] = []
+    )
     case savePresets([PresetPill])
     case setSystemName(String)
 

@@ -532,47 +532,51 @@ public struct SconeRootView: View {
     }
 
     private var sidebar: some View {
-        VStack(spacing: 0) {
-            ScrollView(.vertical, showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 4) {
-                    let isHomeSelected = (selection == .home || selection == nil)
-                    sidebarBrandHeaderRow
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
-                        .background(sidebarRowBackground(selected: isHomeSelected))
-                        .contentShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
-                        .onTapGesture {
-                            selection = .home
-                        }
-
-                    ForEach(store.state.groups) { group in
-                        let isSelected = (selection == .group(group.id))
-                        SidebarGroupRow(group: group, isSelected: isSelected)
+        GeometryReader { geo in
+            VStack(spacing: 0) {
+                ScrollView(.vertical, showsIndicators: false) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        let isHomeSelected = (selection == .home || selection == nil)
+                        sidebarBrandHeaderRow
                             .padding(.horizontal, 10)
-                            .padding(.vertical, 5)
-                            .background(sidebarRowBackground(selected: isSelected))
+                            .padding(.vertical, 6)
+                            .background(sidebarRowBackground(selected: isHomeSelected))
                             .contentShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
                             .onTapGesture {
-                                selection = .group(group.id)
+                                selection = .home
                             }
-                    }
 
-                    ForEach(offlineSpeakers) { speaker in
-                        SidebarOfflineRow(speaker: speaker)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 5)
+                        ForEach(store.state.groups) { group in
+                            let isSelected = (selection == .group(group.id))
+                            SidebarGroupRow(group: group, isSelected: isSelected)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 5)
+                                .background(sidebarRowBackground(selected: isSelected))
+                                .contentShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+                                .onTapGesture {
+                                    selection = .group(group.id)
+                                }
+                        }
+
+                        ForEach(offlineSpeakers) { speaker in
+                            SidebarOfflineRow(speaker: speaker)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 5)
+                        }
                     }
+                    .padding(.horizontal, 14)
+                    .padding(.top, 10)
+                    .padding(.bottom, 12)
                 }
-                .padding(.horizontal, 14)
-                .padding(.top, 10)
-                .padding(.bottom, 12)
-            }
 
-            SpotifySidebarCard(inSidebarFooter: true, onConnect: triggerSpotifyConnect)
-                .padding(.horizontal, 14)
-                .padding(.top, 6)
-                .padding(.bottom, 16)
+                SpotifySidebarCard(inSidebarFooter: true, onConnect: triggerSpotifyConnect)
+                    .padding(.horizontal, 14)
+                    .padding(.top, 6)
+                    .padding(.bottom, 16)
+            }
+            .frame(width: max(geo.size.width, 230), height: geo.size.height, alignment: .leading)
         }
+        .clipped()
     }
 
     @ViewBuilder
