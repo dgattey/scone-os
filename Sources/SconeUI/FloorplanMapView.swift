@@ -76,7 +76,6 @@ struct FloorplanMapView: View {
 
     var body: some View {
         let nodes = store.state.floorplan
-        let clusters = store.state.floorplanRoomClusters
         let groups = store.state.groups
         let topologyKey = groups.map { "\($0.id.coordinator.rawValue):\($0.speakers.map(\.id.rawValue).joined(separator: ","))" }.joined(separator: "|")
 
@@ -85,7 +84,6 @@ struct FloorplanMapView: View {
             if isCompact {
                 CompactFloorplanMapView(
                     nodes: nodes,
-                    clusters: clusters,
                     groups: groups,
                     selected: $selected,
                     onSelectGroup: onSelectGroup
@@ -373,43 +371,7 @@ struct FloorplanMapView: View {
             }
         )
         .contextMenu {
-            Button {
-                store.togglePlayOrHandOffSpotify(for: group)
-            } label: {
-                Label(isPlaying ? "Pause" : "Play", systemImage: isPlaying ? "pause.fill" : "play.fill")
-            }
-            Button {
-                store.handOffSpotify(to: group.id)
-            } label: {
-                Label("Play from Spotify", systemImage: "dot.radiowaves.left.and.right")
-            }
-            if group.speakers.count > 1 {
-                Divider()
-                ForEach(group.speakers) { member in
-                    let memberName = RoomNaming.shortName(member.roomName, merged: false)
-                    Button(role: .destructive) {
-                        store.ungroupSpeaker(member.id)
-                    } label: {
-                        Label("Disconnect \(memberName)", systemImage: "minus.circle")
-                    }
-                }
-                Button(role: .destructive) {
-                    store.dissolveGroup(group.id)
-                } label: {
-                    Label("Ungroup All (\(group.displayName))", systemImage: "xmark.circle")
-                }
-                Button {
-                    store.savePreset(from: group.id)
-                } label: {
-                    Label("Save as Preset", systemImage: "bookmark.fill")
-                }
-            }
-            Divider()
-            Button {
-                onSelectGroup?(group.id)
-            } label: {
-                Label("Open \(group.displayName)", systemImage: "arrow.up.right.square")
-            }
+            SpeakerGroupContextMenu(group: group, onOpenGroup: onSelectGroup)
         }
         .position(position)
     }
@@ -463,109 +425,15 @@ struct FloorplanMapView: View {
             }
         }
         .contextMenu {
-            speakerContextMenu(for: node, group: group, allNodes: nodes)
+            SpeakerGroupContextMenu(
+                group: group,
+                speaker: node.speaker,
+                isPinnedOnMap: node.placement == .pinned,
+                onOpenGroup: onSelectGroup
+            )
         }
         .position(point)
         .zIndex(isBeingDragged ? 4 : (isDropTarget || isSelected ? 3 : 2))
-    }
-
-    @ViewBuilder
-    private func speakerContextMenu(
-        for node: FloorplanNode,
-        group: SonosGroup?,
-        allNodes: [FloorplanNode]
-    ) -> some View {
-        let shortName = RoomNaming.shortName(node.speaker.roomName, merged: false)
-        if let group {
-            Button {
-                store.togglePlayOrHandOffSpotify(for: group)
-            } label: {
-                Label(
-                    playbackIsActive(group.playback) ? "Pause" : "Play",
-                    systemImage: playbackIsActive(group.playback) ? "pause.fill" : "play.fill"
-                )
-            }
-
-            Button {
-                store.handOffSpotify(to: group.id)
-            } label: {
-                Label("Play from Spotify", systemImage: "dot.radiowaves.left.and.right")
-            }
-
-            Divider()
-        }
-
-        let otherNodes = allNodes.filter { other in
-            other.id != node.id && (node.group == nil || other.group != node.group)
-        }
-        if !otherNodes.isEmpty {
-            Menu {
-                ForEach(otherNodes) { other in
-                    let otherName = RoomNaming.shortName(other.speaker.roomName, merged: false)
-                    Button("Group with \(otherName)") {
-                        store.group(member: node.id, onto: other.id)
-                    }
-                }
-                if allNodes.count > 2 {
-                    Divider()
-                    Button("Group All Rooms (Everywhere)") {
-                        store.groupEverywhere()
-                    }
-                }
-            } label: {
-                Label("Group with…", systemImage: "hifispeaker.2.fill")
-            }
-        }
-
-        if let group, group.speakers.count > 1 {
-            Button(role: .destructive) {
-                store.ungroupSpeaker(node.id)
-            } label: {
-                Label("Disconnect \(shortName) from Music", systemImage: "xmark.circle")
-            }
-
-            if group.speakers.count > 2 {
-                Button(role: .destructive) {
-                    store.dissolveGroup(group.id)
-                } label: {
-                    Label("Ungroup All in \(group.displayName)", systemImage: "rectangle.stack.badge.minus")
-                }
-            }
-
-            Button {
-                store.savePreset(from: group.id)
-            } label: {
-                Label("Save Group as Preset", systemImage: "bookmark.fill")
-            }
-        }
-
-        Divider()
-
-        Button {
-            store.toggleMute(for: node.id)
-        } label: {
-            Label(
-                node.speaker.volume == .v0 ? "Unmute \(shortName)" : "Mute \(shortName)",
-                systemImage: node.speaker.volume == .v0 ? "speaker.wave.2.fill" : "speaker.slash.fill"
-            )
-        }
-
-        if node.placement == .pinned {
-            Button {
-                store.resetRoom(node.id)
-            } label: {
-                Label("Reset Map Position", systemImage: "arrow.counterclockwise")
-            }
-        }
-
-        if let group {
-            Divider()
-            Button {
-                onSelectGroup?(group.id)
-            } label: {
-                Label("Open \(group.displayName)", systemImage: "arrow.up.right.square")
-            }
-        }
     }
 
     private func selectedNodeOverlay(
@@ -1099,7 +967,6 @@ private struct BondedSatellitesMapStrip: View {
 private struct CompactFloorplanMapView: View {
     @Environment(SconeStore.self) private var store
     var nodes: [FloorplanNode]
-    var clusters: [FloorplanRoomCluster]
     var groups: [SonosGroup]
     @Binding var selected: SpeakerUUID?
     var onSelectGroup: ((GroupID) -> Void)?
@@ -1189,9 +1056,6 @@ private struct CompactFloorplanMapView: View {
         let group = node.group.flatMap { id in groups.first { $0.id == id } }
         let playing = group.map { playbackIsActive($0.playback) } ?? false
         let connectedToHub = group.map { grp in hubGroups.contains { $0.id == grp.id } } ?? false
-        let otherNodes = nodes.filter { other in
-            other.id != node.id && (node.group == nil || other.group != node.group)
-        }
 
         return RoomContainerNode(
             node: node,
@@ -1210,45 +1074,7 @@ private struct CompactFloorplanMapView: View {
             }
         }
         .contextMenu {
-            if let group {
-                Button {
-                    store.togglePlayOrHandOffSpotify(for: group)
-                } label: {
-                    Label(playing ? "Pause" : "Play", systemImage: playing ? "pause.fill" : "play.fill")
-                }
-                Button {
-                    store.handOffSpotify(to: group.id)
-                } label: {
-                    Label("Play from Spotify", systemImage: "dot.radiowaves.left.and.right")
-                }
-            }
-            if !otherNodes.isEmpty {
-                Menu {
-                    ForEach(otherNodes) { other in
-                        let otherName = RoomNaming.shortName(other.speaker.roomName, merged: false)
-                        Button("Group with \(otherName)") {
-                            store.group(member: node.id, onto: other.id)
-                        }
-                    }
-                } label: {
-                    Label("Group with…", systemImage: "hifispeaker.2.fill")
-                }
-            }
-            if let group, group.speakers.count > 1 {
-                Button(role: .destructive) {
-                    store.ungroupSpeaker(node.id)
-                } label: {
-                    Label("Disconnect \(name)", systemImage: "xmark.circle")
-                }
-            }
-            Button {
-                store.toggleMute(for: node.id)
-            } label: {
-                Label(
-                    node.speaker.volume == .v0 ? "Unmute \(name)" : "Mute \(name)",
-                    systemImage: node.speaker.volume == .v0 ? "speaker.wave.2.fill" : "speaker.slash.fill"
-                )
-            }
+            SpeakerGroupContextMenu(group: group, speaker: node.speaker, onOpenGroup: onSelectGroup)
         }
         .draggable(node.id.rawValue)
         .dropDestination(for: String.self) { items, _ in

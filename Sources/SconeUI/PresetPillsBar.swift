@@ -20,40 +20,28 @@ struct PresetPillsBar: View {
     }
 
     var body: some View {
-        if inToolbar {
-            pillsRow
-                .alert(
-                    "Rename Preset",
-                    isPresented: Binding(
-                        get: { renaming != nil },
-                        set: { if !$0 { renaming = nil } })
-                ) {
-                    TextField("Name", text: $renameText)
-                    Button("Save") {
-                        if let renaming {
-                            store.renamePreset(renaming, to: renameText)
-                        }
-                    }
-                    Button("Cancel", role: .cancel) {}
-                }
-        } else {
-            ScrollView(.horizontal, showsIndicators: false) {
+        Group {
+            if inToolbar {
                 pillsRow
-            }
-            .alert(
-                "Rename Preset",
-                isPresented: Binding(
-                    get: { renaming != nil },
-                    set: { if !$0 { renaming = nil } })
-            ) {
-                TextField("Name", text: $renameText)
-                Button("Save") {
-                    if let renaming {
-                        store.renamePreset(renaming, to: renameText)
-                    }
+            } else {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    pillsRow
                 }
-                Button("Cancel", role: .cancel) {}
             }
+        }
+        .alert(
+            "Rename Preset",
+            isPresented: Binding(
+                get: { renaming != nil },
+                set: { if !$0 { renaming = nil } })
+        ) {
+            TextField("Name", text: $renameText)
+            Button("Save") {
+                if let renaming {
+                    store.renamePreset(renaming, to: renameText)
+                }
+            }
+            Button("Cancel", role: .cancel) {}
         }
     }
 

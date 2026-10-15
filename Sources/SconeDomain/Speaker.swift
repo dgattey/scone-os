@@ -233,9 +233,9 @@ public enum SpeakerModel: Hashable, Sendable, Codable {
         case .roam: return "Sonos Roam"
         case .sub: return "Sonos Sub"
         case .subMini: return "Sonos Sub Mini"
-        case .symfoniskBookshelf: return "SYMFONISK Bookshelf"
-        case .symfoniskLamp: return "SYMFONISK Lamp"
-        case .symfoniskFrame: return "SYMFONISK Picture Frame"
+        case .symfoniskBookshelf: return "Symfonisk Bookshelf"
+        case .symfoniskLamp: return "Symfonisk Lamp"
+        case .symfoniskFrame: return "Symfonisk Picture Frame"
         case .amp: return "Sonos Amp"
         case .port: return "Sonos Port"
         case .unrecognized(let code, let name):
@@ -262,7 +262,7 @@ public enum SpeakerModel: Hashable, Sendable, Codable {
         case .roam: return "Roam"
         case .sub: return "Sub"
         case .subMini: return "Sub Mini"
-        case .symfoniskBookshelf: return "SYMFONISK"
+        case .symfoniskBookshelf: return "Symfonisk"
         case .symfoniskLamp: return "Lamp"
         case .symfoniskFrame: return "Frame"
         case .amp: return "Amp"
@@ -346,7 +346,7 @@ public enum SatelliteRole: String, Hashable, Sendable, Codable, CaseIterable {
         switch self {
         case .rearLeft: "L"
         case .rearRight: "R"
-        case .subwoofer: "SUB"
+        case .subwoofer: "Sub"
         case .stereoRight: "R"
         }
     }

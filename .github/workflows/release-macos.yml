@@ -1,0 +1,145 @@
+# Build a signed macOS release and publish a GitHub Release when PRs merge to main.
+# Version bump type (major / minor / patch) is read from the merged PR's "# Release info" checkbox.
+name: release-macos
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'Sources/**'
+      - 'Package.swift'
+      - 'Package.resolved'
+      - 'Sconeos.local.entitlements'
+      - 'sparkle-public-key.txt'
+      - 'scripts/build-macos.sh'
+      - 'scripts/package-release.sh'
+      - 'scripts/ci-build-macos-release.sh'
+      - 'scripts/generate-icon.swift'
+      - 'scripts/lib/signing.sh'
+      - 'scripts/next-release-version.sh'
+      - 'scripts/setup-self-signed-cert.sh'
+      - 'scripts/macos-release-inputs-changed.sh'
+      - '.github/workflows/release-macos.yml'
+  workflow_dispatch:
+    inputs:
+      release_type:
+        description: 'Release bump type (patch, minor, major)'
+        required: false
+        default: 'patch'
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+
+permissions:
+  contents: write
+  pull-requests: read
+
+concurrency:
+  group: release-macos
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Use Xcode 26.5
+        run: sudo xcode-select -s /Applications/Xcode_26.5.app/Contents/Developer
+
+      - name: Decide whether to rebuild the macOS app
+        id: macos
+        env:
+          GITHUB_EVENT_BEFORE: ${{ github.event.before }}
+        run: |
+          if ./scripts/macos-release-inputs-changed.sh; then
+            echo "build=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "build=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Resolve release type and notes from merged PR
+        if: steps.macos.outputs.build == 'true'
+        id: pr_meta
+        uses: actions/github-script@v7
+        env:
+          INPUT_RELEASE_TYPE: ${{ inputs.release_type }}
+        with:
+          script: |
+            const explicitType = (process.env.INPUT_RELEASE_TYPE || '').trim().toLowerCase();
+            let prBody = '';
+            let prNumber = '';
+            try {
+              const { data: pulls } = await github.rest.repos.listPullRequestsAssociatedWithCommit({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                commit_sha: context.sha,
+              });
+              const mergedPr = pulls.find((p) => p.merged_at) || pulls[0];
+              if (mergedPr) {
+                prBody = mergedPr.body || '';
+                prNumber = String(mergedPr.number);
+              }
+            } catch (err) {
+              core.warning(`Could not look up PR for commit ${context.sha}: ${err.message}`);
+            }
+
+            let releaseType = 'patch';
+            if (explicitType === 'major' || explicitType === 'minor' || explicitType === 'patch') {
+              releaseType = explicitType;
+            } else if (/^\s*-\s*\[x\]\s*Major\b/im.test(prBody)) {
+              releaseType = 'major';
+            } else if (/^\s*-\s*\[x\]\s*Minor\b/im.test(prBody)) {
+              releaseType = 'minor';
+            }
+
+            const notesLines = [];
+            let inSection = false;
+            for (const line of prBody.split('\n')) {
+              if (/^#\s*What changed\?/i.test(line)) {
+                inSection = true;
+              } else if (inSection && (/^#\s*Release info/i.test(line) || /^-+\s*$/.test(line))) {
+                break;
+              } else if (inSection) {
+                notesLines.push(line);
+              }
+            }
+            const notes = notesLines.join('\n').trim();
+
+            core.info(`Resolved release type: ${releaseType} (PR #${prNumber || 'none'})`);
+            core.setOutput('release_type', releaseType);
+            core.setOutput('pr_number', prNumber);
+            core.setOutput('notes', notes);
+
+      - name: Build and package macOS release
+        if: steps.macos.outputs.build == 'true'
+        id: package
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SCONEOS_RELEASE_TYPE: ${{ steps.pr_meta.outputs.release_type }}
+          SCONEOS_CODESIGN_P12_BASE64: ${{ secrets.SCONEOS_CODESIGN_P12_BASE64 }}
+          SCONEOS_CODESIGN_P12_PASSWORD: ${{ secrets.SCONEOS_CODESIGN_P12_PASSWORD }}
+          GATTEY_CODESIGN_P12_BASE64: ${{ secrets.GATTEY_CODESIGN_P12_BASE64 }}
+          GATTEY_CODESIGN_P12_PASSWORD: ${{ secrets.GATTEY_CODESIGN_P12_PASSWORD }}
+          SPARKLE_ED_PRIVATE_KEY_BASE64: ${{ secrets.SPARKLE_ED_PRIVATE_KEY_BASE64 }}
+        run: ./scripts/ci-build-macos-release.sh
+
+      - name: Create GitHub Release
+        if: steps.macos.outputs.build == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.package.outputs.version }}
+          NOTES: ${{ steps.pr_meta.outputs.notes }}
+        run: |
+          tag="v${VERSION}"
+          notes="${NOTES:-Release ${tag}}"
+          gh release create "$tag" \
+            "dist/release/Sconeos-${VERSION}.zip" \
+            "dist/release/appcast.xml" \
+            --title "$tag" \
+            --notes "$notes" \
+            --target "${{ github.sha }}"

@@ -10,129 +10,223 @@ func joinedSpeaker(from items: [String], onto target: SpeakerUUID, store: SconeS
     return true
 }
 
-struct SidebarSpotifyFooter: View {
-    @Environment(SpotifyBridge.self) private var spotify
-    var onConnect: () -> Void
+struct SpeakerGroupContextMenu: View {
+    @Environment(SconeStore.self) private var store
+    var group: SonosGroup?
+    var speaker: Speaker? = nil
+    var isPinnedOnMap: Bool = false
+    var onOpenGroup: ((GroupID) -> Void)? = nil
 
-    @State private var isHovered = false
+    private var excludedSpeakerIDs: Set<SpeakerUUID> {
+        if let group {
+            return Set(group.speakers.map(\.id))
+        }
+        if let speaker {
+            return [speaker.id]
+        }
+        return []
+    }
+
+    private var otherOnlineSpeakers: [Speaker] {
+        let excluded = excludedSpeakerIDs
+        return store.state.speakers.filter { $0.reachability.isOnline && !excluded.contains($0.id) }
+    }
+
+    private var targetCoordinatorID: SpeakerUUID? {
+        speaker?.id ?? group?.coordinator.id
+    }
 
     var body: some View {
-        Group {
-            switch spotify.authorization {
-            case .connected(let displayName):
-                HStack(alignment: .center, spacing: 8) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(displayName.isEmpty ? "Connected" : displayName)
-                            .font(.caption.weight(.medium))
-                            .foregroundStyle(MidnightGlass.secondaryText)
-                            .lineLimit(1)
-                        Text("Powered by Spotify + Sonos")
-                            .font(.system(size: 10, weight: .regular))
-                            .foregroundStyle(MidnightGlass.tertiaryText)
-                            .lineLimit(1)
-                    }
-                    Spacer(minLength: 4)
-                    if isHovered {
-                        Button(role: .destructive) {
-                            spotify.disconnect()
-                        } label: {
-                            Text("Disconnect")
-                                .font(.caption2.weight(.semibold))
-                                .foregroundStyle(Color.red.opacity(0.88))
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 3.5)
-                                .background(Capsule().fill(Color.red.opacity(0.12)))
-                                .overlay(Capsule().strokeBorder(Color.red.opacity(0.28), lineWidth: 0.85))
-                        }
-                        .buttonStyle(.plain)
-                        .transition(.opacity.combined(with: .scale(scale: 0.94, anchor: .trailing)))
-                    }
-                }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 6)
-                .contentShape(Rectangle())
-                .onHover { hovering in
-                    withAnimation(.snappy(duration: 0.18)) {
-                        isHovered = hovering
-                    }
-                }
+        if let group {
+            let isPlaying = playbackIsActive(group.playback)
+            Button {
+                store.togglePlayOrHandOffSpotify(for: group)
+            } label: {
+                Label(isPlaying ? "Pause" : "Play", systemImage: isPlaying ? "pause.fill" : "play.fill")
+            }
 
-            case .notConnected:
-                Button(action: onConnect) {
-                    HStack(spacing: 10) {
-                        Circle()
-                            .fill(MidnightGlass.gold)
-                            .frame(width: 8, height: 8)
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text("Connect Spotify")
-                                .font(.caption.weight(.bold))
-                                .foregroundStyle(MidnightGlass.primaryText)
-                            Text("Sign in for track metadata & queue")
-                                .font(.caption2)
-                                .foregroundStyle(MidnightGlass.secondaryText)
-                                .lineLimit(1)
-                        }
-                        Spacer(minLength: 4)
-                        Image(systemName: "arrow.up.right.circle.fill")
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundStyle(MidnightGlass.gold)
+            Button {
+                store.handOffSpotify(to: group.id)
+            } label: {
+                Label("Play from Spotify", systemImage: "dot.radiowaves.left.and.right")
+            }
+
+            Divider()
+        }
+
+        if let targetCoordinatorID, !otherOnlineSpeakers.isEmpty {
+            Menu {
+                ForEach(otherOnlineSpeakers) { other in
+                    let otherName = RoomNaming.shortName(other.roomName, merged: false)
+                    Button("Group with \(otherName)") {
+                        store.group(member: other.id, onto: targetCoordinatorID)
                     }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 10)
-                    .midnightGlass(glowing: true, radius: 14)
                 }
-                .buttonStyle(PressableStyle())
+                if store.state.speakers.filter(\.reachability.isOnline).count > 2 {
+                    Divider()
+                    Button("Group All Rooms (Everywhere)") {
+                        store.groupEverywhere()
+                    }
+                }
+            } label: {
+                Label("Group with…", systemImage: "hifispeaker.2.fill")
+            }
+        }
+
+        if let group, group.speakers.count > 1 {
+            if let speaker {
+                let shortName = RoomNaming.shortName(speaker.roomName, merged: false)
+                Button(role: .destructive) {
+                    store.ungroupSpeaker(speaker.id)
+                } label: {
+                    Label("Disconnect \(shortName)", systemImage: "xmark.circle")
+                }
+            } else {
+                ForEach(group.speakers) { member in
+                    let memberName = RoomNaming.shortName(member.roomName, merged: false)
+                    Button(role: .destructive) {
+                        store.ungroupSpeaker(member.id)
+                    } label: {
+                        Label("Disconnect \(memberName)", systemImage: "minus.circle")
+                    }
+                }
+            }
+
+            if speaker == nil || group.speakers.count > 2 {
+                Button(role: .destructive) {
+                    store.dissolveGroup(group.id)
+                } label: {
+                    Label("Ungroup All", systemImage: "xmark.circle")
+                }
+            }
+
+            Button {
+                store.savePreset(from: group.id)
+            } label: {
+                Label("Save as Preset", systemImage: "bookmark.fill")
+            }
+        }
+
+        if let muteTarget = speaker ?? (group?.speakers.count == 1 ? group?.coordinator : nil) {
+            let shortName = RoomNaming.shortName(muteTarget.roomName, merged: false)
+            Divider()
+            Button {
+                store.toggleMute(for: muteTarget.id)
+            } label: {
+                Label(
+                    muteTarget.volume == .v0 ? "Unmute \(shortName)" : "Mute \(shortName)",
+                    systemImage: muteTarget.volume == .v0 ? "speaker.wave.2.fill" : "speaker.slash.fill"
+                )
+            }
+        }
+
+        if let speaker, isPinnedOnMap {
+            Button {
+                store.resetRoom(speaker.id)
+            } label: {
+                Label("Reset Map Position", systemImage: "arrow.counterclockwise")
+            }
+        }
+
+        if let group, let onOpenGroup {
+            Divider()
+            Button {
+                onOpenGroup(group.id)
+            } label: {
+                Label("Open \(group.displayName)", systemImage: "arrow.up.right.square")
             }
         }
     }
 }
 
-struct SconeHomeIcon: View {
-    var highlighted: Bool = false
-    var size: CGFloat = 28
+struct SpotifyAccountView: View {
+    @Environment(SpotifyBridge.self) private var spotify
+    var compact: Bool = false
+    var onConnect: () -> Void
 
-    private var fill: Color {
-        highlighted ? MidnightGlass.gold : MidnightGlass.primaryText.opacity(0.84)
-    }
+    @State private var isHovered = false
 
     var body: some View {
-        ZStack {
-            SconeMinimalHouseShape()
-                .fill(fill)
-                .frame(width: size * 0.58, height: size * 0.54)
+        switch spotify.authorization {
+        case .connected(let displayName):
+            HStack(alignment: .center, spacing: compact ? 8 : 12) {
+                if !compact {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.title3)
+                        .foregroundStyle(Color.green)
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(displayName.isEmpty ? "Connected to Spotify" : displayName)
+                        .font((compact ? Font.caption : Font.body).weight(compact ? .medium : .semibold))
+                        .foregroundStyle(compact ? MidnightGlass.secondaryText : MidnightGlass.primaryText)
+                        .lineLimit(1)
+                    Text(compact ? "Powered by Spotify + Sonos" : "Track metadata, album artwork, queue & Sonos handoff")
+                        .font(compact ? .system(size: 10) : .caption)
+                        .foregroundStyle(compact ? MidnightGlass.tertiaryText : MidnightGlass.secondaryText)
+                        .lineLimit(compact ? 1 : 2)
+                }
+                Spacer(minLength: 4)
+                if !compact || isHovered {
+                    Button(role: .destructive) {
+                        spotify.disconnect()
+                    } label: {
+                        Text("Disconnect")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(Color.red.opacity(0.88))
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 3.5)
+                            .background(Capsule().fill(Color.red.opacity(0.12)))
+                            .overlay(Capsule().strokeBorder(Color.red.opacity(0.28), lineWidth: 0.85))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, compact ? 8 : 0)
+            .padding(.vertical, compact ? 6 : 4)
+            .contentShape(Rectangle())
+            .onHover { hovering in
+                withAnimation(.snappy(duration: 0.18)) {
+                    isHovered = hovering
+                }
+            }
+
+        case .notConnected:
+            Button(action: onConnect) {
+                HStack(spacing: 10) {
+                    Circle()
+                        .fill(MidnightGlass.gold)
+                        .frame(width: 8, height: 8)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("Connect Spotify")
+                            .font((compact ? Font.caption : Font.subheadline).weight(.bold))
+                            .foregroundStyle(MidnightGlass.primaryText)
+                        Text("Sign in for track metadata, artwork & live queue")
+                            .font(.caption2)
+                            .foregroundStyle(MidnightGlass.secondaryText)
+                            .lineLimit(compact ? 1 : 2)
+                    }
+                    Spacer(minLength: 4)
+                    Image(systemName: "arrow.up.right.circle.fill")
+                        .font(.system(size: compact ? 16 : 18, weight: .semibold))
+                        .foregroundStyle(MidnightGlass.gold)
+                }
+                .padding(.horizontal, compact ? 12 : 4)
+                .padding(.vertical, compact ? 10 : 6)
+                .modifier(OptionalMidnightGlassModifier(enabled: compact))
+            }
+            .buttonStyle(PressableStyle())
         }
-        .frame(width: size, height: size)
-        .accessibilityHidden(true)
     }
 }
 
-struct SconeMinimalHouseShape: Shape {
-    func path(in rect: CGRect) -> Path {
-        let w = rect.width
-        let h = rect.height
-        let roofPeakY = h * 0.04
-        let eaveY = h * 0.46
-        let bodyInsetX = w * 0.12
-        let cornerR = w * 0.10
-
-        var p = Path()
-        p.move(to: CGPoint(x: w * 0.5, y: roofPeakY))
-        p.addLine(to: CGPoint(x: w, y: eaveY))
-        p.addLine(to: CGPoint(x: w - bodyInsetX, y: eaveY))
-        p.addLine(to: CGPoint(x: w - bodyInsetX, y: h - cornerR))
-        p.addQuadCurve(
-            to: CGPoint(x: w - bodyInsetX - cornerR, y: h),
-            control: CGPoint(x: w - bodyInsetX, y: h)
-        )
-        p.addLine(to: CGPoint(x: bodyInsetX + cornerR, y: h))
-        p.addQuadCurve(
-            to: CGPoint(x: bodyInsetX, y: h - cornerR),
-            control: CGPoint(x: bodyInsetX, y: h)
-        )
-        p.addLine(to: CGPoint(x: bodyInsetX, y: eaveY))
-        p.addLine(to: CGPoint(x: 0, y: eaveY))
-        p.closeSubpath()
-        return p
+private struct OptionalMidnightGlassModifier: ViewModifier {
+    var enabled: Bool
+    func body(content: Content) -> some View {
+        if enabled {
+            content.midnightGlass(glowing: true, radius: 14)
+        } else {
+            content
+        }
     }
 }
 
@@ -161,13 +255,12 @@ struct SidebarGroupRow: View {
         playbackHasSession(group.playback) && !isSuppressedPausedDuplicate(group, in: store.state.groups)
     }
 
-    private var otherOnlineSpeakers: [Speaker] {
-        let memberIDs = Set(group.speakers.map(\.id))
-        return store.state.speakers.filter { $0.reachability.isOnline && !memberIDs.contains($0.id) }
-    }
-
     var body: some View {
-        row
+        rowBody
+            .dropDestination(for: String.self) { items, _ in
+                joinedSpeaker(from: items, onto: group.coordinator.id, store: store)
+            } isTargeted: { targeted = $0 }
+            .draggable(group.coordinator.id.rawValue) { dragPreview(group.coordinator) }
             .overlay {
                 if targeted {
                     RoundedRectangle(cornerRadius: 10, style: .continuous)
@@ -175,72 +268,8 @@ struct SidebarGroupRow: View {
                 }
             }
             .contextMenu {
-                Button {
-                    store.togglePlayOrHandOffSpotify(for: group)
-                } label: {
-                    Label(playing ? "Pause" : "Play", systemImage: playing ? "pause.fill" : "play.fill")
-                }
-
-                Button {
-                    store.handOffSpotify(to: group.id)
-                } label: {
-                    Label("Play from Spotify", systemImage: "dot.radiowaves.left.and.right")
-                }
-
-                if !otherOnlineSpeakers.isEmpty {
-                    Menu {
-                        ForEach(otherOnlineSpeakers) { other in
-                            let name = RoomNaming.shortName(other.roomName, merged: false)
-                            Button("Group with \(name)") {
-                                store.group(member: other.id, onto: group.coordinator.id)
-                            }
-                        }
-                    } label: {
-                        Label("Group with…", systemImage: "hifispeaker.2.fill")
-                    }
-                }
-
-                if isMultiRoom {
-                    Divider()
-                    ForEach(group.speakers) { member in
-                        let memberName = RoomNaming.shortName(member.roomName, merged: false)
-                        Button(role: .destructive) {
-                            store.ungroupSpeaker(member.id)
-                        } label: {
-                            Label("Remove \(memberName)", systemImage: "minus.circle")
-                        }
-                    }
-                    Button(role: .destructive) {
-                        store.dissolveGroup(group.id)
-                    } label: {
-                        Label("Ungroup All", systemImage: "xmark.circle")
-                    }
-                    Button {
-                        store.savePreset(from: group.id)
-                    } label: {
-                        Label("Save as Preset", systemImage: "bookmark.fill")
-                    }
-                } else {
-                    Divider()
-                    let shortName = RoomNaming.shortName(group.coordinator.roomName, merged: false)
-                    Button {
-                        store.toggleMute(for: group.coordinator.id)
-                    } label: {
-                        Label(
-                            group.coordinator.volume == .v0 ? "Unmute \(shortName)" : "Mute \(shortName)",
-                            systemImage: group.coordinator.volume == .v0 ? "speaker.wave.2.fill" : "speaker.slash.fill"
-                        )
-                    }
-                }
+                SpeakerGroupContextMenu(group: group)
             }
-    }
-
-    @ViewBuilder private var row: some View {
-        rowBody
-            .dropDestination(for: String.self) { items, _ in
-                joinedSpeaker(from: items, onto: group.coordinator.id, store: store)
-            } isTargeted: { targeted = $0 }
-            .draggable(group.coordinator.id.rawValue) { dragPreview(group.coordinator) }
     }
 
     private var rowBody: some View {

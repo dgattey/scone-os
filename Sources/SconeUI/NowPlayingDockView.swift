@@ -11,16 +11,36 @@ struct NowPlayingDock: View {
     var onOpen: () -> Void
 
     @State private var showingQueuePopover = LaunchView.requestsQueuePopover()
+    @State private var showingVolumePopover = false
+
+    private var isCompactFloatingPill: Bool {
+        #if os(iOS)
+        return horizontalSizeClass == .compact || LaunchView.requestsIOS()
+        #else
+        return LaunchView.requestsIOS()
+        #endif
+    }
 
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
-            ViewThatFits(in: .horizontal) {
-                wideLayout
-                compactLayout
+            if isCompactFloatingPill {
+                spotifyFloatingPill
+            } else {
+                ViewThatFits(in: .horizontal) {
+                    wideLayout
+                    compactLayout
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                .midnightGlass(glowing: true, radius: 18)
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 10)
-            .midnightGlass(glowing: true, radius: 18)
+
+            if showingVolumePopover && isCompactFloatingPill {
+                floatingVolumeCard
+                    .offset(y: -66)
+                    .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .bottomTrailing)))
+                    .zIndex(55)
+            }
 
             if showingQueuePopover, case .track(let track) = group.playback.nowPlaying {
                 DockQueuePopoverView(
@@ -32,16 +52,173 @@ struct NowPlayingDock: View {
                     },
                     onClose: { showingQueuePopover = false }
                 )
-                .frame(width: 390)
+                .frame(maxWidth: isCompactFloatingPill ? .infinity : 390)
                 .padding(14)
                 .midnightGlass(glowing: true, radius: 18)
-                .shadow(color: Color.black.opacity(0.45), radius: 22, y: 8)
-                .offset(y: -74)
+                .shadow(color: Color.black.opacity(0.55), radius: 24, y: 10)
+                .offset(y: isCompactFloatingPill ? -66 : -74)
                 .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .bottomTrailing)))
                 .zIndex(50)
             }
         }
         .animation(.snappy(duration: 0.2), value: showingQueuePopover)
+        .animation(.snappy(duration: 0.2), value: showingVolumePopover)
+    }
+
+    private var spotifyFloatingPill: some View {
+        HStack(spacing: 11) {
+            Button(action: onOpen) {
+                HStack(spacing: 11) {
+                    AlbumArtworkView(url: artworkURL, size: 42, cornerRadius: 8)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(primaryTitle)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(MidnightGlass.primaryText)
+                            .lineLimit(1)
+                        HStack(spacing: 5) {
+                            Image(systemName: "hifispeaker.fill")
+                                .font(.system(size: 9.5, weight: .bold))
+                                .foregroundStyle(MidnightGlass.gold)
+                            Text(floatingPillSubtitle)
+                                .font(.caption.weight(.medium))
+                                .foregroundStyle(MidnightGlass.gold)
+                                .lineLimit(1)
+                        }
+                    }
+                    Spacer(minLength: 4)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            HStack(spacing: 6) {
+                Button {
+                    showingQueuePopover = false
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.84)) {
+                        showingVolumePopover.toggle()
+                    }
+                } label: {
+                    HStack(spacing: 3) {
+                        Image(systemName: group.volume == .v0 ? "speaker.slash.fill" : "speaker.wave.2.fill")
+                            .font(.system(size: 10, weight: .bold))
+                        Text("\(group.volume.percent)%")
+                            .font(.system(size: 11, weight: .semibold).monospacedDigit())
+                    }
+                    .foregroundStyle(showingVolumePopover ? MidnightGlass.ink : MidnightGlass.gold)
+                    .padding(.horizontal, 8)
+                    .frame(height: 28)
+                    .background(
+                        Capsule().fill(showingVolumePopover ? MidnightGlass.gold : MidnightGlass.subtleFill)
+                    )
+                    .overlay(
+                        Capsule().strokeBorder(MidnightGlass.gold.opacity(0.45), lineWidth: 1)
+                    )
+                }
+                .buttonStyle(PressableStyle())
+                .accessibilityLabel("Volume \(group.volume.percent) percent")
+
+                queuePopoverButton
+
+                dockTransportButton(
+                    playbackIsActive(group.playback) ? "pause.fill" : "play.fill",
+                    enabled: true,
+                    prominent: true
+                ) {
+                    store.togglePlayOrHandOffSpotify(for: group)
+                }
+
+                dockTransportButton("forward.fill", enabled: canSkip, prominent: false) {
+                    store.send(.nextTrack(group: group.id))
+                }
+            }
+        }
+        .padding(.leading, 10)
+        .padding(.trailing, 12)
+        .padding(.vertical, 8)
+        .background {
+            RoundedRectangle(cornerRadius: 15, style: .continuous)
+                .fill(MidnightGlass.cardElevatedFill)
+                .overlay(alignment: .bottom) {
+                    GeometryReader { geo in
+                        let ratio = CGFloat(group.volume.percent) / 100.0
+                        ZStack(alignment: .leading) {
+                            Capsule()
+                                .fill(Color.white.opacity(0.10))
+                                .frame(height: 2)
+                            Capsule()
+                                .fill(MidnightGlass.gold.opacity(0.88))
+                                .frame(width: max(6, (geo.size.width - 28) * ratio), height: 2)
+                        }
+                        .padding(.horizontal, 14)
+                        .frame(maxHeight: .infinity, alignment: .bottom)
+                        .padding(.bottom, 1.5)
+                    }
+                }
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: 15, style: .continuous)
+                .strokeBorder(
+                    LinearGradient(
+                        colors: [
+                            MidnightGlass.gold.opacity(0.65),
+                            MidnightGlass.cardBorder.opacity(0.85),
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    ),
+                    lineWidth: 1.1
+                )
+        }
+        .shadow(color: Color.black.opacity(0.55), radius: 18, x: 0, y: 8)
+        .shadow(color: MidnightGlass.copper.opacity(0.22), radius: 10, x: 0, y: 3)
+    }
+
+    private var floatingVolumeCard: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Label(group.displayName, systemImage: "hifispeaker.2.fill")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(MidnightGlass.gold)
+                Spacer()
+                Button {
+                    showingVolumePopover = false
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(MidnightGlass.secondaryText)
+                        .frame(width: 22, height: 22)
+                        .background(Circle().fill(MidnightGlass.subtleFill))
+                }
+                .buttonStyle(.plain)
+            }
+            DiscreteVolumeControl(volume: group.volume, compact: true) { volume in
+                let target: VolumeTarget = group.speakers.count > 1
+                    ? .group(group.id)
+                    : .speaker(group.coordinator.id)
+                store.send(.setVolume(volume, for: target))
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .midnightGlass(glowing: true, radius: 16)
+        .shadow(color: Color.black.opacity(0.50), radius: 20, y: 8)
+    }
+
+    private var floatingPillSubtitle: String {
+        switch group.playback.nowPlaying {
+        case .track(let track):
+            if let artist = track.artist?.trimmingCharacters(in: .whitespacesAndNewlines), !artist.isEmpty {
+                return "\(group.displayName) · \(artist)"
+            }
+            return group.displayName
+        case .tvAudio, .stream:
+            return group.displayName
+        case nil:
+            if group.speakers.count > 1 {
+                return "\(group.speakers.count) rooms grouped"
+            }
+            return "\(group.coordinator.model.displayName) · Ready to play"
+        }
     }
 
     private var wideLayout: some View {
@@ -117,6 +294,7 @@ struct NowPlayingDock: View {
     private var queuePopoverButton: some View {
         if case .track = group.playback.nowPlaying {
             Button {
+                showingVolumePopover = false
                 let willShow = !showingQueuePopover
                 withAnimation(.spring(response: 0.32, dampingFraction: 0.84)) {
                     showingQueuePopover = willShow
@@ -246,7 +424,10 @@ struct NowPlayingDock: View {
         case .tvAudio, .stream:
             return group.displayName
         case nil:
-            return "\(group.speakers.count) rooms grouped · Ready to play"
+            if group.speakers.count > 1 {
+                return "\(group.speakers.count) rooms grouped · Ready to play"
+            }
+            return "\(group.coordinator.model.displayName) · Ready to play"
         }
     }
 
