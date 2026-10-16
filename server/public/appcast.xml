@@ -3,19 +3,19 @@
     <channel>
         <title>Sconeos</title>
         <item>
-            <title>1.0.6</title>
-            <pubDate>Fri, 16 Oct 2026 01:14:11 +0000</pubDate>
+            <title>1.0.7</title>
+            <pubDate>Fri, 16 Oct 2026 06:21:21 +0000</pubDate>
             <link>https://sconeos.gattey.com</link>
-            <sparkle:version>18</sparkle:version>
-            <sparkle:shortVersionString>1.0.6</sparkle:shortVersionString>
+            <sparkle:version>20</sparkle:version>
+            <sparkle:shortVersionString>1.0.7</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
             <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
             <description><![CDATA[<ul>
-  <li style="margin-bottom: 6px; line-height: 1.45;"><strong>Readable in-app update notes:</strong> Sparkle update dialogs now render concise, scannable HTML bullet points instead of raw PR markdown or blank descriptions.</li>
-  <li style="margin-bottom: 6px; line-height: 1.45;"><strong>Hourly background update checks:</strong> Sconeos now checks for updates every hour in addition to checking immediately on launch.</li>
+  <li style="margin-bottom: 6px; line-height: 1.45;"><strong>Fix Sparkle update signature validation:</strong> Pin ad-hoc signed app bundles to a bundle-identifier designated requirement (<code>designated =&gt; identifier "com.sconeos.SconeOS"</code>) so Sparkle updates succeed across builds instead of failing with code-signature error <code>-67050</code>.</li>
+  <li style="margin-bottom: 6px; line-height: 1.45;"><strong>Verify update signatures at release time:</strong> Require <code>sparkle:edSignature</code> and cryptographically verify it against <code>SUPublicEDKey</code> in <code>Info.plist</code> during release packaging.</li>
 </ul>
 ]]></description>
-            <enclosure url="https://sconeos.gattey.com/Sconeos-1.0.6.zip" length="3459466" type="application/octet-stream" sparkle:edSignature="r/wyWpm8eyrueSx8cl0pJlgGNe3/+LhSW5TTHKDdgu032hcuPD+7iYLy1d9GVb3gwc8CVw4LHDKvkkG5UxWxBQ=="/>
+            <enclosure url="https://sconeos.gattey.com/Sconeos-1.0.7.zip" length="3459502" type="application/octet-stream" sparkle:edSignature="r/usFr6nLCDy4cDNYSsfsylc9xuIyO6BBRpznUa6GBinvkl3ExCq+Fg4/h4WuUM7dLtlT7XRIe4NMvFJcHLICQ=="/>
         </item>
     </channel>
 </rss>
