@@ -3,18 +3,19 @@
     <channel>
         <title>Sconeos</title>
         <item>
-            <title>1.0.5</title>
-            <pubDate>Thu, 15 Oct 2026 23:43:15 +0000</pubDate>
+            <title>1.0.6</title>
+            <pubDate>Fri, 16 Oct 2026 01:14:11 +0000</pubDate>
             <link>https://sconeos.gattey.com</link>
-            <sparkle:version>15</sparkle:version>
-            <sparkle:shortVersionString>1.0.5</sparkle:shortVersionString>
+            <sparkle:version>18</sparkle:version>
+            <sparkle:shortVersionString>1.0.6</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
             <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
             <description><![CDATA[<ul>
-  <li style="margin-bottom: 6px; line-height: 1.45;">Automatically check for updates in the background on every launch and every hour while running.</li>
-  <li style="margin-bottom: 6px; line-height: 1.45;">Format Sparkle update release notes as scannable HTML bullets.</li>
-</ul>]]></description>
-            <enclosure url="https://sconeos.gattey.com/Sconeos-1.0.5.zip" length="3415656" type="application/octet-stream" sparkle:edSignature="QEePVNf1qJoddzJOzeiWf0cTocdMSjnnYatE4pzPxrdAyLwV0Qr2lzlOrm/vlZaHQW3az0pRKlE64Hz/22MUAg=="/>
+  <li style="margin-bottom: 6px; line-height: 1.45;"><strong>Readable in-app update notes:</strong> Sparkle update dialogs now render concise, scannable HTML bullet points instead of raw PR markdown or blank descriptions.</li>
+  <li style="margin-bottom: 6px; line-height: 1.45;"><strong>Hourly background update checks:</strong> Sconeos now checks for updates every hour in addition to checking immediately on launch.</li>
+</ul>
+]]></description>
+            <enclosure url="https://sconeos.gattey.com/Sconeos-1.0.6.zip" length="3459466" type="application/octet-stream" sparkle:edSignature="r/wyWpm8eyrueSx8cl0pJlgGNe3/+LhSW5TTHKDdgu032hcuPD+7iYLy1d9GVb3gwc8CVw4LHDKvkkG5UxWxBQ=="/>
         </item>
     </channel>
 </rss>
