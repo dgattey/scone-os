@@ -13,6 +13,7 @@ on:
       - 'sparkle-public-key.txt'
       - 'scripts/build-macos.sh'
       - 'scripts/package-release.sh'
+      - 'scripts/format-release-notes.sh'
       - 'scripts/ci-build-macos-release.sh'
       - 'scripts/export-ci-secrets.sh'
       - 'scripts/fetch-live-macos-release.sh'
@@ -75,6 +76,7 @@ jobs:
             const explicitType = (process.env.INPUT_RELEASE_TYPE || '').trim().toLowerCase();
             let prBody = '';
             let prNumber = '';
+            let prTitle = '';
             try {
               const { data: pulls } = await github.rest.repos.listPullRequestsAssociatedWithCommit({
                 owner: context.repo.owner,
@@ -85,6 +87,7 @@ jobs:
               if (mergedPr) {
                 prBody = mergedPr.body || '';
                 prNumber = String(mergedPr.number);
+                prTitle = (mergedPr.title || '').trim();
               }
             } catch (err) {
               core.warning(`Could not look up PR for commit ${context.sha}: ${err.message}`);
@@ -99,23 +102,59 @@ jobs:
               releaseType = 'minor';
             }
 
-            const notesLines = [];
-            let inSection = false;
-            for (const line of prBody.split('\n')) {
-              if (/^#\s*What changed\?/i.test(line)) {
-                inSection = true;
-              } else if (inSection && (/^#\s*Release info/i.test(line) || /^-+\s*$/.test(line))) {
-                break;
-              } else if (inSection) {
-                notesLines.push(line);
+            const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            const extractSection = (body, heading) => {
+              const headingRe = new RegExp(`^#+\\s*${escapeRegex(heading)}\\s*$`, 'i');
+              const anyHeadingRe = /^#+\s+\S/;
+              const hrRe = /^-+\s*$/;
+              let inSection = false;
+              const collected = [];
+              for (const line of body.split('\n')) {
+                if (headingRe.test(line.trim())) {
+                  inSection = true;
+                  continue;
+                }
+                if (inSection) {
+                  if (
+                    anyHeadingRe.test(line.trim()) ||
+                    hrRe.test(line.trim()) ||
+                    line.includes('<!-- CURSOR_AGENT_PR_BODY_END -->')
+                  ) {
+                    break;
+                  }
+                  if (/^\s*[-*]\s*$/.test(line)) {
+                    continue;
+                  }
+                  collected.push(line);
+                }
               }
-            }
-            const notes = notesLines.join('\n').trim();
+              return collected.join('\n').trim();
+            };
+
+            const extractNotes = (body, headings, fallbackTitle) => {
+              for (const h of headings) {
+                const section = extractSection(body, h);
+                if (section) return section;
+              }
+              return fallbackTitle ? `- ${fallbackTitle}` : '';
+            };
+
+            const sparkleNotes = extractNotes(
+              prBody,
+              ['Release notes', 'Highlights', 'What changed?', 'Summary', 'Overview'],
+              prTitle
+            );
+            const notes = extractNotes(
+              prBody,
+              ['What changed?', 'Release notes', 'Highlights', 'Summary', 'Overview'],
+              prTitle
+            );
 
             core.info(`Resolved release type: ${releaseType} (PR #${prNumber || 'none'})`);
             core.setOutput('release_type', releaseType);
             core.setOutput('pr_number', prNumber);
             core.setOutput('notes', notes);
+            core.setOutput('sparkle_notes', sparkleNotes);
 
       - name: Build and package macOS release
         if: steps.macos.outputs.build == 'true'
@@ -123,6 +162,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SCONEOS_RELEASE_TYPE: ${{ steps.pr_meta.outputs.release_type }}
+          SCONEOS_RELEASE_NOTES: ${{ steps.pr_meta.outputs.sparkle_notes }}
           SCONEOS_CODESIGN_P12_BASE64: ${{ secrets.SCONEOS_CODESIGN_P12_BASE64 }}
           SCONEOS_CODESIGN_P12_PASSWORD: ${{ secrets.SCONEOS_CODESIGN_P12_PASSWORD }}
           GATTEY_CODESIGN_P12_BASE64: ${{ secrets.GATTEY_CODESIGN_P12_BASE64 }}
