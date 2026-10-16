@@ -8,6 +8,7 @@ public struct HouseholdSnapshot: Hashable, Sendable {
     public let rf: RFPeerMatrix
     public let presets: [PresetPill]?
     public let networkName: String?
+    public let externalSpotify: SpotifyTrackContext?
     public let groups: [SonosGroup]
 
     package init(
@@ -15,6 +16,7 @@ public struct HouseholdSnapshot: Hashable, Sendable {
         groupStatus: [GroupID: GroupStatus], rf: RFPeerMatrix,
         presets: [PresetPill]? = nil,
         networkName: String? = nil,
+        externalSpotify: SpotifyTrackContext? = nil,
         preferredGroupIDs: Set<GroupID> = []
     ) {
         self.observedAt = observedAt
@@ -23,6 +25,7 @@ public struct HouseholdSnapshot: Hashable, Sendable {
         self.rf = rf
         self.presets = presets
         self.networkName = networkName
+        self.externalSpotify = externalSpotify
         let sanitizedStatus = Self.sanitizeGroupStatus(
             groupStatus,
             speakers: speakers,
@@ -43,6 +46,7 @@ public struct HouseholdSnapshot: Hashable, Sendable {
               rf == other.rf,
               presets == other.presets,
               networkName == other.networkName,
+              externalSpotify == other.externalSpotify,
               speakers.count == other.speakers.count else {
             return false
         }
@@ -80,6 +84,7 @@ public struct HouseholdSnapshot: Hashable, Sendable {
             rf: rf,
             presets: presets,
             networkName: networkName,
+            externalSpotify: externalSpotify,
             preferredGroupIDs: preferredGroupIDs
         )
     }
@@ -239,10 +244,12 @@ public struct HouseholdSnapshot: Hashable, Sendable {
 
     package func replacing(
         speakers: [SpeakerUUID: Speaker]? = nil, topology: Topology? = nil,
-        status: (GroupID, GroupStatus)? = nil
+        status: (GroupID, GroupStatus)? = nil,
+        externalSpotify: SpotifyTrackContext?? = nil
     ) -> HouseholdSnapshot {
         var statuses = groupStatus
         if let status { statuses[status.0] = status.1 }
+        let resolvedExternal = externalSpotify ?? self.externalSpotify
         return HouseholdSnapshot(
             observedAt: observedAt,
             speakers: speakers ?? self.speakers,
@@ -250,7 +257,8 @@ public struct HouseholdSnapshot: Hashable, Sendable {
             groupStatus: statuses,
             rf: rf,
             presets: presets,
-            networkName: networkName)
+            networkName: networkName,
+            externalSpotify: resolvedExternal)
     }
 }
 

@@ -42,7 +42,7 @@ struct NowPlayingDock: View {
                     .zIndex(55)
             }
 
-            if showingQueuePopover, case .track(let track) = group.playback.nowPlaying {
+            if showingQueuePopover, let track = effectiveQueueTrack {
                 DockQueuePopoverView(
                     group: group,
                     track: track,
@@ -119,16 +119,20 @@ struct NowPlayingDock: View {
 
                 queuePopoverButton
 
-                dockTransportButton(
-                    playbackIsActive(group.playback) ? "pause.fill" : "play.fill",
-                    enabled: true,
-                    prominent: true
-                ) {
-                    store.togglePlayOrHandOffSpotify(for: group)
-                }
+                if externalSpotify != nil {
+                    playHereButton(height: 28, horizontalPadding: 10, fontSize: 11.5)
+                } else {
+                    dockTransportButton(
+                        playbackIsActive(group.playback) ? "pause.fill" : "play.fill",
+                        enabled: true,
+                        prominent: true
+                    ) {
+                        store.togglePlayOrHandOffSpotify(for: group)
+                    }
 
-                dockTransportButton("forward.fill", enabled: canSkip, prominent: false) {
-                    store.send(.nextTrack(group: group.id))
+                    dockTransportButton("forward.fill", enabled: canSkip, prominent: false) {
+                        store.send(.nextTrack(group: group.id))
+                    }
                 }
             }
         }
@@ -214,6 +218,13 @@ struct NowPlayingDock: View {
         case .tvAudio, .stream:
             return group.displayName
         case nil:
+            if let external = externalSpotify {
+                let artist = external.metadata.artist.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !artist.isEmpty {
+                    return "\(artist) · \(external.externalPlaybackLabel)"
+                }
+                return "\(external.externalPlaybackLabel) · \(group.displayName)"
+            }
             if group.speakers.count > 1 {
                 return "\(group.speakers.count) rooms grouped"
             }
@@ -292,7 +303,7 @@ struct NowPlayingDock: View {
 
     @ViewBuilder
     private var queuePopoverButton: some View {
-        if case .track = group.playback.nowPlaying {
+        if effectiveQueueTrack != nil {
             Button {
                 showingVolumePopover = false
                 let willShow = !showingQueuePopover
@@ -363,18 +374,22 @@ struct NowPlayingDock: View {
     private var transportButtons: some View {
         HStack(spacing: 8) {
             queuePopoverButton
-            dockTransportButton("backward.fill", enabled: canSkip, prominent: false) {
-                store.send(.previousTrack(group: group.id))
-            }
-            dockTransportButton(
-                playbackIsActive(group.playback) ? "pause.fill" : "play.fill",
-                enabled: true,
-                prominent: true
-            ) {
-                store.togglePlayOrHandOffSpotify(for: group)
-            }
-            dockTransportButton("forward.fill", enabled: canSkip, prominent: false) {
-                store.send(.nextTrack(group: group.id))
+            if externalSpotify != nil {
+                playHereButton(height: 34, horizontalPadding: 13, fontSize: 12.5)
+            } else {
+                dockTransportButton("backward.fill", enabled: canSkip, prominent: false) {
+                    store.send(.previousTrack(group: group.id))
+                }
+                dockTransportButton(
+                    playbackIsActive(group.playback) ? "pause.fill" : "play.fill",
+                    enabled: true,
+                    prominent: true
+                ) {
+                    store.togglePlayOrHandOffSpotify(for: group)
+                }
+                dockTransportButton("forward.fill", enabled: canSkip, prominent: false) {
+                    store.send(.nextTrack(group: group.id))
+                }
             }
             if group.speakers.count > 1 {
                 Button {
@@ -394,11 +409,57 @@ struct NowPlayingDock: View {
         }
     }
 
+    private func playHereButton(height: CGFloat, horizontalPadding: CGFloat, fontSize: CGFloat) -> some View {
+        Button {
+            store.togglePlayOrHandOffSpotify(for: group)
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: "play.fill")
+                    .font(.system(size: fontSize - 1.5, weight: .bold))
+                Text("Play here")
+                    .font(.system(size: fontSize, weight: .semibold))
+            }
+            .foregroundStyle(MidnightGlass.ink)
+            .padding(.horizontal, horizontalPadding)
+            .frame(height: height)
+            .background(Capsule().fill(MidnightGlass.gold))
+        }
+        .buttonStyle(PressableStyle())
+        .help("Play on \(group.displayName)")
+        .accessibilityLabel("Play on \(group.displayName)")
+    }
+
+    private var externalSpotify: SpotifyTrackContext? {
+        guard group.playback.nowPlaying == nil else { return nil }
+        return store.state.externalSpotify
+    }
+
+    private var effectiveQueueTrack: NowPlayingTrack? {
+        if case .track(let track) = group.playback.nowPlaying {
+            return track
+        }
+        if let external = externalSpotify {
+            return NowPlayingTrack(
+                title: external.metadata.title,
+                artist: external.metadata.artist.isEmpty ? nil : external.metadata.artist,
+                album: external.metadata.album,
+                artworkURL: external.metadata.artworkURL,
+                duration: external.metadata.duration,
+                queuePosition: nil,
+                spotifyURI: external.uri,
+                source: .spotify(contextTitle: external.contextTitle),
+                upNext: external.upNext,
+                canSkip: true
+            )
+        }
+        return nil
+    }
+
     private var artworkURL: URL? {
         if case .track(let track) = group.playback.nowPlaying {
             return track.artworkURL
         }
-        return nil
+        return externalSpotify?.metadata.artworkURL
     }
 
     private var primaryTitle: String {
@@ -410,7 +471,11 @@ struct NowPlayingDock: View {
         case .stream(let title):
             title ?? group.displayName
         default:
-            group.displayName
+            if let externalTitle = externalSpotify?.metadata.title, !externalTitle.isEmpty {
+                externalTitle
+            } else {
+                group.displayName
+            }
         }
     }
 
@@ -424,6 +489,13 @@ struct NowPlayingDock: View {
         case .tvAudio, .stream:
             return group.displayName
         case nil:
+            if let external = externalSpotify {
+                let artist = external.metadata.artist.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !artist.isEmpty {
+                    return "\(artist) · \(group.displayName)"
+                }
+                return group.displayName
+            }
             if group.speakers.count > 1 {
                 return "\(group.speakers.count) rooms grouped · Ready to play"
             }
@@ -432,11 +504,17 @@ struct NowPlayingDock: View {
     }
 
     private var sourceLine: String? {
-        guard case .track(let track) = group.playback.nowPlaying,
-              let source = track.source else {
-            return nil
+        if case .track(let track) = group.playback.nowPlaying,
+           let source = track.source {
+            return source.label
         }
-        return source.label
+        if let external = externalSpotify {
+            if let ctxTitle = external.contextTitle, !ctxTitle.isEmpty {
+                return "\(external.externalPlaybackLabel) · \(ctxTitle)"
+            }
+            return external.externalPlaybackLabel
+        }
+        return nil
     }
 
     private var canSkip: Bool {

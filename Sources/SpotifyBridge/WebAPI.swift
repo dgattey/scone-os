@@ -619,6 +619,7 @@ actor SpotifyAPIClient {
             contextURI: base.contextURI,
             deviceID: base.deviceID,
             deviceName: base.deviceName,
+            deviceType: base.deviceType,
             isPlaying: base.isPlaying,
             upNext: upNext
         )
@@ -1092,6 +1093,7 @@ package enum WebAPI {
             contextURI: payload.context?.uri,
             deviceID: deviceID,
             deviceName: payload.device?.name,
+            deviceType: payload.device?.type,
             isPlaying: payload.isPlaying ?? false,
             upNext: []
         )

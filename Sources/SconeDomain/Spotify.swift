@@ -74,6 +74,7 @@ public struct SpotifyTrackContext: Hashable, Sendable {
     public let contextURI: String?
     public let deviceID: String?
     public let deviceName: String?
+    public let deviceType: String?
     public let isPlaying: Bool
     public let upNext: [QueueItem]
 
@@ -85,6 +86,7 @@ public struct SpotifyTrackContext: Hashable, Sendable {
         contextURI: String? = nil,
         deviceID: String? = nil,
         deviceName: String? = nil,
+        deviceType: String? = nil,
         isPlaying: Bool = false,
         upNext: [QueueItem] = []
     ) {
@@ -95,7 +97,50 @@ public struct SpotifyTrackContext: Hashable, Sendable {
         self.contextURI = contextURI
         self.deviceID = deviceID
         self.deviceName = deviceName
+        self.deviceType = deviceType
         self.isPlaying = isPlaying
         self.upNext = upNext
+    }
+
+    public var externalDeviceDisplayName: String {
+        if Self.isLocalComputerDevice(name: deviceName, type: deviceType) {
+            return "This computer"
+        }
+        if let name = deviceName?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty {
+            return name
+        }
+        return "Spotify"
+    }
+
+    public var externalPlaybackLabel: String {
+        "Playing on \(externalDeviceDisplayName)"
+    }
+
+    public static func isLocalComputerDevice(name: String?, type: String?) -> Bool {
+        if let type = type?.trimmingCharacters(in: .whitespacesAndNewlines),
+           type.caseInsensitiveCompare("Computer") == .orderedSame {
+            return true
+        }
+        guard let trimmed = name?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmed.isEmpty else {
+            return false
+        }
+        if trimmed.caseInsensitiveCompare("This computer") == .orderedSame
+            || trimmed.caseInsensitiveCompare("This Mac") == .orderedSame {
+            return true
+        }
+        let lower = trimmed.lowercased()
+        if lower.contains("macbook") || lower.contains(" mbp") || lower.hasSuffix("mbp")
+            || lower.contains("imac") || lower.contains("mac studio") || lower.contains("mac mini")
+            || lower.contains("mac pro") {
+            return true
+        }
+        #if os(macOS)
+        if let localName = Host.current().localizedName?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !localName.isEmpty,
+           trimmed.caseInsensitiveCompare(localName) == .orderedSame {
+            return true
+        }
+        #endif
+        return false
     }
 }

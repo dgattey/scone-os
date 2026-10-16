@@ -63,7 +63,7 @@ struct GroupDetailView: View {
                             HStack(spacing: 8) {
                                 Image(systemName: "play.fill")
                                     .font(.system(size: 12, weight: .bold))
-                                Text("Play")
+                                Text(store.state.externalSpotify != nil ? "Play here" : "Play")
                                     .font(.subheadline.weight(.semibold))
                             }
                             .foregroundStyle(MidnightGlass.ink)

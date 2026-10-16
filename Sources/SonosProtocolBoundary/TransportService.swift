@@ -68,6 +68,9 @@ enum TransportService {
             ?? spotifyTrack(in: currentURI)
             ?? spotifyTrack(in: facts.resURI)
             ?? spotifyTrack(in: trackMeta)
+        if activity == .paused && facts.title.isEmpty && facts.streamContent.isEmpty && spotify == nil {
+            return .stopped
+        }
         let isSpotifyOrigin = spotify != nil
             || isSpotifyURI(trackURI)
             || isSpotifyURI(currentURI)

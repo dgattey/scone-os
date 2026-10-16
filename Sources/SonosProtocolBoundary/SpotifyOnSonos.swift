@@ -19,10 +19,7 @@ enum SpotifyOnSonos {
             do {
                 response = try await client.call(browse(objectID), on: coordinator, at: endpoint)
             } catch {
-                switch error {
-                case .speakerRejected: continue
-                default: throw error
-                }
+                continue
             }
             if let account = account(in: decoded(response.value("Result"))) { return account }
         }
@@ -84,7 +81,10 @@ enum SpotifyOnSonos {
     }
 
     private static func account(in blob: String) -> Account? {
-        guard blob.lowercased().contains("x-sonos-spotify:") else { return nil }
+        let lower = blob.lowercased()
+        guard lower.contains("x-sonos-spotify:")
+            || lower.contains("spotify%3a")
+            || blob.contains("SA_RINCON3079") else { return nil }
         guard let sidMatch = blob.firstMatch(of: /[?&]sid=(\d+)/),
               let sid = Int(sidMatch.1),
               let snMatch = blob.firstMatch(of: /[?&]sn=(\d+)/),
@@ -102,7 +102,7 @@ enum SpotifyOnSonos {
     }
 
     private static func decoded(_ text: String) -> String {
-        guard !text.contains("<"), text.contains("&lt;") else { return text }
+        guard text.contains("&") else { return text }
         return text
             .replacingOccurrences(of: "&lt;", with: "<")
             .replacingOccurrences(of: "&gt;", with: ">")
