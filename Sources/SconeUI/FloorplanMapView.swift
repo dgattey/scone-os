@@ -349,6 +349,7 @@ struct FloorplanMapView: View {
         let isDropTarget = (dropTarget == .musicHub(group.id))
         return MusicSourceNodeView(
             group: group,
+            externalSpotify: store.state.externalSpotify,
             isPlaying: isPlaying,
             isDropTarget: isDropTarget,
             onTogglePlay: {
@@ -740,9 +741,10 @@ private struct RoomContainerNode: View {
 
 /// Coherent Music Square node on the map connected to each speaker playing its music.
 private struct MusicSourceNodeView: View {
-    static let cardSize = CGSize(width: 340, height: 108)
+    static let cardSize = CGSize(width: 368, height: 108)
 
     var group: SonosGroup
+    var externalSpotify: SpotifyTrackContext? = nil
     var isPlaying: Bool
     var isDropTarget: Bool
     var flexibleWidth: Bool = false
@@ -758,9 +760,21 @@ private struct MusicSourceNodeView: View {
         return nil
     }
 
+    private var activeExternalSpotify: SpotifyTrackContext? {
+        guard group.playback.nowPlaying == nil else { return nil }
+        return externalSpotify
+    }
+
+    private var resolvedArtworkURL: URL? {
+        track?.artworkURL ?? activeExternalSpotify?.metadata.artworkURL
+    }
+
     private var titleText: String {
         if let track, !track.title.isEmpty {
             return track.title
+        }
+        if let externalTitle = activeExternalSpotify?.metadata.title, !externalTitle.isEmpty {
+            return externalTitle
         }
         switch group.playback.nowPlaying {
         case .tvAudio:
@@ -776,26 +790,50 @@ private struct MusicSourceNodeView: View {
         if let track, let artist = track.artist, !artist.isEmpty {
             return artist
         }
-        return "\(group.speakers.count) \(group.speakers.count == 1 ? "room" : "rooms")"
+        let roomCountText = "\(group.speakers.count) \(group.speakers.count == 1 ? "room" : "rooms")"
+        if let externalArtist = activeExternalSpotify?.metadata.artist, !externalArtist.isEmpty {
+            return "\(externalArtist) · \(roomCountText)"
+        }
+        return roomCountText
+    }
+
+    private var externalDeviceCaption: String? {
+        activeExternalSpotify?.externalPlaybackLabel
     }
 
     var body: some View {
-        HStack(spacing: 14) {
+        HStack(spacing: 10) {
             Button(action: onOpenDetail) {
-                HStack(spacing: 14) {
-                    AlbumArtworkView(url: track?.artworkURL, size: flexibleWidth ? 64 : 80, cornerRadius: 14)
-                    VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 11) {
+                    AlbumArtworkView(
+                        url: resolvedArtworkURL,
+                        size: flexibleWidth ? 64 : (activeExternalSpotify != nil ? 68 : 76),
+                        cornerRadius: 13
+                    )
+                    VStack(alignment: .leading, spacing: 3) {
                         Text(titleText)
-                            .font(.system(size: flexibleWidth ? 15 : 16, weight: .bold))
+                            .font(.system(size: flexibleWidth ? 15 : 15, weight: .bold))
                             .foregroundStyle(MidnightGlass.primaryText)
-                            .lineLimit(2)
+                            .lineLimit(activeExternalSpotify == nil ? 2 : 1)
                             .multilineTextAlignment(.leading)
                             .fixedSize(horizontal: false, vertical: true)
 
                         Text(subtitleText)
-                            .font(.system(size: flexibleWidth ? 12.5 : 13.5, weight: .medium))
+                            .font(.system(size: flexibleWidth ? 12 : 12.5, weight: .medium))
                             .foregroundStyle(MidnightGlass.secondaryText)
                             .lineLimit(1)
+
+                        if let externalDeviceCaption {
+                            HStack(spacing: 4) {
+                                Image(systemName: "dot.radiowaves.left.and.right")
+                                    .font(.system(size: 8.5, weight: .bold))
+                                Text(externalDeviceCaption)
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.85)
+                            }
+                            .foregroundStyle(MidnightGlass.gold)
+                        }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -805,23 +843,41 @@ private struct MusicSourceNodeView: View {
             .focusEffectDisabled()
 
             Button(action: onTogglePlay) {
-                Image(systemName: isPlaying ? "pause.fill" : "play.fill")
-                    .font(.system(size: 14, weight: .bold))
-                    .contentTransition(.symbolEffect(.replace))
-                    .foregroundStyle(isPlaying ? MidnightGlass.ink : MidnightGlass.gold)
-                    .frame(width: 40, height: 40)
-                    .background(
-                        Circle().fill(isPlaying ? MidnightGlass.gold : MidnightGlass.subtleFill)
-                    )
-                    .overlay(
-                        Circle().strokeBorder(MidnightGlass.gold.opacity(0.75), lineWidth: 1.2)
-                    )
+                if activeExternalSpotify != nil {
+                    HStack(spacing: 5) {
+                        Image(systemName: "play.fill")
+                            .font(.system(size: 10.5, weight: .bold))
+                        Text("Play here")
+                            .font(.system(size: 12, weight: .semibold))
+                    }
+                    .fixedSize()
+                    .foregroundStyle(MidnightGlass.ink)
+                    .padding(.horizontal, 11)
+                    .frame(height: 34)
+                    .background(Capsule().fill(MidnightGlass.gold))
+                } else {
+                    Image(systemName: isPlaying ? "pause.fill" : "play.fill")
+                        .font(.system(size: 14, weight: .bold))
+                        .contentTransition(.symbolEffect(.replace))
+                        .foregroundStyle(isPlaying ? MidnightGlass.ink : MidnightGlass.gold)
+                        .frame(width: 40, height: 40)
+                        .background(
+                            Circle().fill(isPlaying ? MidnightGlass.gold : MidnightGlass.subtleFill)
+                        )
+                        .overlay(
+                            Circle().strokeBorder(MidnightGlass.gold.opacity(0.75), lineWidth: 1.2)
+                        )
+                }
             }
             .buttonStyle(PressableStyle())
             .focusEffectDisabled()
-            .help(isPlaying ? "Pause \(group.displayName)" : "Play \(group.displayName)")
+            .help(
+                activeExternalSpotify != nil
+                    ? "Play on \(group.displayName)"
+                    : (isPlaying ? "Pause \(group.displayName)" : "Play \(group.displayName)")
+            )
         }
-        .padding(.horizontal, 14)
+        .padding(.horizontal, 12)
         .padding(.vertical, 12)
         .frame(width: flexibleWidth ? nil : Self.cardSize.width, height: flexibleWidth ? nil : Self.cardSize.height)
         .frame(maxWidth: flexibleWidth ? .infinity : nil)
@@ -987,6 +1043,7 @@ private struct CompactFloorplanMapView: View {
                         ForEach(floorHubGroups) { hubGroup in
                             MusicSourceNodeView(
                                 group: hubGroup,
+                                externalSpotify: store.state.externalSpotify,
                                 isPlaying: playbackIsActive(hubGroup.playback),
                                 isDropTarget: false,
                                 flexibleWidth: true,

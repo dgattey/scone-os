@@ -2048,15 +2048,186 @@ struct SconeFileTests {
         #expect(vault.refreshToken() == nil)
         #expect(vault.displayName() == nil)
     }
+
+    @Test @MainActor func dormantSpotifyConnectVLIAndExternalComputerPlaybackTransferToGroup() async throws {
+        // 1. Dormant x-sonos-vli container in PAUSED_PLAYBACK with TrackMetaData = NOT_IMPLEMENTED
+        // parses as .stopped instead of a hollow .paused track with empty title.
+        let endpoint = URL(string: "http://192.168.68.73:1400/xml/device_description.xml")!
+        let vliURI = "x-sonos-vli:RINCON_542A1B5F088401400:2,spotify:5a215012d5e6e8eea3c522adc26c27ea"
+        let dormantTransport = try XMLNode.parse(Data("""
+        <GetTransportInfoResponse>
+          <CurrentTransportState>PAUSED_PLAYBACK</CurrentTransportState>
+          <CurrentTransportStatus>OK</CurrentTransportStatus>
+          <CurrentSpeed>1</CurrentSpeed>
+        </GetTransportInfoResponse>
+        """.utf8))
+        let dormantPosition = try XMLNode.parse(Data("""
+        <GetPositionInfoResponse>
+          <Track>1</Track>
+          <TrackDuration>NOT_IMPLEMENTED</TrackDuration>
+          <TrackMetaData>NOT_IMPLEMENTED</TrackMetaData>
+          <TrackURI>\(vliURI)</TrackURI>
+          <RelTime>NOT_IMPLEMENTED</RelTime>
+        </GetPositionInfoResponse>
+        """.utf8))
+        let dormantMedia = try XMLNode.parse(Data("""
+        <GetMediaInfoResponse>
+          <NrTracks>1</NrTracks>
+          <MediaDuration>NOT_IMPLEMENTED</MediaDuration>
+          <CurrentURI>\(vliURI)</CurrentURI>
+          <CurrentURIMetaData>&lt;DIDL-Lite xmlns:dc=&quot;http://purl.org/dc/elements/1.1/&quot; xmlns:upnp=&quot;urn:schemas-upnp-org:metadata-1-0/upnp/&quot; xmlns:r=&quot;urn:schemas-rinconnetworks-com:metadata-1-0/&quot; xmlns=&quot;urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/&quot;&gt;&lt;item id=&quot;spotify&quot; parentID=&quot;0&quot; restricted=&quot;true&quot;&gt;&lt;dc:title&gt;Spotify&lt;/dc:title&gt;&lt;upnp:class&gt;object.item.audioItem.linein&lt;/upnp:class&gt;&lt;/item&gt;&lt;/DIDL-Lite&gt;</CurrentURIMetaData>
+        </GetMediaInfoResponse>
+        """.utf8))
+        let parsedDormant = TransportService.parsePlayback(
+            transportInfo: dormantTransport,
+            positionInfo: dormantPosition,
+            mediaInfo: dormantMedia,
+            coordinatorEndpoint: endpoint,
+            sampledAt: Date(timeIntervalSinceReferenceDate: 500)
+        )
+        #expect(parsedDormant == .stopped)
+
+        // 2. External Spotify context on local computer maps to "Playing on This computer"
+        let trackURI = SpotifyURI("spotify:track:5TbTOkgK8UAjtjIuIVPAjE")!
+        let computerCtx = SpotifyTrackContext(
+            uri: trackURI,
+            metadata: SpotifyTrackMetadata(
+                title: "DON'T BELIEVE IT",
+                artist: "Kid Cudi",
+                album: "INSANO",
+                artworkURL: URL(string: "https://i.scdn.co/image/ab67616d0000b273a1b2c3"),
+                duration: .seconds(176)
+            ),
+            position: .seconds(117),
+            contextTitle: "Playlist \"26\"",
+            contextURI: "spotify:playlist:3wdvPfaJKS9AnZzRX35gyW",
+            deviceID: "2bb28805ce4cd7875feba40e70eebe2ffebd99e5",
+            deviceName: "Dylan’s Any MBP",
+            deviceType: "Computer",
+            isPlaying: true,
+            upNext: [
+                QueueItem(
+                    id: "1",
+                    title: "Next Up Track",
+                    artist: "Kid Cudi",
+                    spotifyURI: SpotifyURI("spotify:track:2mqTtvbKxH7SoEQ2oGAnsA")
+                ),
+            ]
+        )
+        #expect(computerCtx.externalDeviceDisplayName == "This computer")
+        #expect(computerCtx.externalPlaybackLabel == "Playing on This computer")
+
+        let phoneCtx = SpotifyTrackContext(
+            uri: trackURI,
+            metadata: computerCtx.metadata,
+            position: .seconds(40),
+            deviceName: "Dylan’s iPhone",
+            deviceType: "Smartphone",
+            isPlaying: true
+        )
+        #expect(phoneCtx.externalDeviceDisplayName == "Dylan’s iPhone")
+        #expect(phoneCtx.externalPlaybackLabel == "Playing on Dylan’s iPhone")
+
+        // 3. When all Sonos groups are idle and Spotify plays on the computer, SconeStore exposes
+        // state.externalSpotify and one-click transfer invokes playOnSonosGroup (Connect transfer).
+        let directory = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let files = SconeFiles(directory: directory)
+        let bedroom = speaker(House.bedroom, room: "Bedroom Speaker", ip: "192.168.68.73", volume: .v25)
+        let dining = speaker(House.dining, room: "Dining Room Speaker", ip: "192.168.68.82", volume: .v25)
+        let idleSnap = snapshot(
+            [bedroom, dining],
+            coordinatorOf: [
+                House.bedroom: House.bedroom,
+                House.dining: House.bedroom,
+            ],
+            status: [
+                GroupID(coordinator: House.bedroom): GroupStatus(playback: .stopped, volume: .v25),
+            ]
+        )
+
+        let directTransferSpotify = CountingSpotify(
+            response: .success(computerCtx),
+            playOnSonosGroupResult: true
+        )
+        let sonosRecorder1 = RecordingSonos(yielded: [idleSnap])
+        let store1 = SconeStore(
+            loaded: LoadedFiles(cache: nil, positions: nil, quarantined: []),
+            files: files,
+            sonos: sonosRecorder1,
+            spotify: directTransferSpotify
+        )
+        await store1.run()
+
+        #expect(store1.state.externalSpotify?.metadata.title == "DON'T BELIEVE IT")
+        #expect(store1.state.externalSpotify?.externalPlaybackLabel == "Playing on This computer")
+
+        let group1 = try #require(store1.state.groups.first)
+        store1.togglePlayOrHandOffSpotify(for: group1)
+        for _ in 0..<20 where directTransferSpotify.transferredRooms.isEmpty {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(directTransferSpotify.transferredRooms.first?.coordinator == "Bedroom Speaker")
+        #expect(directTransferSpotify.transferredRooms.first?.members.contains("Dining Room Speaker") == true)
+        #expect(store1.state.externalSpotify == nil)
+        if let activeGroup = store1.state.groups.first,
+           case .playing(.track(let transferredTrack), _, _) = activeGroup.playback {
+            #expect(transferredTrack.title == "DON'T BELIEVE IT")
+            #expect(transferredTrack.artist == "Kid Cudi")
+        } else {
+            Issue.record("expected group to transition to playing after Connect transfer")
+        }
+
+        // 4. When the Sonos coordinator is dormant and not in Spotify's Connect device list yet
+        // (playOnSonosGroup returns false), SconeStore wakes the group via .enqueueAndPlaySpotify
+        // at the current position and pauses the computer playback without sending raw UPnP Play.
+        let wakeTransferSpotify = CountingSpotify(
+            response: .success(computerCtx),
+            playOnSonosGroupResult: false
+        )
+        let sonosRecorder2 = RecordingSonos(yielded: [idleSnap])
+        let store2 = SconeStore(
+            loaded: LoadedFiles(cache: nil, positions: nil, quarantined: []),
+            files: files,
+            sonos: sonosRecorder2,
+            spotify: wakeTransferSpotify
+        )
+        await store2.run()
+
+        let group2 = try #require(store2.state.groups.first)
+        store2.togglePlayOrHandOffSpotify(for: group2)
+        for _ in 0..<20 where sonosRecorder2.commands.isEmpty {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        let wakeCmd = try #require(sonosRecorder2.commands.last)
+        if case .enqueueAndPlaySpotify(let uri, let meta, let coord, let pos, let ctxURI, let upNext) = wakeCmd {
+            #expect(uri == trackURI)
+            #expect(meta.title == "DON'T BELIEVE IT")
+            #expect(coord == GroupID(coordinator: House.bedroom))
+            #expect(pos == .seconds(117))
+            #expect(ctxURI == SpotifyURI("spotify:playlist:3wdvPfaJKS9AnZzRX35gyW"))
+            #expect(upNext.count == 1)
+        } else {
+            Issue.record("expected .enqueueAndPlaySpotify, got \(wakeCmd)")
+        }
+        #expect(wakeTransferSpotify.pauseCount == 1)
+    }
 }
 
 @MainActor
 private final class CountingSpotify: SpotifySource {
     let response: Result<SpotifyTrackContext, SpotifyBridgeError>
+    let playOnSonosGroupResult: Bool
     var callCount = 0
+    var pauseCount = 0
+    var transferredRooms: [(coordinator: String, members: [String])] = []
 
-    init(response: Result<SpotifyTrackContext, SpotifyBridgeError>) {
+    init(
+        response: Result<SpotifyTrackContext, SpotifyBridgeError>,
+        playOnSonosGroupResult: Bool = false
+    ) {
         self.response = response
+        self.playOnSonosGroupResult = playOnSonosGroupResult
     }
 
     func currentContext() async throws(SpotifyBridgeError) -> SpotifyTrackContext {
@@ -2067,9 +2238,20 @@ private final class CountingSpotify: SpotifySource {
         }
     }
 
-    func pauseSourcePlayback() async {}
+    func pauseSourcePlayback() async {
+        pauseCount += 1
+    }
 
     func resumeSourcePlayback() async -> Bool { false }
+
+    func playOnSonosGroup(
+        coordinatorRoomName: String,
+        memberRoomNames: [String],
+        context: SpotifyTrackContext?
+    ) async -> Bool {
+        transferredRooms.append((coordinatorRoomName, memberRoomNames))
+        return playOnSonosGroupResult
+    }
 }
 
 @MainActor

@@ -97,15 +97,19 @@ public final class SconeStore {
     public func refreshSpotifyQueueIfNeeded() {
         let now = Date()
         guard inFlightSpotifyRefresh == nil,
-              now.timeIntervalSince(lastSpotifyEnrich) >= 4 else { return }
+              now.timeIntervalSince(lastSpotifyEnrich) >= 3 else { return }
         lastSpotifyEnrich = now
         inFlightSpotifyRefresh = Task { [weak self] in
             guard let self else { return }
             defer { self.inFlightSpotifyRefresh = nil }
-            let fetched = try? await self.spotify.currentContext()
+            do throws(SpotifyBridgeError) {
+                self.cachedSpotifyContext = try await self.spotify.currentContext()
+            } catch .nothingPlaying, .notConnected {
+                self.cachedSpotifyContext = nil
+            } catch {
+                // Keep cachedSpotifyContext on transient network failures
+            }
             self.lastSpotifyEnrich = Date()
-            guard let fetched else { return }
-            self.cachedSpotifyContext = fetched
             if let live = self.state.live {
                 let enriched = await self.enrichWithSpotifyIfNeeded(live)
                 if !live.isSemanticallyEquivalent(to: enriched) {
@@ -152,8 +156,6 @@ public final class SconeStore {
         }
 
         let activeGroups = snapshot.groups.filter { activeGroupIDs.contains($0.id) }
-        guard !activeGroups.isEmpty else { return snapshot }
-
         let trackIdentity = activeGroups.compactMap { group -> String? in
             guard case .track(let track) = group.playback.nowPlaying else { return nil }
             return track.spotifyURI?.description ?? track.title
@@ -163,7 +165,7 @@ public final class SconeStore {
             if case .playing = $0.playback { return true }
             return false
         }
-        let refreshInterval: TimeInterval = isAnyPlaying ? 30 : 120
+        let refreshInterval: TimeInterval = isAnyPlaying ? 30 : (activeGroups.isEmpty ? 10 : 60)
         let trackChanged = !trackIdentity.isEmpty && trackIdentity != lastEnrichedTrackIdentity
         let now = Date()
 
@@ -172,14 +174,25 @@ public final class SconeStore {
             if !trackIdentity.isEmpty {
                 lastEnrichedTrackIdentity = trackIdentity
             }
-            if let fetched = try? await spotify.currentContext() {
-                cachedSpotifyContext = fetched
+            do throws(SpotifyBridgeError) {
+                cachedSpotifyContext = try await spotify.currentContext()
+            } catch .nothingPlaying, .notConnected {
+                cachedSpotifyContext = nil
+            } catch {
+                // Keep cachedSpotifyContext on transient network errors
             }
+        }
+
+        let householdRoomNames = snapshot.speakers.values.map(\.roomName)
+        let isExternalSpotifySession: Bool = if let ctx = cachedSpotifyContext {
+            !SpotifyDeviceMatcher.matchesAny(deviceName: ctx.deviceName, roomNames: householdRoomNames)
+        } else {
+            false
         }
 
         // Determine the single primary active group eligible to receive SpotifyTrackContext + upNext queue
         var primarySpotifyGroupID: GroupID?
-        if let ctx = cachedSpotifyContext {
+        if let ctx = cachedSpotifyContext, !isExternalSpotifySession || !ctx.isPlaying {
             let matchingGroups = activeGroups.filter { group in
                 guard case .track(let track) = group.playback.nowPlaying else { return false }
                 let sameURI = (track.spotifyURI != nil && track.spotifyURI == ctx.uri)
@@ -200,6 +213,21 @@ public final class SconeStore {
         var updated = snapshot
         for group in activeGroups {
             guard case .track(let track) = group.playback.nowPlaying else { continue }
+
+            // When Spotify is actively playing on an external device (e.g. "This computer"),
+            // any leftover paused Spotify session on a Sonos group is superseded and idle.
+            if case .paused = group.playback,
+               let ctx = cachedSpotifyContext,
+               ctx.isPlaying,
+               isExternalSpotifySession,
+               track.isSpotifyStream {
+                lastKnownTracks.removeValue(forKey: group.id)
+                updated = updated.replacing(
+                    status: (group.id, GroupStatus(playback: .stopped, volume: group.volume))
+                )
+                continue
+            }
+
             var enrichedTrack = track
 
             if let ctx = cachedSpotifyContext, group.id == primarySpotifyGroupID {
@@ -246,6 +274,19 @@ public final class SconeStore {
                 )
             }
         }
+
+        let resolvedExternalSpotify: SpotifyTrackContext? = if let ctx = cachedSpotifyContext,
+            isExternalSpotifySession,
+            (ctx.isPlaying || updated.groups.allSatisfy {
+                if case .stopped = $0.playback { return true }
+                return false
+            }) {
+            ctx
+        } else {
+            nil
+        }
+        updated = updated.replacing(externalSpotify: .some(resolvedExternalSpotify))
+
         return updated.sanitizingPlaybackSessions(preferredGroupIDs: preferredActiveGroupIDs)
     }
 
@@ -526,7 +567,7 @@ public final class SconeStore {
             liveContext = ctx
         } catch {
             fetchedError = error
-            liveContext = cachedSpotifyContext
+            liveContext = cachedSpotifyContext ?? state.externalSpotify
         }
 
         // 1. Try native Spotify Connect playback / transfer directly on the Sonos group coordinator.
@@ -535,12 +576,16 @@ public final class SconeStore {
             memberRoomNames: group.speakers.map(\.roomName),
             context: liveContext
         ) {
+            if let context = liveContext {
+                applyOptimisticSpotifyTransfer(context, onto: group)
+            }
             schedulePostTransportSpotifyRefresh()
             return
         }
 
         // 2. If Spotify returned a current track context, enqueue that track + upNext queue on Sonos.
         if let context = liveContext {
+            let shouldPauseExternalSource = context.isPlaying && !isHouseholdSonosDevice(context.deviceName)
             let result = await perform(
                 .enqueueAndPlaySpotify(
                     uri: context.uri,
@@ -551,8 +596,11 @@ public final class SconeStore {
                     upNext: context.upNext
                 )
             )
-            if case .success = result, context.isPlaying, !isHouseholdSonosDevice(context.deviceName) {
-                await spotify.pauseSourcePlayback()
+            if case .success = result {
+                if shouldPauseExternalSource {
+                    await spotify.pauseSourcePlayback()
+                }
+                applyOptimisticSpotifyTransfer(context, onto: group)
             }
             schedulePostTransportSpotifyRefresh()
             return
@@ -582,9 +630,64 @@ public final class SconeStore {
 
         if fetchedError == .notConnected && reportIfNotConnected {
             mutateState { $0.report(.spotify(.notConnected)) }
-        } else {
+        } else if fetchedError == .nothingPlaying && reportIfNotConnected {
+            mutateState { $0.report(.spotify(.nothingPlaying)) }
+        } else if let fallbackNowPlaying, Self.hasPlayableSession(fallbackNowPlaying) {
             _ = await perform(.playPause(.play, group: group.id))
             schedulePostTransportSpotifyRefresh()
+        }
+    }
+
+    private func applyOptimisticSpotifyTransfer(_ context: SpotifyTrackContext, onto group: SonosGroup) {
+        let transferredContext = SpotifyTrackContext(
+            uri: context.uri,
+            metadata: context.metadata,
+            position: context.position,
+            contextTitle: context.contextTitle,
+            contextURI: context.contextURI,
+            deviceID: context.deviceID,
+            deviceName: group.coordinator.roomName,
+            deviceType: "Speaker",
+            isPlaying: true,
+            upNext: context.upNext
+        )
+        cachedSpotifyContext = transferredContext
+        let track = NowPlayingTrack(
+            title: context.metadata.title,
+            artist: context.metadata.artist.isEmpty ? nil : context.metadata.artist,
+            album: context.metadata.album,
+            artworkURL: context.metadata.artworkURL,
+            duration: context.metadata.duration,
+            queuePosition: nil,
+            spotifyURI: context.uri,
+            source: .spotify(contextTitle: context.contextTitle ?? context.metadata.album),
+            upNext: context.upNext,
+            canSkip: true
+        )
+        lastKnownTracks[group.id] = track
+        preferredActiveGroupIDs.insert(group.id)
+        if let live = state.live {
+            let nextPlayback = PlaybackState.playing(
+                .track(track),
+                elapsed: context.position ?? .zero,
+                sampledAt: Date()
+            )
+            let updated = live.replacing(
+                status: (group.id, GroupStatus(playback: nextPlayback, volume: group.volume)),
+                externalSpotify: .some(nil)
+            )
+            mutateState { $0.absorb(updated) }
+        }
+    }
+
+    private static func hasPlayableSession(_ nowPlaying: NowPlaying) -> Bool {
+        switch nowPlaying {
+        case .track(let track):
+            return !track.title.isEmpty || track.spotifyURI != nil
+        case .stream(let title):
+            return !(title ?? "").isEmpty
+        case .tvAudio:
+            return true
         }
     }
 

@@ -249,6 +249,10 @@ public struct SconeState: Equatable, Sendable {
 
     public var groups: [SonosGroup] { cachedProjected?.groups ?? [] }
 
+    public var externalSpotify: SpotifyTrackContext? {
+        cachedProjected?.externalSpotify ?? live?.externalSpotify
+    }
+
     public var connection: HouseholdConnection {
         guard let live else { return .searching }
         if !live.speakers.isEmpty { return .live }
@@ -378,7 +382,30 @@ extension HouseholdSnapshot {
                 return self
             }
             return replacing(status: (group, GroupStatus(playback: playback, volume: current.volume)))
-        case .nextTrack, .previousTrack, .seekToQueueTrack, .enqueueAndPlaySpotify, .savePresets, .setSystemName:
+        case .enqueueAndPlaySpotify(let uri, let metadata, let group, let startingAt, _, let upNext):
+            let current = status(of: group)
+            let track = NowPlayingTrack(
+                title: metadata.title,
+                artist: metadata.artist.isEmpty ? nil : metadata.artist,
+                album: metadata.album,
+                artworkURL: metadata.artworkURL,
+                duration: metadata.duration,
+                queuePosition: nil,
+                spotifyURI: uri,
+                source: .spotify(contextTitle: externalSpotify?.contextTitle),
+                upNext: upNext,
+                canSkip: true
+            )
+            let playback = PlaybackState.playing(
+                .track(track),
+                elapsed: startingAt ?? .zero,
+                sampledAt: observedAt
+            )
+            return replacing(
+                status: (group, GroupStatus(playback: playback, volume: current.volume)),
+                externalSpotify: .some(nil)
+            )
+        case .nextTrack, .previousTrack, .seekToQueueTrack, .savePresets, .setSystemName:
             return self
         }
     }

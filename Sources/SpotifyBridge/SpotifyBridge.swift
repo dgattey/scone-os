@@ -184,20 +184,24 @@ public final class SpotifyBridge {
         context: SpotifyTrackContext?
     ) async -> Bool {
         guard let token = try? await validAccessToken() else { return false }
+        let candidateRoomNames = [coordinatorRoomName] + memberRoomNames.filter { $0 != coordinatorRoomName }
 
-        // 1. If Spotify's active device already matches this group's coordinator, resume directly.
-        if SpotifyDeviceMatcher.matches(deviceName: context?.deviceName, roomName: coordinatorRoomName) {
+        // 1. If Spotify's active device already matches this group's coordinator (or a member room), resume directly.
+        if SpotifyDeviceMatcher.matchesAny(deviceName: context?.deviceName, roomNames: candidateRoomNames) {
             if await WebAPI.resume(accessToken: token, deviceID: context?.deviceID) {
                 await SpotifyAPIClient.shared.invalidateShortCache()
                 return true
             }
         }
 
-        // 2. Query /v1/me/player/devices for a Spotify Connect target matching the group coordinator.
+        // 2. Query /v1/me/player/devices for a Spotify Connect target matching the group coordinator or a member room.
         let devices = await WebAPI.availableDevices(accessToken: token)
-        if let coordDevice = devices.first(where: {
+        let matchingDevice = devices.first(where: {
             SpotifyDeviceMatcher.matches(deviceName: $0.name, roomName: coordinatorRoomName)
-        }) {
+        }) ?? devices.first(where: {
+            SpotifyDeviceMatcher.matchesAny(deviceName: $0.name, roomNames: memberRoomNames)
+        })
+        if let coordDevice = matchingDevice {
             if coordDevice.isActive {
                 if await WebAPI.resume(accessToken: token, deviceID: coordDevice.id) {
                     await SpotifyAPIClient.shared.invalidateShortCache()
