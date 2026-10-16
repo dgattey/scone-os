@@ -14,6 +14,8 @@ on:
       - 'scripts/build-macos.sh'
       - 'scripts/package-release.sh'
       - 'scripts/format-release-notes.sh'
+      - 'scripts/cumulative-release-notes.sh'
+      - 'scripts/fetch-release-notes-history.sh'
       - 'scripts/ci-build-macos-release.sh'
       - 'scripts/export-ci-secrets.sh'
       - 'scripts/fetch-live-macos-release.sh'

@@ -93,7 +93,19 @@ INFO_PLIST="$APP/Contents/Info.plist"
 ZIP="$WORK/Sconeos-${VERSION}.zip"
 ditto -c -k --keepParent "$APP" "$ZIP"
 
-"$ROOT/scripts/format-release-notes.sh" "$VERSION" > "$WORK/Sconeos-${VERSION}.html"
+NEW_NOTES="$(mktemp /tmp/sconeos-release-notes.XXXXXX)"
+HISTORY_DIR="$(mktemp -d /tmp/sconeos-release-history.XXXXXX)"
+cleanup_files+=("$NEW_NOTES" "$HISTORY_DIR")
+"$ROOT/scripts/format-release-notes.sh" "$VERSION" > "$NEW_NOTES"
+"$ROOT/scripts/fetch-release-notes-history.sh" "$HISTORY_DIR"
+NOTES_HISTORY=()
+[[ -f "$PUBLIC_DIR/appcast.xml" ]] && NOTES_HISTORY+=("$PUBLIC_DIR/appcast.xml")
+shopt -s nullglob
+NOTES_HISTORY+=("$HISTORY_DIR"/appcast-*.xml)
+shopt -u nullglob
+[[ -f "$HISTORY_DIR/releases.json" ]] && NOTES_HISTORY+=("$HISTORY_DIR/releases.json")
+"$ROOT/scripts/cumulative-release-notes.sh" "$VERSION" "$NEW_NOTES" ${NOTES_HISTORY[@]+"${NOTES_HISTORY[@]}"} \
+  > "$WORK/Sconeos-${VERSION}.html"
 
 GA="$ROOT/.build/artifacts/sparkle/Sparkle/bin/generate_appcast"
 [[ -x "$GA" ]] || { echo "package-release: generate_appcast not found — run 'swift build'." >&2; exit 1; }
@@ -102,6 +114,7 @@ GA_ARGS=(
   --disable-signing-warning
   --download-url-prefix "https://sconeos.gattey.com/"
   --link "https://sconeos.gattey.com"
+  --full-release-notes-url "https://github.com/dgattey/scone-os/releases"
   --ed-key-file "$SPARKLE_ED_KEY_FILE"
 )
 "$GA" "${GA_ARGS[@]}" "$WORK"
