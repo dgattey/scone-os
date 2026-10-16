@@ -92,6 +92,7 @@ ICON_FILE="$ROOT/build/AppIcon.icns"
 CAR_FILE="$RESOURCES_DIR/Assets.car"
 PLIST_FILE="$CONTENTS/Info.plist"
 ASSET_CATALOG="$ROOT/build/Assets.xcassets"
+ICON_BUNDLE="$ROOT/build/AppIcon.icon"
 
 rm -rf "$APP"
 mkdir -p "$MACOS_DIR" "$RESOURCES_DIR" "$FRAMEWORKS_DIR"
@@ -125,11 +126,22 @@ done
 rm -rf "$FRAMEWORKS_DIR/Sparkle.framework"
 ditto "$SPARKLE_SRC" "$FRAMEWORKS_DIR/Sparkle.framework"
 
-if [[ ! -f "$ICON_FILE" || "$ROOT/scripts/generate-icon.swift" -nt "$ICON_FILE" ]]; then
+if [[ ! -f "$ICON_FILE" || ! -d "$ICON_BUNDLE" || "$ROOT/scripts/generate-icon.swift" -nt "$ICON_FILE" ]]; then
   swift "$ROOT/scripts/generate-icon.swift" "$ROOT"
 fi
 cp "$ICON_FILE" "$RESOURCES_DIR/AppIcon.icns"
-if command -v xcrun >/dev/null 2>&1 && [[ -d "$ASSET_CATALOG" ]]; then
+[[ -f "$ROOT/build/AppIcon-Light.icns" ]] && cp "$ROOT/build/AppIcon-Light.icns" "$RESOURCES_DIR/AppIcon-Light.icns"
+[[ -f "$ROOT/build/AppIcon-Dark.icns" ]] && cp "$ROOT/build/AppIcon-Dark.icns" "$RESOURCES_DIR/AppIcon-Dark.icns"
+if command -v xcrun >/dev/null 2>&1 && [[ -d "$ICON_BUNDLE" ]]; then
+  PARTIAL_PLIST="$ROOT/build/assetcatalog_generated_info.plist"
+  xcrun actool "$ICON_BUNDLE" \
+    --compile "$RESOURCES_DIR" \
+    --platform macosx \
+    --minimum-deployment-target 14.0 \
+    --app-icon AppIcon \
+    --output-partial-info-plist "$PARTIAL_PLIST" >/dev/null 2>&1 || true
+  rm -f "$PARTIAL_PLIST"
+elif command -v xcrun >/dev/null 2>&1 && [[ -d "$ASSET_CATALOG" ]]; then
   PARTIAL_PLIST="$ROOT/build/assetcatalog_generated_info.plist"
   xcrun actool "$ASSET_CATALOG" \
     --compile "$RESOURCES_DIR" \

@@ -3,37 +3,130 @@ import CoreGraphics
 import Foundation
 
 enum IconAppearance {
-    case dark
     case light
+    case dark
+}
+
+enum IconSurface {
+    case macOSSquircle
+    case fullBleed
+    case iconComposerLayer(includeGlow: Bool)
 }
 
 do {
     let root = repoRoot()
     let build = root.appending(path: "build", directoryHint: .isDirectory)
-    try? FileManager.default.createDirectory(at: build, withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(at: build, withIntermediateDirectories: true)
     let pixels = 1024
 
-    guard let darkImage = render(size: pixels, appearance: .dark, applySquircle: true),
-          let lightImage = render(size: pixels, appearance: .light, applySquircle: true),
-          let iosDarkFullBleed = render(size: pixels, appearance: .dark, applySquircle: false),
-          let iosLightFullBleed = render(size: pixels, appearance: .light, applySquircle: false) else {
-        fputs("Could not draw the icon\n", stderr)
+    guard let lightImage = render(size: pixels, appearance: .light, surface: .macOSSquircle),
+          let darkImage = render(size: pixels, appearance: .dark, surface: .macOSSquircle),
+          let iosLightFullBleed = render(size: pixels, appearance: .light, surface: .fullBleed),
+          let iosDarkFullBleed = render(size: pixels, appearance: .dark, surface: .fullBleed),
+          let layerLight = render(size: pixels, appearance: .light, surface: .iconComposerLayer(includeGlow: true)),
+          let layerDark = render(size: pixels, appearance: .dark, surface: .iconComposerLayer(includeGlow: true)),
+          let layerTinted = render(size: pixels, appearance: .dark, surface: .iconComposerLayer(includeGlow: false)) else {
+        fputs("Could not draw the Scone Cone icon\n", stderr)
         exit(1)
     }
 
-    let darkPreview = build.appending(path: "AppIcon-Dark-1024.png")
+    guard let lightData = png(lightImage, size: pixels),
+          let darkData = png(darkImage, size: pixels),
+          let iosLightData = png(iosLightFullBleed, size: pixels),
+          let iosDarkData = png(iosDarkFullBleed, size: pixels),
+          let layerLightData = png(layerLight, size: pixels),
+          let layerDarkData = png(layerDark, size: pixels),
+          let layerTintedData = png(layerTinted, size: pixels) else {
+        fputs("Could not encode the Scone Cone icon PNGs\n", stderr)
+        exit(1)
+    }
+
     let lightPreview = build.appending(path: "AppIcon-Light-1024.png")
+    let darkPreview = build.appending(path: "AppIcon-Dark-1024.png")
     let defaultPreview = build.appending(path: "AppIcon-1024.png")
+    let iosLightPreview = build.appending(path: "icon-1024-light.png")
+    let iosDarkPreview = build.appending(path: "icon-1024-dark.png")
 
-    guard let darkData = png(darkImage, size: pixels),
-          let lightData = png(lightImage, size: pixels) else {
-        fputs("Could not encode the icon\n", stderr)
-        exit(1)
-    }
-    try darkData.write(to: darkPreview)
-    try darkData.write(to: defaultPreview)
     try lightData.write(to: lightPreview)
+    try lightData.write(to: defaultPreview)
+    try darkData.write(to: darkPreview)
+    try iosLightData.write(to: iosLightPreview)
+    try iosDarkData.write(to: iosDarkPreview)
 
+    let serverPublicIcon = root.appending(path: "server/public/app-icon.png")
+    if FileManager.default.fileExists(atPath: serverPublicIcon.deletingLastPathComponent().path) {
+        try darkData.write(to: serverPublicIcon)
+    }
+
+    // 1. Write Icon Composer AppIcon.icon bundle (compiled by actool into multi-appearance Assets.car for macOS 26 & iOS 26)
+    let iconBundle = build.appending(path: "AppIcon.icon", directoryHint: .isDirectory)
+    try? FileManager.default.removeItem(at: iconBundle)
+    let iconAssets = iconBundle.appending(path: "Assets", directoryHint: .isDirectory)
+    try FileManager.default.createDirectory(at: iconAssets, withIntermediateDirectories: true)
+
+    try layerLightData.write(to: iconAssets.appending(path: "scone-cone-light.png"))
+    try layerDarkData.write(to: iconAssets.appending(path: "scone-cone-dark.png"))
+    try layerTintedData.write(to: iconAssets.appending(path: "scone-cone-tinted.png"))
+
+    let iconComposerJSON = """
+    {
+      "fill-specializations" : [
+        {
+          "value" : {
+            "linear-gradient" : [
+              "srgb:1.00000,0.98431,0.95294,1.00000",
+              "srgb:0.93333,0.86667,0.75294,1.00000"
+            ]
+          }
+        },
+        {
+          "appearance" : "dark",
+          "value" : {
+            "linear-gradient" : [
+              "srgb:0.22745,0.16863,0.12157,1.00000",
+              "srgb:0.07059,0.05098,0.03529,1.00000"
+            ]
+          }
+        }
+      ],
+      "groups" : [
+        {
+          "layers" : [
+            {
+              "image-name-specializations" : [
+                {
+                  "value" : "scone-cone-light.png"
+                },
+                {
+                  "appearance" : "dark",
+                  "value" : "scone-cone-dark.png"
+                },
+                {
+                  "appearance" : "tinted",
+                  "value" : "scone-cone-tinted.png"
+                }
+              ],
+              "name" : "Scone Cone"
+            }
+          ],
+          "name" : "Scone Cone"
+        }
+      ],
+      "supported-platforms" : {
+        "circles" : [
+          "watchOS"
+        ],
+        "squares" : "shared"
+      }
+    }
+    """
+    try iconComposerJSON.write(
+        to: iconBundle.appending(path: "icon.json"),
+        atomically: true,
+        encoding: .utf8
+    )
+
+    // 2. Write Assets.xcassets/AppIcon.appiconset with Light, Dark, and Tinted variants
     let xcassets = build.appending(path: "Assets.xcassets", directoryHint: .isDirectory)
     try? FileManager.default.removeItem(at: xcassets)
     let appiconset = xcassets.appending(path: "AppIcon.appiconset", directoryHint: .isDirectory)
@@ -53,11 +146,9 @@ do {
         encoding: .utf8
     )
 
-    if let iosLightData = png(iosLightFullBleed, size: 1024),
-       let iosDarkData = png(iosDarkFullBleed, size: 1024) {
-        try iosLightData.write(to: appiconset.appending(path: "AppIcon-iOS-Light-1024.png"))
-        try iosDarkData.write(to: appiconset.appending(path: "AppIcon-iOS-Dark-1024.png"))
-    }
+    try iosLightData.write(to: appiconset.appending(path: "AppIcon-iOS-Light-1024.png"))
+    try iosDarkData.write(to: appiconset.appending(path: "AppIcon-iOS-Dark-1024.png"))
+    try iosDarkData.write(to: appiconset.appending(path: "AppIcon-iOS-Tinted-1024.png"))
     try lightData.write(to: appiconset.appending(path: "AppIcon-macOS-Light-1024.png"))
     try darkData.write(to: appiconset.appending(path: "AppIcon-macOS-Dark-1024.png"))
 
@@ -83,6 +174,30 @@ do {
           "size" : "1024x1024"
         },
         {
+          "appearances" : [
+            {
+              "appearance" : "luminosity",
+              "value" : "tinted"
+            }
+          ],
+          "filename" : "AppIcon-iOS-Tinted-1024.png",
+          "idiom" : "universal",
+          "platform" : "ios",
+          "size" : "1024x1024"
+        },
+        {
+          "filename" : "AppIcon-macOS-Light-1024.png",
+          "idiom" : "mac",
+          "scale" : "2x",
+          "size" : "512x512"
+        },
+        {
+          "appearances" : [
+            {
+              "appearance" : "luminosity",
+              "value" : "dark"
+            }
+          ],
           "filename" : "AppIcon-macOS-Dark-1024.png",
           "idiom" : "mac",
           "scale" : "2x",
@@ -101,20 +216,26 @@ do {
         encoding: .utf8
     )
 
+    // 3. Build multi-resolution .icns files directly rendered at each pixel size (16..1024) for maximum crispness
     try buildIcns(
-        image: darkImage,
+        appearance: .light,
         iconset: build.appending(path: "AppIcon.iconset", directoryHint: .isDirectory),
         output: build.appending(path: "AppIcon.icns")
     )
     try buildIcns(
-        image: lightImage,
+        appearance: .light,
         iconset: build.appending(path: "AppIcon-Light.iconset", directoryHint: .isDirectory),
         output: build.appending(path: "AppIcon-Light.icns")
+    )
+    try buildIcns(
+        appearance: .dark,
+        iconset: build.appending(path: "AppIcon-Dark.iconset", directoryHint: .isDirectory),
+        output: build.appending(path: "AppIcon-Dark.icns")
     )
     print(build.appending(path: "AppIcon.icns").path)
 }
 
-private func buildIcns(image: CGImage, iconset: URL, output: URL) throws {
+private func buildIcns(appearance: IconAppearance, iconset: URL, output: URL) throws {
     try? FileManager.default.removeItem(at: iconset)
     try FileManager.default.createDirectory(at: iconset, withIntermediateDirectories: true)
     let sizes = [
@@ -130,8 +251,9 @@ private func buildIcns(image: CGImage, iconset: URL, output: URL) throws {
         ("icon_512x512@2x.png", 1024),
     ]
     for (name, size) in sizes {
-        guard let data = png(image, size: size) else {
-            fputs("Could not scale \(name)\n", stderr)
+        guard let image = render(size: size, appearance: appearance, surface: .macOSSquircle),
+              let data = png(image, size: size) else {
+            fputs("Could not render \(name)\n", stderr)
             exit(1)
         }
         try data.write(to: iconset.appending(path: name))
@@ -159,320 +281,549 @@ private func repoRoot() -> URL {
     return cwd.deletingLastPathComponent()
 }
 
-private func render(size: Int, appearance: IconAppearance, applySquircle: Bool) -> CGImage? {
-    let width = size
-    let height = size
-    let colorSpace = CGColorSpaceCreateDeviceRGB()
+private func render(size: Int, appearance: IconAppearance, surface: IconSurface) -> CGImage? {
+    let colorSpace = CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
     guard let ctx = CGContext(
         data: nil,
-        width: width,
-        height: height,
+        width: size,
+        height: size,
         bitsPerComponent: 8,
         bytesPerRow: 0,
         space: colorSpace,
         bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
     ) else { return nil }
-    ctx.translateBy(x: 0, y: CGFloat(height))
-    ctx.scaleBy(x: 1, y: -1)
+
+    let scale = CGFloat(size) / 1024.0
+    ctx.translateBy(x: 0, y: CGFloat(size))
+    ctx.scaleBy(x: scale, y: -scale)
     ctx.setAllowsAntialiasing(true)
     ctx.setShouldAntialias(true)
     ctx.interpolationQuality = .high
-    drawIcon(ctx, CGFloat(size), appearance: appearance, applySquircle: applySquircle)
+
+    drawSconeConeIcon(
+        ctx,
+        pixelScale: scale,
+        smallSize: size <= 32,
+        appearance: appearance,
+        surface: surface
+    )
     return ctx.makeImage()
 }
 
-private func buildSmoothOscillatingWavePath(
-    side: CGFloat,
-    leftCapX: CGFloat,
-    leftCapY: CGFloat,
-    rightCapX: CGFloat,
-    rightCapY: CGFloat,
-    topExtrema: [(CGFloat, CGFloat)],
-    bottomExtrema: [(CGFloat, CGFloat)]
+private func squirclePath(
+    x0: CGFloat = 100,
+    y0: CGFloat = 100,
+    size: CGFloat = 824,
+    corner: CGFloat = 0.29,
+    n: CGFloat = 3.3,
+    steps: Int = 48
 ) -> CGPath {
+    let r = size * corner
+    let x1 = x0 + size
+    let y1 = y0 + size
+    let corners: [(CGFloat, CGFloat, CGFloat)] = [
+        (x1 - r, y0 + r, -.pi / 2),
+        (x1 - r, y1 - r, 0.0),
+        (x0 + r, y1 - r, .pi / 2),
+        (x0 + r, y0 + r, .pi),
+    ]
+    let path = CGMutablePath()
+    var first = true
+    for (cx, cy, a0) in corners {
+        for i in 0...steps {
+            let t = a0 + (.pi / 2) * CGFloat(i) / CGFloat(steps)
+            let ct = cos(t)
+            let st = sin(t)
+            let px = cx + r * copysign(pow(abs(ct), 2.0 / n), ct)
+            let py = cy + r * copysign(pow(abs(st), 2.0 / n), st)
+            if first {
+                path.move(to: CGPoint(x: px, y: py))
+                first = false
+            } else {
+                path.addLine(to: CGPoint(x: px, y: py))
+            }
+        }
+    }
+    path.closeSubpath()
+    return path
+}
+
+private func drawSconeConeIcon(
+    _ ctx: CGContext,
+    pixelScale: CGFloat,
+    smallSize: Bool,
+    appearance: IconAppearance,
+    surface: IconSurface
+) {
+    let dark = (appearance == .dark)
+    let colorSpace = CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
+
+    switch surface {
+    case .macOSSquircle:
+        let sq = squirclePath()
+
+        // Outer squircle drop shadow (dx=0, dy=18, stdDeviation=22)
+        ctx.saveGState()
+        ctx.setShadow(
+            offset: CGSize(width: 0, height: -18.0 * pixelScale),
+            blur: 44.0 * pixelScale,
+            color: rgb(0, 0, 0, dark ? 0.55 : 0.22)
+        )
+        ctx.addPath(sq)
+        ctx.setFillColor(dark ? hex(0x120D09) : hex(0xEEDDC0))
+        ctx.fillPath()
+        ctx.restoreGState()
+
+        ctx.saveGState()
+        ctx.addPath(sq)
+        ctx.clip()
+
+        drawBackgroundAndGlow(
+            ctx,
+            colorSpace: colorSpace,
+            rect: CGRect(x: 100, y: 100, width: 824, height: 824),
+            dark: dark
+        )
+        drawSconeConeMotif(
+            ctx,
+            colorSpace: colorSpace,
+            pixelScale: pixelScale,
+            smallSize: smallSize,
+            dark: dark
+        )
+        drawTopSheen(ctx, colorSpace: colorSpace, dark: dark)
+        drawSquircleRim(ctx, colorSpace: colorSpace, squircle: sq, dark: dark)
+        ctx.restoreGState()
+
+    case .fullBleed:
+        let fullRect = CGRect(x: 0, y: 0, width: 1024, height: 1024)
+        let bgColors = (dark
+            ? [hex(0x3A2B1F), hex(0x120D09)]
+            : [hex(0xFFFBF3), hex(0xEEDDC0)]) as CFArray
+        if let bgGrad = CGGradient(colorsSpace: colorSpace, colors: bgColors, locations: [0.0, 1.0]) {
+            ctx.drawLinearGradient(
+                bgGrad,
+                start: CGPoint(x: fullRect.minX, y: fullRect.minY),
+                end: CGPoint(x: fullRect.minX + fullRect.width * 0.35, y: fullRect.maxY),
+                options: [.drawsBeforeStartLocation, .drawsAfterEndLocation]
+            )
+        }
+
+        let bleedScale: CGFloat = 1024.0 / 824.0
+        ctx.saveGState()
+        ctx.translateBy(x: 512, y: 512)
+        ctx.scaleBy(x: bleedScale, y: bleedScale)
+        ctx.translateBy(x: -512, y: -512)
+
+        drawRadialGlow(ctx, colorSpace: colorSpace, dark: dark)
+        drawSconeConeMotif(
+            ctx,
+            colorSpace: colorSpace,
+            pixelScale: pixelScale * bleedScale,
+            smallSize: smallSize,
+            dark: dark
+        )
+        drawTopSheen(ctx, colorSpace: colorSpace, dark: dark)
+        ctx.restoreGState()
+
+    case .iconComposerLayer(let includeGlow):
+        let bleedScale: CGFloat = 1024.0 / 824.0
+        ctx.saveGState()
+        ctx.translateBy(x: 512, y: 512)
+        ctx.scaleBy(x: bleedScale, y: bleedScale)
+        ctx.translateBy(x: -512, y: -512)
+
+        if includeGlow {
+            drawRadialGlow(ctx, colorSpace: colorSpace, dark: dark)
+        }
+        drawSconeConeMotif(
+            ctx,
+            colorSpace: colorSpace,
+            pixelScale: pixelScale * bleedScale,
+            smallSize: smallSize,
+            dark: dark
+        )
+        if includeGlow {
+            drawTopSheen(ctx, colorSpace: colorSpace, dark: dark)
+        }
+        ctx.restoreGState()
+    }
+}
+
+private func drawBackgroundAndGlow(
+    _ ctx: CGContext,
+    colorSpace: CGColorSpace,
+    rect: CGRect,
+    dark: Bool
+) {
+    let bgColors = (dark
+        ? [hex(0x3A2B1F), hex(0x120D09)]
+        : [hex(0xFFFBF3), hex(0xEEDDC0)]) as CFArray
+    if let bgGrad = CGGradient(colorsSpace: colorSpace, colors: bgColors, locations: [0.0, 1.0]) {
+        ctx.drawLinearGradient(
+            bgGrad,
+            start: CGPoint(x: rect.minX, y: rect.minY),
+            end: CGPoint(x: rect.minX + rect.width * 0.35, y: rect.maxY),
+            options: [.drawsBeforeStartLocation, .drawsAfterEndLocation]
+        )
+    }
+    drawRadialGlow(ctx, colorSpace: colorSpace, dark: dark)
+}
+
+private func drawRadialGlow(_ ctx: CGContext, colorSpace: CGColorSpace, dark: Bool) {
+    let glowColor = dark ? hex(0xE5A93C, alpha: 0.30) : hex(0xF2B24A, alpha: 0.22)
+    let glowClear = dark ? hex(0xE5A93C, alpha: 0.0) : hex(0xF2B24A, alpha: 0.0)
+    if let glowGrad = CGGradient(
+        colorsSpace: colorSpace,
+        colors: [glowColor, glowClear] as CFArray,
+        locations: [0.0, 1.0]
+    ) {
+        let center = CGPoint(x: 512, y: 540)
+        ctx.drawRadialGradient(
+            glowGrad,
+            startCenter: center,
+            startRadius: 0,
+            endCenter: center,
+            endRadius: 400,
+            options: []
+        )
+    }
+}
+
+private func drawTopSheen(_ ctx: CGContext, colorSpace: CGColorSpace, dark: Bool) {
+    let sheenAlpha: CGFloat = dark ? 0.10 : 0.30
+    let sheenPath = CGPath(
+        ellipseIn: CGRect(x: 512 - 470, y: 150 - 260, width: 940, height: 520),
+        transform: nil
+    )
+    ctx.saveGState()
+    ctx.addPath(sheenPath)
+    ctx.clip()
+    if let sheenGrad = CGGradient(
+        colorsSpace: colorSpace,
+        colors: [rgb(1, 1, 1, sheenAlpha), rgb(1, 1, 1, 0)] as CFArray,
+        locations: [0.0, 1.0]
+    ) {
+        ctx.drawLinearGradient(
+            sheenGrad,
+            start: CGPoint(x: 512, y: 150 - 260),
+            end: CGPoint(x: 512, y: 150 + 260),
+            options: []
+        )
+    }
+    ctx.restoreGState()
+}
+
+private func drawSquircleRim(
+    _ ctx: CGContext,
+    colorSpace: CGColorSpace,
+    squircle: CGPath,
+    dark: Bool
+) {
+    let strokedRim = squircle.copy(
+        strokingWithWidth: 10,
+        lineCap: .butt,
+        lineJoin: .round,
+        miterLimit: 10
+    )
+    let rimLowHex = dark ? 0xE5A93C : 0xC9A273
+    let rimColors = [
+        rgb(1, 1, 1, dark ? 0.32 : 0.85),
+        rgb(1, 1, 1, 0.0),
+        hex(rimLowHex, alpha: 0.0),
+        hex(rimLowHex, alpha: dark ? 0.35 : 0.45),
+    ] as CFArray
+    let locations: [CGFloat] = [0.0, 0.45, 0.80, 1.0]
+
+    ctx.saveGState()
+    ctx.addPath(squircle)
+    ctx.clip()
+    ctx.addPath(strokedRim)
+    ctx.clip()
+    if let rimGrad = CGGradient(colorsSpace: colorSpace, colors: rimColors, locations: locations) {
+        ctx.drawLinearGradient(
+            rimGrad,
+            start: CGPoint(x: 100 + 824 * 0.2, y: 100),
+            end: CGPoint(x: 100 + 824 * 0.8, y: 924),
+            options: [.drawsBeforeStartLocation, .drawsAfterEndLocation]
+        )
+    }
+    ctx.restoreGState()
+}
+
+private func makeWedgePath(ax: CGFloat, cy: CGFloat, radius: CGFloat, halfAngle: CGFloat) -> CGPath {
     let p = CGMutablePath()
-    func pt(_ nx: CGFloat, _ ny: CGFloat) -> CGPoint {
-        CGPoint(x: side * nx, y: side * ny)
-    }
-    guard let firstTop = topExtrema.first,
-          let lastTop = topExtrema.last,
-          let firstBot = bottomExtrema.first,
-          let lastBot = bottomExtrema.last else { return p }
-
-    p.move(to: pt(leftCapX, leftCapY))
-    let leftSpanX = firstTop.0 - leftCapX
-    p.addCurve(
-        to: pt(firstTop.0, firstTop.1),
-        control1: pt(leftCapX, firstTop.1 + (leftCapY - firstTop.1) * 0.35),
-        control2: pt(firstTop.0 - leftSpanX * 0.48, firstTop.1)
-    )
-
-    for i in 0..<(topExtrema.count - 1) {
-        let a = topExtrema[i]
-        let b = topExtrema[i + 1]
-        let dx = (b.0 - a.0) * 0.50
-        p.addCurve(
-            to: pt(b.0, b.1),
-            control1: pt(a.0 + dx, a.1),
-            control2: pt(b.0 - dx, b.1)
-        )
-    }
-
-    let rightTopSpanX = rightCapX - lastTop.0
-    p.addCurve(
-        to: pt(rightCapX, rightCapY),
-        control1: pt(lastTop.0 + rightTopSpanX * 0.48, lastTop.1),
-        control2: pt(rightCapX, lastTop.1 + (rightCapY - lastTop.1) * 0.35)
-    )
-
-    let rightBotSpanX = rightCapX - lastBot.0
-    p.addCurve(
-        to: pt(lastBot.0, lastBot.1),
-        control1: pt(rightCapX, lastBot.1 - (lastBot.1 - rightCapY) * 0.35),
-        control2: pt(lastBot.0 + rightBotSpanX * 0.48, lastBot.1)
-    )
-
-    for i in stride(from: bottomExtrema.count - 1, to: 0, by: -1) {
-        let a = bottomExtrema[i]
-        let b = bottomExtrema[i - 1]
-        let dx = (a.0 - b.0) * 0.50
-        p.addCurve(
-            to: pt(b.0, b.1),
-            control1: pt(a.0 - dx, a.1),
-            control2: pt(b.0 + dx, b.1)
-        )
-    }
-
-    let leftBotSpanX = firstBot.0 - leftCapX
-    p.addCurve(
-        to: pt(leftCapX, leftCapY),
-        control1: pt(firstBot.0 - leftBotSpanX * 0.48, firstBot.1),
-        control2: pt(leftCapX, firstBot.1 - (firstBot.1 - leftCapY) * 0.35)
+    p.move(to: CGPoint(x: ax, y: cy))
+    p.addLine(to: CGPoint(x: ax + radius * cos(-halfAngle), y: cy + radius * sin(-halfAngle)))
+    p.addArc(
+        center: CGPoint(x: ax, y: cy),
+        radius: radius,
+        startAngle: -halfAngle,
+        endAngle: halfAngle,
+        clockwise: false
     )
     p.closeSubpath()
     return p
 }
 
-private func drawIcon(_ ctx: CGContext, _ side: CGFloat, appearance: IconAppearance, applySquircle: Bool) {
-    let dark = (appearance == .dark)
-    let inset: CGFloat = applySquircle ? side * 0.096 : 0
-    let rect = CGRect(x: inset, y: inset, width: side - inset * 2, height: side - inset * 2)
-    let radius = applySquircle ? rect.width * 0.226 : 0
-    let squircle = CGPath(roundedRect: rect, cornerWidth: radius, cornerHeight: radius, transform: nil)
+private func makeArcPath(ax: CGFloat, cy: CGFloat, radius: CGFloat, halfAngle: CGFloat) -> CGPath {
+    let p = CGMutablePath()
+    p.addArc(
+        center: CGPoint(x: ax, y: cy),
+        radius: radius,
+        startAngle: -halfAngle,
+        endAngle: halfAngle,
+        clockwise: false
+    )
+    return p
+}
 
-    if applySquircle {
-        ctx.saveGState()
-        ctx.setShadow(
-            offset: CGSize(width: 0, height: side * 0.022),
-            blur: side * 0.045,
-            color: rgb(0.0, 0.0, 0.0, dark ? 0.56 : 0.24)
+private func drawSconeConeMotif(
+    _ ctx: CGContext,
+    colorSpace: CGColorSpace,
+    pixelScale: CGFloat,
+    smallSize: Bool,
+    dark: Bool
+) {
+    let ax: CGFloat = 296
+    let ay: CGFloat = 478
+    let thick: CGFloat = 66
+    let half: CGFloat = 36.0 * .pi / 180.0
+    let R: CGFloat = 232
+    let acy: CGFloat = ay + thick / 2.0
+
+    let objShadowColor = dark ? rgb(0, 0, 0, 0.55) : hex(0x5A3210, alpha: 0.30)
+    let objShadowOffset = CGSize(width: 0, height: -16.0 * pixelScale)
+    let objShadowBlur: CGFloat = 32.0 * pixelScale
+
+    // 1. Dark mode ambient golden sound-arc glow
+    if dark {
+        for (r, alpha) in [(CGFloat(336), CGFloat(0.80)), (CGFloat(432), CGFloat(0.48))] {
+            let arcPath = makeArcPath(ax: ax, cy: acy, radius: r, halfAngle: half)
+            ctx.saveGState()
+            ctx.setShadow(
+                offset: .zero,
+                blur: 52.0 * pixelScale,
+                color: hex(0xE5A93C, alpha: alpha)
+            )
+            ctx.addPath(arcPath)
+            ctx.setStrokeColor(hex(0xE5A93C, alpha: alpha * 0.45))
+            ctx.setLineWidth(60)
+            ctx.setLineCap(.round)
+            ctx.strokePath()
+            ctx.restoreGState()
+        }
+    }
+
+    // 2. Honey-glass sound arcs (outer r=432, inner r=336)
+    let arcStrokeWidth: CGFloat = smallSize ? 54 : 50
+    let arcGradColors = (dark
+        ? [hex(0xFFE08F), hex(0xE0892A)]
+        : [hex(0xF4BC5A), hex(0xB8641A)]) as CFArray
+    let arcSpecs: [(CGFloat, CGFloat)] = [
+        (432, dark ? 0.60 : 0.82),
+        (336, dark ? 0.95 : 1.00),
+    ]
+
+    for (r, op) in arcSpecs {
+        let arcPath = makeArcPath(ax: ax, cy: acy, radius: r, halfAngle: half)
+        let strokedArc = arcPath.copy(
+            strokingWithWidth: arcStrokeWidth,
+            lineCap: .round,
+            lineJoin: .round,
+            miterLimit: 10
         )
-        ctx.addPath(squircle)
-        ctx.setFillColor(dark ? rgb(0.07, 0.05, 0.04, 1.0) : rgb(0.95, 0.90, 0.82, 1.0))
+
+        ctx.saveGState()
+        ctx.setAlpha(op)
+        ctx.beginTransparencyLayer(auxiliaryInfo: nil)
+
+        // Drop shadow + base fill for the arc
+        ctx.saveGState()
+        ctx.setShadow(offset: objShadowOffset, blur: objShadowBlur, color: objShadowColor)
+        ctx.addPath(strokedArc)
+        ctx.setFillColor(dark ? hex(0xE0892A) : hex(0xB8641A))
         ctx.fillPath()
+        ctx.restoreGState()
+
+        // Vertical honey-glass gradient inside the stroked arc
+        ctx.saveGState()
+        ctx.addPath(strokedArc)
+        ctx.clip()
+        if let arcGrad = CGGradient(colorsSpace: colorSpace, colors: arcGradColors, locations: [0.0, 1.0]) {
+            ctx.drawLinearGradient(
+                arcGrad,
+                start: CGPoint(x: ax + r, y: 250),
+                end: CGPoint(x: ax + r, y: 790),
+                options: [.drawsBeforeStartLocation, .drawsAfterEndLocation]
+            )
+        }
+        ctx.restoreGState()
+
+        // Crisp white specular highlight along outer edge (r + 12)
+        let specPath = makeArcPath(ax: ax, cy: acy, radius: r + 12, halfAngle: half)
+        ctx.saveGState()
+        ctx.addPath(specPath)
+        ctx.setStrokeColor(rgb(1, 1, 1, 0.60))
+        ctx.setLineWidth(smallSize ? 8.5 : 7.0)
+        ctx.setLineCap(.round)
+        ctx.strokePath()
+        ctx.restoreGState()
+
+        ctx.endTransparencyLayer()
         ctx.restoreGState()
     }
 
+    // 3. Scone 3D biscuit side extrusion (dy from 66 down to 3 by -3) with object drop shadow
     ctx.saveGState()
-    ctx.addPath(squircle)
-    ctx.clip()
-
-    let bgColors: CFArray = dark
-        ? [rgb(0.135, 0.098, 0.072), rgb(0.062, 0.044, 0.032)] as CFArray
-        : [rgb(0.985, 0.962, 0.922), rgb(0.935, 0.888, 0.808)] as CFArray
-
-    if let bgGrad = CGGradient(
-        colorsSpace: CGColorSpaceCreateDeviceRGB(),
-        colors: bgColors,
-        locations: [0.0, 1.0]
-    ) {
-        ctx.drawLinearGradient(
-            bgGrad,
-            start: CGPoint(x: rect.minX, y: rect.minY),
-            end: CGPoint(x: rect.maxX, y: rect.maxY),
-            options: []
-        )
+    ctx.setShadow(offset: objShadowOffset, blur: objShadowBlur, color: objShadowColor)
+    ctx.beginTransparencyLayer(auxiliaryInfo: nil)
+    for dy in stride(from: Int(thick), to: 0, by: -3) {
+        let t = pow(CGFloat(dy) / thick, 1.6)
+        let col = lerpColor(0xF7DCA6, 0xA35616, t: t)
+        let layerWedge = makeWedgePath(ax: ax, cy: ay + CGFloat(dy), radius: R, halfAngle: half)
+        ctx.addPath(layerWedge)
+        ctx.setFillColor(col)
+        ctx.setStrokeColor(col)
+        ctx.setLineWidth(40)
+        ctx.setLineJoin(.round)
+        ctx.drawPath(using: .fillStroke)
     }
-
-    if let glowGrad = CGGradient(
-        colorsSpace: CGColorSpaceCreateDeviceRGB(),
-        colors: [
-            rgb(0.98, 0.68, 0.24, dark ? 0.20 : 0.14),
-            rgb(0.98, 0.68, 0.24, 0.0),
-        ] as CFArray,
-        locations: [0.0, 1.0]
-    ) {
-        ctx.drawRadialGradient(
-            glowGrad,
-            startCenter: CGPoint(x: side * 0.50, y: side * 0.50),
-            startRadius: 0,
-            endCenter: CGPoint(x: side * 0.50, y: side * 0.50),
-            endRadius: side * 0.40,
-            options: []
-        )
-    }
-
-    // 5-crest symmetric oscillating harmonic scone-waveform (zero straight lines):
-    // Oscillates both above and below the horizontal centerline in 5 smooth golden lobes.
-    let topExtrema: [(CGFloat, CGFloat)] = [
-        (0.23, 0.385),
-        (0.298, 0.472),
-        (0.365, 0.265),
-        (0.432, 0.452),
-        (0.50, 0.180),
-        (0.568, 0.452),
-        (0.635, 0.265),
-        (0.702, 0.472),
-        (0.77, 0.385),
-    ]
-    let bottomExtrema: [(CGFloat, CGFloat)] = [
-        (0.23, 0.615),
-        (0.298, 0.528),
-        (0.365, 0.735),
-        (0.432, 0.548),
-        (0.50, 0.820),
-        (0.568, 0.548),
-        (0.635, 0.735),
-        (0.702, 0.528),
-        (0.77, 0.615),
-    ]
-
-    let wavePath = buildSmoothOscillatingWavePath(
-        side: side,
-        leftCapX: 0.165,
-        leftCapY: 0.50,
-        rightCapX: 0.835,
-        rightCapY: 0.50,
-        topExtrema: topExtrema,
-        bottomExtrema: bottomExtrema
-    )
-
-    ctx.saveGState()
-    ctx.setShadow(
-        offset: CGSize(width: 0, height: side * 0.018),
-        blur: side * 0.038,
-        color: rgb(0.0, 0.0, 0.0, dark ? 0.46 : 0.22)
-    )
-    ctx.addPath(wavePath)
-    ctx.setFillColor(rgb(0.78, 0.41, 0.12, 1.0))
-    ctx.fillPath()
+    ctx.endTransparencyLayer()
     ctx.restoreGState()
 
-    ctx.saveGState()
-    ctx.addPath(wavePath)
-    ctx.clip()
-
-    let baseGradColors: CFArray = dark
-        ? [rgb(0.88, 0.52, 0.16), rgb(0.68, 0.33, 0.08)] as CFArray
-        : [rgb(0.84, 0.48, 0.14), rgb(0.64, 0.30, 0.07)] as CFArray
-    if let bGrad = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: baseGradColors, locations: [0, 1]) {
-        ctx.drawLinearGradient(
-            bGrad,
-            start: CGPoint(x: side * 0.5, y: side * 0.45),
-            end: CGPoint(x: side * 0.5, y: side * 0.82),
-            options: []
-        )
-    }
-
-    // Upper honey-butter glaze crown bounded by a pure cubic-Bezier S-wave (zero straight lines)
-    let glazeMask = CGMutablePath()
-    glazeMask.move(to: CGPoint(x: side * 0.10, y: side * 0.53))
-    glazeMask.addCurve(
-        to: CGPoint(x: side * 0.50, y: side * 0.49),
-        control1: CGPoint(x: side * 0.25, y: side * 0.44),
-        control2: CGPoint(x: side * 0.36, y: side * 0.55)
-    )
-    glazeMask.addCurve(
-        to: CGPoint(x: side * 0.90, y: side * 0.47),
-        control1: CGPoint(x: side * 0.64, y: side * 0.43),
-        control2: CGPoint(x: side * 0.76, y: side * 0.54)
-    )
-    glazeMask.addCurve(
-        to: CGPoint(x: side * 0.50, y: side * 0.05),
-        control1: CGPoint(x: side * 0.92, y: side * 0.15),
-        control2: CGPoint(x: side * 0.72, y: side * 0.05)
-    )
-    glazeMask.addCurve(
-        to: CGPoint(x: side * 0.10, y: side * 0.53),
-        control1: CGPoint(x: side * 0.28, y: side * 0.05),
-        control2: CGPoint(x: side * 0.08, y: side * 0.15)
-    )
-    glazeMask.closeSubpath()
-
-    ctx.saveGState()
-    ctx.addPath(glazeMask)
-    ctx.clip()
-    let glazeColors: CFArray = dark
-        ? [rgb(1.0, 0.90, 0.50), rgb(0.95, 0.62, 0.18)] as CFArray
-        : [rgb(0.98, 0.85, 0.40), rgb(0.91, 0.57, 0.16)] as CFArray
-    if let gGrad = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: glazeColors, locations: [0, 1]) {
-        ctx.drawLinearGradient(
-            gGrad,
-            start: CGPoint(x: side * 0.5, y: side * 0.18),
-            end: CGPoint(x: side * 0.5, y: side * 0.55),
-            options: []
-        )
-    }
-    ctx.restoreGState()
-
-    let sCurve = CGMutablePath()
-    sCurve.move(to: CGPoint(x: side * 0.16, y: side * 0.52))
-    sCurve.addCurve(
-        to: CGPoint(x: side * 0.50, y: side * 0.49),
-        control1: CGPoint(x: side * 0.27, y: side * 0.45),
-        control2: CGPoint(x: side * 0.37, y: side * 0.54)
-    )
-    sCurve.addCurve(
-        to: CGPoint(x: side * 0.84, y: side * 0.48),
-        control1: CGPoint(x: side * 0.63, y: side * 0.44),
-        control2: CGPoint(x: side * 0.74, y: side * 0.53)
-    )
-    ctx.addPath(sCurve)
-    ctx.setStrokeColor(rgb(1.0, 0.93, 0.72, 0.42))
-    ctx.setLineWidth(side * 0.009)
-    ctx.setLineCap(.round)
-    ctx.strokePath()
-
-    ctx.restoreGState()
-    ctx.restoreGState()
-
-    if applySquircle {
+    // 4. Flaky biscuit seam at dy = 30
+    if !smallSize {
+        let flakeWedge = makeWedgePath(ax: ax, cy: ay + 30, radius: R, halfAngle: half)
         ctx.saveGState()
-        ctx.addPath(squircle)
-        ctx.setStrokeColor(
-            dark
-                ? rgb(1.0, 0.90, 0.72, 0.26)
-                : rgb(0.76, 0.58, 0.34, 0.32)
-        )
-        ctx.setLineWidth(side * 0.003)
+        ctx.addPath(flakeWedge)
+        ctx.setStrokeColor(hex(0xFFF2D2, alpha: 0.35))
+        ctx.setLineWidth(5)
+        ctx.setLineJoin(.round)
         ctx.strokePath()
         ctx.restoreGState()
     }
+
+    // 5. Scone top crust (filled + 40px round-joined stroke) with radial bake gradient, gloss, and sugar crystals
+    let topWedge = makeWedgePath(ax: ax, cy: ay, radius: R, halfAngle: half)
+    ctx.saveGState()
+    ctx.beginTransparencyLayer(auxiliaryInfo: nil)
+
+    // Establish alpha mask of the filled + 40px round-stroked wedge
+    ctx.addPath(topWedge)
+    ctx.setFillColor(rgb(1, 1, 1, 1))
+    ctx.setStrokeColor(rgb(1, 1, 1, 1))
+    ctx.setLineWidth(40)
+    ctx.setLineJoin(.round)
+    ctx.drawPath(using: .fillStroke)
+
+    // Fill alpha mask with c2Top radial gradient (.sourceIn)
+    ctx.setBlendMode(.sourceIn)
+    let topColors = (dark
+        ? [hex(0xFFCF7C), hex(0xE09434), hex(0xA9591A)]
+        : [hex(0xF5BE62), hex(0xD7882C), hex(0xA9591A)]) as CFArray
+    let topLocations: [CGFloat] = [0.0, 0.6, 1.0]
+    if let topGrad = CGGradient(colorsSpace: colorSpace, colors: topColors, locations: topLocations) {
+        let gradCenter = CGPoint(x: ax + 90, y: ay - 50)
+        ctx.drawRadialGradient(
+            topGrad,
+            startCenter: gradCenter,
+            startRadius: 0,
+            endCenter: gradCenter,
+            endRadius: 280,
+            options: [.drawsAfterEndLocation]
+        )
+    }
+
+    // Draw honey-butter gloss ellipse and coarse sugar crystals clipped to the top wedge (.sourceAtop)
+    ctx.setBlendMode(.sourceAtop)
+    ctx.saveGState()
+    let glossCenter = CGPoint(x: ax + 110, y: ay - 60)
+    let glossEllipse = CGPath(
+        ellipseIn: CGRect(x: glossCenter.x - 150, y: glossCenter.y - 90, width: 300, height: 180),
+        transform: nil
+    )
+    ctx.addPath(glossEllipse)
+    ctx.clip()
+    if let glossGrad = CGGradient(
+        colorsSpace: colorSpace,
+        colors: [hex(0xFFF6DC, alpha: 0.85), hex(0xFFF6DC, alpha: 0.0)] as CFArray,
+        locations: [0.0, 1.0]
+    ) {
+        ctx.drawRadialGradient(
+            glossGrad,
+            startCenter: glossCenter,
+            startRadius: 0,
+            endCenter: glossCenter,
+            endRadius: 120,
+            options: []
+        )
+    }
+    ctx.restoreGState()
+
+    if !smallSize {
+        let sugars: [(CGFloat, CGFloat, CGFloat)] = [
+            (392, 430, 20),
+            (446, 404, 50),
+            (430, 488, 10),
+            (498, 452, 35),
+            (372, 520, 70),
+            (492, 530, 25),
+            (462, 566, 60),
+            (352, 470, 15),
+            (500, 386, 5),
+            (410, 560, 40),
+        ]
+        ctx.setFillColor(hex(0xFFFDF6, alpha: 0.92))
+        for (sx, sy, deg) in sugars {
+            ctx.saveGState()
+            ctx.translateBy(x: sx, y: sy)
+            ctx.rotate(by: deg * .pi / 180.0)
+            let crystal = CGPath(
+                roundedRect: CGRect(x: -6, y: -6, width: 12, height: 12),
+                cornerWidth: 3,
+                cornerHeight: 3,
+                transform: nil
+            )
+            ctx.addPath(crystal)
+            ctx.fillPath()
+            ctx.restoreGState()
+        }
+    }
+
+    ctx.endTransparencyLayer()
+    ctx.restoreGState()
+}
+
+private func hex(_ value: Int, alpha: CGFloat = 1.0) -> CGColor {
+    let r = CGFloat((value >> 16) & 0xFF) / 255.0
+    let g = CGFloat((value >> 8) & 0xFF) / 255.0
+    let b = CGFloat(value & 0xFF) / 255.0
+    return rgb(r, g, b, alpha)
+}
+
+private func lerpColor(_ c0: Int, _ c1: Int, t: CGFloat) -> CGColor {
+    let r0 = CGFloat((c0 >> 16) & 0xFF) / 255.0
+    let g0 = CGFloat((c0 >> 8) & 0xFF) / 255.0
+    let b0 = CGFloat(c0 & 0xFF) / 255.0
+    let r1 = CGFloat((c1 >> 16) & 0xFF) / 255.0
+    let g1 = CGFloat((c1 >> 8) & 0xFF) / 255.0
+    let b1 = CGFloat(c1 & 0xFF) / 255.0
+    return rgb(
+        r0 + (r1 - r0) * t,
+        g0 + (g1 - g0) * t,
+        b0 + (b1 - b0) * t,
+        1.0
+    )
 }
 
 private func rgb(_ r: CGFloat, _ g: CGFloat, _ b: CGFloat, _ a: CGFloat = 1) -> CGColor {
-    CGColor(red: r, green: g, blue: b, alpha: a)
+    let space = CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
+    return CGColor(colorSpace: space, components: [r, g, b, a]) ?? CGColor(red: r, green: g, blue: b, alpha: a)
 }
 
 private func png(_ image: CGImage, size: Int) -> Data? {
-    guard let rep = NSBitmapImageRep(
-        bitmapDataPlanes: nil,
-        pixelsWide: size,
-        pixelsHigh: size,
-        bitsPerSample: 8,
-        samplesPerPixel: 4,
-        hasAlpha: true,
-        isPlanar: false,
-        colorSpaceName: .deviceRGB,
-        bytesPerRow: 0,
-        bitsPerPixel: 0
-    ) else { return nil }
+    let rep = NSBitmapImageRep(cgImage: image)
     rep.size = NSSize(width: size, height: size)
-    NSGraphicsContext.saveGraphicsState()
-    NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
-    NSGraphicsContext.current?.imageInterpolation = .high
-    NSImage(cgImage: image, size: NSSize(width: size, height: size))
-        .draw(in: NSRect(x: 0, y: 0, width: size, height: size))
-    NSGraphicsContext.restoreGraphicsState()
     return rep.representation(using: .png, properties: [:])
 }
