@@ -263,7 +263,13 @@ fi
 csign "$FW"
 
 # Sign the outer app bundle with local entitlements (com.apple.security.network.client).
-csign --entitlements "$SIGN_ENTITLEMENTS" "$APP"
+# When ad-hoc signing ('-'), pin the outer app's designated requirement to its bundle identifier
+# rather than the default cdhash so Sparkle's SUCodeSigningVerifier matches old and new builds.
+if [[ "$SIGN_ID" == "-" ]]; then
+  csign --entitlements "$SIGN_ENTITLEMENTS" -r='designated => identifier "com.sconeos.SconeOS"' "$APP"
+else
+  csign --entitlements "$SIGN_ENTITLEMENTS" "$APP"
+fi
 
 touch "$APP"
 LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
