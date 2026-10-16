@@ -191,138 +191,58 @@ extension View {
     }
 }
 
-struct SconeOrganicWaveSilhouetteShape: Shape {
+struct SconeConeWedgeShape: Shape {
+    var dyOffset: CGFloat = 0
+
     func path(in rect: CGRect) -> Path {
-        let side = min(rect.width, rect.height)
-        let ox = rect.minX
-        let oy = rect.minY
-
-        func pt(_ nx: CGFloat, _ ny: CGFloat) -> CGPoint {
-            CGPoint(x: ox + side * nx, y: oy + side * ny)
-        }
-
-        let leftCapX: CGFloat = 0.145
-        let leftCapY: CGFloat = 0.50
-        let rightCapX: CGFloat = 0.855
-        let rightCapY: CGFloat = 0.50
-
-        let topExtrema: [(CGFloat, CGFloat)] = [
-            (0.215, 0.375),
-            (0.288, 0.468),
-            (0.358, 0.250),
-            (0.429, 0.448),
-            (0.500, 0.160),
-            (0.571, 0.448),
-            (0.642, 0.250),
-            (0.712, 0.468),
-            (0.785, 0.375),
-        ]
-        let bottomExtrema: [(CGFloat, CGFloat)] = [
-            (0.215, 0.625),
-            (0.288, 0.532),
-            (0.358, 0.750),
-            (0.429, 0.552),
-            (0.500, 0.840),
-            (0.571, 0.552),
-            (0.642, 0.750),
-            (0.712, 0.532),
-            (0.785, 0.625),
-        ]
+        let scale = min(rect.width, rect.height) / 824.0
+        let ox = rect.minX - 100.0 * scale
+        let oy = rect.minY - 100.0 * scale
+        let ax = ox + 296.0 * scale
+        let cy = oy + (478.0 + dyOffset) * scale
+        let radius = 232.0 * scale
+        let half = Angle.degrees(36)
 
         var p = Path()
-        guard let firstTop = topExtrema.first,
-              let lastTop = topExtrema.last,
-              let firstBot = bottomExtrema.first,
-              let lastBot = bottomExtrema.last else { return p }
-
-        p.move(to: pt(leftCapX, leftCapY))
-        let leftSpanX = firstTop.0 - leftCapX
-        p.addCurve(
-            to: pt(firstTop.0, firstTop.1),
-            control1: pt(leftCapX, firstTop.1 + (leftCapY - firstTop.1) * 0.35),
-            control2: pt(firstTop.0 - leftSpanX * 0.48, firstTop.1)
-        )
-
-        for i in 0..<(topExtrema.count - 1) {
-            let a = topExtrema[i]
-            let b = topExtrema[i + 1]
-            let dx = (b.0 - a.0) * 0.50
-            p.addCurve(
-                to: pt(b.0, b.1),
-                control1: pt(a.0 + dx, a.1),
-                control2: pt(b.0 - dx, b.1)
+        p.move(to: CGPoint(x: ax, y: cy))
+        p.addLine(
+            to: CGPoint(
+                x: ax + radius * CGFloat(cos(-half.radians)),
+                y: cy + radius * CGFloat(sin(-half.radians))
             )
-        }
-
-        let rightTopSpanX = rightCapX - lastTop.0
-        p.addCurve(
-            to: pt(rightCapX, rightCapY),
-            control1: pt(lastTop.0 + rightTopSpanX * 0.48, lastTop.1),
-            control2: pt(rightCapX, lastTop.1 + (rightCapY - lastTop.1) * 0.35)
         )
-
-        let rightBotSpanX = rightCapX - lastBot.0
-        p.addCurve(
-            to: pt(lastBot.0, lastBot.1),
-            control1: pt(rightCapX, lastBot.1 - (lastBot.1 - rightCapY) * 0.35),
-            control2: pt(lastBot.0 + rightBotSpanX * 0.48, lastBot.1)
-        )
-
-        for i in stride(from: bottomExtrema.count - 1, to: 0, by: -1) {
-            let a = bottomExtrema[i]
-            let b = bottomExtrema[i - 1]
-            let dx = (a.0 - b.0) * 0.50
-            p.addCurve(
-                to: pt(b.0, b.1),
-                control1: pt(a.0 - dx, a.1),
-                control2: pt(b.0 + dx, b.1)
-            )
-        }
-
-        let leftBotSpanX = firstBot.0 - leftCapX
-        p.addCurve(
-            to: pt(leftCapX, leftCapY),
-            control1: pt(firstBot.0 - leftBotSpanX * 0.48, firstBot.1),
-            control2: pt(leftCapX, firstBot.1 - (firstBot.1 - leftCapY) * 0.35)
+        p.addArc(
+            center: CGPoint(x: ax, y: cy),
+            radius: radius,
+            startAngle: -half,
+            endAngle: half,
+            clockwise: false
         )
         p.closeSubpath()
         return p
     }
 }
 
-struct SconeOrganicGlazeCrownShape: Shape {
-    func path(in rect: CGRect) -> Path {
-        let side = min(rect.width, rect.height)
-        let ox = rect.minX
-        let oy = rect.minY
+struct SconeConeSoundArcShape: Shape {
+    var radiusUnits: CGFloat
 
-        func pt(_ nx: CGFloat, _ ny: CGFloat) -> CGPoint {
-            CGPoint(x: ox + side * nx, y: oy + side * ny)
-        }
+    func path(in rect: CGRect) -> Path {
+        let scale = min(rect.width, rect.height) / 824.0
+        let ox = rect.minX - 100.0 * scale
+        let oy = rect.minY - 100.0 * scale
+        let ax = ox + 296.0 * scale
+        let cy = oy + 511.0 * scale
+        let radius = radiusUnits * scale
+        let half = Angle.degrees(36)
 
         var p = Path()
-        p.move(to: pt(0.08, 0.53))
-        p.addCurve(
-            to: pt(0.50, 0.49),
-            control1: pt(0.24, 0.44),
-            control2: pt(0.36, 0.55)
+        p.addArc(
+            center: CGPoint(x: ax, y: cy),
+            radius: radius,
+            startAngle: -half,
+            endAngle: half,
+            clockwise: false
         )
-        p.addCurve(
-            to: pt(0.92, 0.47),
-            control1: pt(0.64, 0.43),
-            control2: pt(0.76, 0.54)
-        )
-        p.addCurve(
-            to: pt(0.50, 0.04),
-            control1: pt(0.94, 0.14),
-            control2: pt(0.72, 0.04)
-        )
-        p.addCurve(
-            to: pt(0.08, 0.53),
-            control1: pt(0.28, 0.04),
-            control2: pt(0.06, 0.14)
-        )
-        p.closeSubpath()
         return p
     }
 }
@@ -332,59 +252,157 @@ struct SconeBrandEmblem: View {
     var size: CGFloat = 26
     var showContainer: Bool = true
 
+    private var motifScale: CGFloat {
+        showContainer ? (size / 824.0) : (size / 640.0)
+    }
+
     var body: some View {
         ZStack {
             if showContainer {
                 RoundedRectangle(cornerRadius: size * 0.226, style: .continuous)
                     .fill(backgroundGradient)
                     .overlay(
+                        RadialGradient(
+                            colors: [
+                                (colorScheme == .dark
+                                    ? Color(red: 0.898, green: 0.663, blue: 0.235).opacity(0.30)
+                                    : Color(red: 0.949, green: 0.698, blue: 0.290).opacity(0.22)),
+                                .clear,
+                            ],
+                            center: .init(x: 0.50, y: 0.53),
+                            startRadius: 0,
+                            endRadius: size * 0.48
+                        )
+                        .clipShape(RoundedRectangle(cornerRadius: size * 0.226, style: .continuous))
+                    )
+                    .overlay(
                         RoundedRectangle(cornerRadius: size * 0.226, style: .continuous)
-                            .strokeBorder(borderStroke, lineWidth: max(0.75, size * 0.03))
+                            .strokeBorder(borderGradient, lineWidth: max(0.85, size * 0.032))
                     )
             }
 
-            ZStack {
-                Rectangle()
-                    .fill(sconeBaseGradient)
-
-                SconeOrganicGlazeCrownShape()
-                    .fill(sconeGlazeGradient)
-            }
-            .clipShape(SconeOrganicWaveSilhouetteShape())
-            .shadow(color: Color.black.opacity(colorScheme == .dark ? 0.36 : 0.16), radius: size * 0.04, y: size * 0.02)
+            sconeConeArtwork
+                .frame(width: 824.0 * motifScale, height: 824.0 * motifScale)
         }
         .frame(width: size, height: size)
         .accessibilityHidden(true)
     }
 
-    private var sconeGlazeGradient: LinearGradient {
+    private var sconeConeArtwork: some View {
+        let s = motifScale
+        let wedgeStroke = 40.0 * s
+        let arcStroke = (size <= 36 ? 56.0 : 50.0) * s
+        let specStroke = max(0.75, 7.5 * s)
+
+        return ZStack {
+            // Outer and inner honey-glass sound arcs
+            ForEach([(432.0, colorScheme == .dark ? 0.62 : 0.82), (336.0, colorScheme == .dark ? 0.96 : 1.0)], id: \.0) { r, op in
+                ZStack {
+                    if colorScheme == .dark {
+                        SconeConeSoundArcShape(radiusUnits: r)
+                            .stroke(
+                                Color(red: 0.898, green: 0.663, blue: 0.235).opacity(0.38 * op),
+                                style: StrokeStyle(lineWidth: 64.0 * s, lineCap: .round)
+                            )
+                            .blur(radius: 18.0 * s)
+                    }
+
+                    SconeConeSoundArcShape(radiusUnits: r)
+                        .stroke(
+                            soundArcGradient,
+                            style: StrokeStyle(lineWidth: arcStroke, lineCap: .round)
+                        )
+                        .shadow(
+                            color: shadowColor,
+                            radius: 14.0 * s,
+                            y: 12.0 * s
+                        )
+
+                    SconeConeSoundArcShape(radiusUnits: r + 12.0)
+                        .stroke(
+                            Color.white.opacity(0.58),
+                            style: StrokeStyle(lineWidth: specStroke, lineCap: .round)
+                        )
+                }
+                .opacity(op)
+            }
+
+            // 3D biscuit side extrusion
+            ZStack {
+                ForEach([66.0, 52.0, 38.0, 24.0, 12.0], id: \.self) { dy in
+                    let t = pow(dy / 66.0, 1.6)
+                    let col = biscuitLayerColor(t: t)
+                    SconeConeWedgeShape(dyOffset: dy)
+                        .fill(col)
+                        .overlay(
+                            SconeConeWedgeShape(dyOffset: dy)
+                                .stroke(col, style: StrokeStyle(lineWidth: wedgeStroke, lineJoin: .round))
+                        )
+                }
+            }
+            .shadow(color: shadowColor, radius: 16.0 * s, y: 14.0 * s)
+
+            // Top golden-baked scone wedge
+            SconeConeWedgeShape(dyOffset: 0)
+                .fill(sconeTopGradient)
+                .overlay(
+                    SconeConeWedgeShape(dyOffset: 0)
+                        .stroke(sconeTopGradient, style: StrokeStyle(lineWidth: wedgeStroke, lineJoin: .round))
+                )
+                .overlay(
+                    SconeConeWedgeShape(dyOffset: -10)
+                        .fill(
+                            RadialGradient(
+                                colors: [
+                                    Color(red: 1.0, green: 0.965, blue: 0.863).opacity(0.75),
+                                    .clear,
+                                ],
+                                center: .init(x: 0.37, y: 0.39),
+                                startRadius: 0,
+                                endRadius: 150.0 * s
+                            )
+                        )
+                )
+        }
+    }
+
+    private func biscuitLayerColor(t: Double) -> Color {
+        let r = 0.969 + (0.639 - 0.969) * t
+        let g = 0.863 + (0.337 - 0.863) * t
+        let b = 0.651 + (0.086 - 0.651) * t
+        return Color(red: r, green: g, blue: b)
+    }
+
+    private var sconeTopGradient: LinearGradient {
         if colorScheme == .dark {
             return LinearGradient(
                 colors: [
-                    Color(red: 1.0, green: 0.89, blue: 0.48),
-                    Color(red: 0.95, green: 0.62, blue: 0.19),
+                    Color(red: 1.000, green: 0.812, blue: 0.486),
+                    Color(red: 0.878, green: 0.580, blue: 0.204),
+                    Color(red: 0.663, green: 0.349, blue: 0.102),
                 ],
-                startPoint: .top,
-                endPoint: .bottom
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
             )
         } else {
             return LinearGradient(
                 colors: [
-                    Color(red: 0.98, green: 0.83, blue: 0.38),
-                    Color(red: 0.91, green: 0.57, blue: 0.16),
+                    Color(red: 0.961, green: 0.745, blue: 0.384),
+                    Color(red: 0.843, green: 0.533, blue: 0.173),
+                    Color(red: 0.663, green: 0.349, blue: 0.102),
                 ],
-                startPoint: .top,
-                endPoint: .bottom
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
             )
         }
     }
 
-    private var sconeBaseGradient: LinearGradient {
+    private var soundArcGradient: LinearGradient {
         if colorScheme == .dark {
             return LinearGradient(
                 colors: [
-                    Color(red: 0.85, green: 0.48, blue: 0.15),
-                    Color(red: 0.68, green: 0.34, blue: 0.09),
+                    Color(red: 1.000, green: 0.878, blue: 0.561),
+                    Color(red: 0.878, green: 0.537, blue: 0.165),
                 ],
                 startPoint: .top,
                 endPoint: .bottom
@@ -392,8 +410,8 @@ struct SconeBrandEmblem: View {
         } else {
             return LinearGradient(
                 colors: [
-                    Color(red: 0.80, green: 0.44, blue: 0.13),
-                    Color(red: 0.64, green: 0.31, blue: 0.08),
+                    Color(red: 0.957, green: 0.737, blue: 0.353),
+                    Color(red: 0.722, green: 0.392, blue: 0.102),
                 ],
                 startPoint: .top,
                 endPoint: .bottom
@@ -405,8 +423,8 @@ struct SconeBrandEmblem: View {
         if colorScheme == .dark {
             return LinearGradient(
                 colors: [
-                    Color(red: 0.125, green: 0.092, blue: 0.068),
-                    Color(red: 0.072, green: 0.052, blue: 0.038),
+                    Color(red: 0.227, green: 0.169, blue: 0.122),
+                    Color(red: 0.071, green: 0.051, blue: 0.035),
                 ],
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
@@ -414,8 +432,8 @@ struct SconeBrandEmblem: View {
         } else {
             return LinearGradient(
                 colors: [
-                    Color(red: 0.985, green: 0.962, blue: 0.922),
-                    Color(red: 0.935, green: 0.888, blue: 0.808),
+                    Color(red: 1.000, green: 0.984, blue: 0.953),
+                    Color(red: 0.933, green: 0.867, blue: 0.753),
                 ],
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
@@ -423,10 +441,34 @@ struct SconeBrandEmblem: View {
         }
     }
 
-    private var borderStroke: Color {
+    private var borderGradient: LinearGradient {
+        if colorScheme == .dark {
+            return LinearGradient(
+                colors: [
+                    Color.white.opacity(0.32),
+                    Color.white.opacity(0.06),
+                    Color(red: 0.898, green: 0.663, blue: 0.235).opacity(0.35),
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        } else {
+            return LinearGradient(
+                colors: [
+                    Color.white.opacity(0.85),
+                    Color.white.opacity(0.15),
+                    Color(red: 0.788, green: 0.635, blue: 0.451).opacity(0.45),
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        }
+    }
+
+    private var shadowColor: Color {
         colorScheme == .dark
-            ? Color(red: 1.0, green: 0.90, blue: 0.72).opacity(0.26)
-            : Color(red: 0.76, green: 0.58, blue: 0.34).opacity(0.34)
+            ? Color.black.opacity(0.50)
+            : Color(red: 0.353, green: 0.196, blue: 0.063).opacity(0.28)
     }
 }
 

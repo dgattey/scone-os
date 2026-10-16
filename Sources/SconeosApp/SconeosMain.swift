@@ -8,6 +8,27 @@ import AppKit
 
 @MainActor
 final class SconeAppDelegate: NSObject, NSApplicationDelegate {
+    private var appearanceObservation: NSKeyValueObservation?
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        updateDockIcon(for: NSApp.effectiveAppearance)
+        appearanceObservation = NSApp.observe(\.effectiveAppearance, options: [.new]) { [weak self] app, _ in
+            Task { @MainActor in
+                self?.updateDockIcon(for: app.effectiveAppearance)
+            }
+        }
+    }
+
+    func updateDockIcon(for appearance: NSAppearance?) {
+        let resolved = appearance ?? NSApp.effectiveAppearance
+        let isDark = resolved.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        let resourceName = isDark ? "AppIcon-Dark" : "AppIcon-Light"
+        if let url = Bundle.main.url(forResource: resourceName, withExtension: "icns"),
+           let image = NSImage(contentsOf: url) {
+            NSApp.applicationIconImage = image
+        }
+    }
+
     /// Sparkle closes its alert when installing; without this, a single-window app can quit before download/install runs.
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         !SparkleUpdateSession.shared.blocksQuitOnLastWindowClosed

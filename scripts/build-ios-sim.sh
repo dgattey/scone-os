@@ -76,13 +76,25 @@ compile_module SconeUI Sources/SconeUI/*.swift
   -o "$APP/Sconeos"
 
 ICON_FILE="$ROOT/build/AppIcon.icns"
-if [[ ! -f "$ICON_FILE" || "$ROOT/scripts/generate-icon.swift" -nt "$ICON_FILE" ]]; then
+ICON_BUNDLE="$ROOT/build/AppIcon.icon"
+if [[ ! -f "$ICON_FILE" || ! -d "$ICON_BUNDLE" || "$ROOT/scripts/generate-icon.swift" -nt "$ICON_FILE" ]]; then
   swift "$ROOT/scripts/generate-icon.swift" "$ROOT"
 fi
 
 if [[ -f "$ROOT/build/icon-1024-light.png" && ( ! -f "$APP/AppIcon60x60@2x.png" || "$ROOT/scripts/generate-icon.swift" -nt "$APP/AppIcon60x60@2x.png" ) ]]; then
   sips -z 120 120 "$ROOT/build/icon-1024-light.png" --out "$APP/AppIcon60x60@2x.png" >/dev/null 2>&1 || true
   sips -z 180 180 "$ROOT/build/icon-1024-light.png" --out "$APP/AppIcon60x60@3x.png" >/dev/null 2>&1 || true
+fi
+
+if command -v xcrun >/dev/null 2>&1 && [[ -d "$ICON_BUNDLE" ]]; then
+  PARTIAL_PLIST="$SIM_BUILD_DIR/assetcatalog_generated_info.plist"
+  xcrun actool "$ICON_BUNDLE" \
+    --compile "$APP" \
+    --platform iphonesimulator \
+    --minimum-deployment-target 17.0 \
+    --app-icon AppIcon \
+    --output-partial-info-plist "$PARTIAL_PLIST" >/dev/null 2>&1 || true
+  rm -f "$PARTIAL_PLIST"
 fi
 
 cat > "$APP/Info.plist" <<'PLIST'
@@ -127,6 +139,31 @@ cat > "$APP/Info.plist" <<'PLIST'
   <array>
     <string>AppIcon60x60</string>
   </array>
+  <key>CFBundleIcons</key>
+  <dict>
+    <key>CFBundlePrimaryIcon</key>
+    <dict>
+      <key>CFBundleIconFiles</key>
+      <array>
+        <string>AppIcon60x60</string>
+      </array>
+      <key>CFBundleIconName</key>
+      <string>AppIcon</string>
+    </dict>
+  </dict>
+  <key>CFBundleIcons~ipad</key>
+  <dict>
+    <key>CFBundlePrimaryIcon</key>
+    <dict>
+      <key>CFBundleIconFiles</key>
+      <array>
+        <string>AppIcon60x60</string>
+        <string>AppIcon76x76</string>
+      </array>
+      <key>CFBundleIconName</key>
+      <string>AppIcon</string>
+    </dict>
+  </dict>
 </dict>
 </plist>
 PLIST
