@@ -741,7 +741,7 @@ private struct RoomContainerNode: View {
 
 /// Coherent Music Square node on the map connected to each speaker playing its music.
 private struct MusicSourceNodeView: View {
-    static let cardSize = CGSize(width: 340, height: 108)
+    static let cardSize = CGSize(width: 368, height: 108)
 
     var group: SonosGroup
     var externalSpotify: SpotifyTrackContext? = nil
@@ -802,30 +802,35 @@ private struct MusicSourceNodeView: View {
     }
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 10) {
             Button(action: onOpenDetail) {
-                HStack(spacing: 12) {
-                    AlbumArtworkView(url: resolvedArtworkURL, size: flexibleWidth ? 64 : 76, cornerRadius: 14)
+                HStack(spacing: 11) {
+                    AlbumArtworkView(
+                        url: resolvedArtworkURL,
+                        size: flexibleWidth ? 64 : (activeExternalSpotify != nil ? 68 : 76),
+                        cornerRadius: 13
+                    )
                     VStack(alignment: .leading, spacing: 3) {
                         Text(titleText)
-                            .font(.system(size: flexibleWidth ? 15 : 15.5, weight: .bold))
+                            .font(.system(size: flexibleWidth ? 15 : 15, weight: .bold))
                             .foregroundStyle(MidnightGlass.primaryText)
                             .lineLimit(activeExternalSpotify == nil ? 2 : 1)
                             .multilineTextAlignment(.leading)
                             .fixedSize(horizontal: false, vertical: true)
 
                         Text(subtitleText)
-                            .font(.system(size: flexibleWidth ? 12 : 13, weight: .medium))
+                            .font(.system(size: flexibleWidth ? 12 : 12.5, weight: .medium))
                             .foregroundStyle(MidnightGlass.secondaryText)
                             .lineLimit(1)
 
                         if let externalDeviceCaption {
                             HStack(spacing: 4) {
                                 Image(systemName: "dot.radiowaves.left.and.right")
-                                    .font(.system(size: 9, weight: .bold))
+                                    .font(.system(size: 8.5, weight: .bold))
                                 Text(externalDeviceCaption)
                                     .font(.system(size: 11, weight: .semibold))
                                     .lineLimit(1)
+                                    .minimumScaleFactor(0.85)
                             }
                             .foregroundStyle(MidnightGlass.gold)
                         }
@@ -841,13 +846,14 @@ private struct MusicSourceNodeView: View {
                 if activeExternalSpotify != nil {
                     HStack(spacing: 5) {
                         Image(systemName: "play.fill")
-                            .font(.system(size: 11, weight: .bold))
+                            .font(.system(size: 10.5, weight: .bold))
                         Text("Play here")
                             .font(.system(size: 12, weight: .semibold))
                     }
+                    .fixedSize()
                     .foregroundStyle(MidnightGlass.ink)
                     .padding(.horizontal, 11)
-                    .frame(height: 36)
+                    .frame(height: 34)
                     .background(Capsule().fill(MidnightGlass.gold))
                 } else {
                     Image(systemName: isPlaying ? "pause.fill" : "play.fill")
@@ -871,7 +877,7 @@ private struct MusicSourceNodeView: View {
                     : (isPlaying ? "Pause \(group.displayName)" : "Play \(group.displayName)")
             )
         }
-        .padding(.horizontal, 14)
+        .padding(.horizontal, 12)
         .padding(.vertical, 12)
         .frame(width: flexibleWidth ? nil : Self.cardSize.width, height: flexibleWidth ? nil : Self.cardSize.height)
         .frame(maxWidth: flexibleWidth ? .infinity : nil)
