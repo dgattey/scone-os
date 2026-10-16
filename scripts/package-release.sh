@@ -45,9 +45,16 @@ ZIP="$WORK/Sconeos-${VERSION}.zip"
 ditto -c -k --keepParent "$APP" "$ZIP"
 rm -rf "$STAGE"
 
+"$ROOT/scripts/format-release-notes.sh" "$VERSION" > "$WORK/Sconeos-${VERSION}.html"
+
 GA="$ROOT/.build/artifacts/sparkle/Sparkle/bin/generate_appcast"
 [[ -x "$GA" ]] || { echo "package-release: generate_appcast not found — run 'swift build'." >&2; exit 1; }
-GA_ARGS=(--download-url-prefix "https://sconeos.gattey.com/" --link "https://sconeos.gattey.com")
+GA_ARGS=(
+  --embed-release-notes
+  --disable-signing-warning
+  --download-url-prefix "https://sconeos.gattey.com/"
+  --link "https://sconeos.gattey.com"
+)
 [[ -n "${SPARKLE_ED_KEY_FILE:-}" ]] && GA_ARGS+=(--ed-key-file "$SPARKLE_ED_KEY_FILE")
 "$GA" "${GA_ARGS[@]}" "$WORK"
 

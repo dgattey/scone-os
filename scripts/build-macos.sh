@@ -209,7 +209,7 @@ ${SU_PUBLIC_KEY_PLIST}
   <key>SUEnableAutomaticChecks</key>
   <true/>
   <key>SUScheduledCheckInterval</key>
-  <integer>86400</integer>
+  <integer>3600</integer>
 </dict>
 </plist>
 PLIST

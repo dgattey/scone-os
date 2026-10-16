@@ -10,6 +10,10 @@
             <sparkle:shortVersionString>1.0.5</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
             <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <description><![CDATA[<ul>
+  <li style="margin-bottom: 6px; line-height: 1.45;">Automatically check for updates in the background on every launch and every hour while running.</li>
+  <li style="margin-bottom: 6px; line-height: 1.45;">Format Sparkle update release notes as scannable HTML bullets.</li>
+</ul>]]></description>
             <enclosure url="https://sconeos.gattey.com/Sconeos-1.0.5.zip" length="3415656" type="application/octet-stream" sparkle:edSignature="QEePVNf1qJoddzJOzeiWf0cTocdMSjnnYatE4pzPxrdAyLwV0Qr2lzlOrm/vlZaHQW3az0pRKlE64Hz/22MUAg=="/>
         </item>
     </channel>
