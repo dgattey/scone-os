@@ -130,8 +130,6 @@ if [[ ! -f "$ICON_FILE" || ! -d "$ICON_BUNDLE" || "$ROOT/scripts/generate-icon.s
   swift "$ROOT/scripts/generate-icon.swift" "$ROOT"
 fi
 cp "$ICON_FILE" "$RESOURCES_DIR/AppIcon.icns"
-[[ -f "$ROOT/build/AppIcon-Light.icns" ]] && cp "$ROOT/build/AppIcon-Light.icns" "$RESOURCES_DIR/AppIcon-Light.icns"
-[[ -f "$ROOT/build/AppIcon-Dark.icns" ]] && cp "$ROOT/build/AppIcon-Dark.icns" "$RESOURCES_DIR/AppIcon-Dark.icns"
 if command -v xcrun >/dev/null 2>&1 && [[ -d "$ICON_BUNDLE" ]]; then
   PARTIAL_PLIST="$ROOT/build/assetcatalog_generated_info.plist"
   xcrun actool "$ICON_BUNDLE" \
