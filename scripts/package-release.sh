@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Build a signed macOS release and write Sparkle artifacts to dist/release/ and server/public/.
-# Requires self-signed cert in keychain (or SCONEOS_SIGN_IDENTITY).
+# Signs ad-hoc unless SCONEOS_SIGN_IDENTITY names a real identity.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"

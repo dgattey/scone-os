@@ -3,21 +3,28 @@ import Foundation
 import SconeDomain
 
 public enum NetworkDebugLog {
-    private static let writer = NetworkDebugLogWriter()
+    /// One consumer drains every line in yield order, so concurrent callers never interleave or reorder the file.
+    private static let lines: AsyncStream<String>.Continuation = {
+        let (stream, continuation) = AsyncStream.makeStream(of: String.self)
+        Task.detached(priority: .background) {
+            let writer = NetworkDebugLogWriter()
+            for await line in stream {
+                writer.append(line)
+            }
+        }
+        return continuation
+    }()
 
     public static func write(_ message: String) {
         let timestamp = Date().ISO8601Format(.iso8601(timeZone: .gmt, includingFractionalSeconds: true))
         let pid = ProcessInfo.processInfo.processIdentifier
         let ppid = Darwin.getppid()
         let bundleID = Bundle.main.bundleIdentifier ?? "nil"
-        let line = "[\(timestamp)] [pid=\(pid) ppid=\(ppid) bundle=\(bundleID)] \(message)\n"
-        Task.detached(priority: .background) {
-            await writer.append(line)
-        }
+        lines.yield("[\(timestamp)] [pid=\(pid) ppid=\(ppid) bundle=\(bundleID)] \(message)\n")
     }
 }
 
-private actor NetworkDebugLogWriter {
+private struct NetworkDebugLogWriter {
     private let fileURL: URL = {
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support")

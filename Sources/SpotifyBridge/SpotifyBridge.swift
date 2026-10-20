@@ -34,16 +34,25 @@ public final class SpotifyBridge {
     private nonisolated static let displayNameKey = "Sconeos.Spotify.displayName"
     private nonisolated static let scopes = "user-read-currently-playing user-read-playback-state user-modify-playback-state"
 
+    /// Derives the vault key and decrypts the stored session off the main actor.
+    public static func restore(redirectURI: URL, service: String = "Sconeos.Spotify") async -> SpotifyBridge {
+        let (vault, snapshot) = await Task.detached(priority: .userInitiated) {
+            let vault = TokenVault(service: service)
+            return (vault, vault.loadSnapshot())
+        }.value
+        return SpotifyBridge(redirectURI: redirectURI, vault: vault, snapshot: snapshot)
+    }
+
     public init(
         clientID: String = "",
-        redirectURI: URL = URL(string: "sconeos://spotify-callback")!,
-        vault: TokenVault = TokenVault(service: "Sconeos.Spotify")
+        redirectURI: URL,
+        vault: TokenVault,
+        snapshot: TokenVault.Snapshot
     ) {
         self.explicitClientID = clientID.trimmingCharacters(in: .whitespacesAndNewlines)
         self.redirectURI = redirectURI
         self.vault = vault
 
-        let snapshot = vault.loadSnapshot()
         if let cached = snapshot.accessToken {
             self.accessToken = cached.token
             self.accessExpiry = cached.expiry
@@ -249,8 +258,7 @@ public final class SpotifyBridge {
                 throw .authorizationFailed(error.localizedDescription)
             }
         }
-        guard let refresh = refreshToken ?? vault.refreshToken() else { return nil }
-        self.refreshToken = refresh
+        guard let refresh = refreshToken else { return nil }
         let explicitID = explicitClientID
         let task = Task<String?, any Error> {
             let tokens = try await WebAPI.refresh(explicitClientID: explicitID, refreshToken: refresh)

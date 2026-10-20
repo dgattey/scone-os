@@ -24,6 +24,7 @@ public final class SconeStore {
     @ObservationIgnored private var pendingVolumes: [VolumeTarget: DiscreteVolume] = [:]
     @ObservationIgnored private var activeVolumeTasks: [VolumeTarget: Task<Void, Never>] = [:]
     @ObservationIgnored private var isRunningLoop = false
+    @ObservationIgnored private var pendingPersist: Task<Void, Never>?
 
     public init(
         loaded: LoadedFiles,
@@ -40,17 +41,18 @@ public final class SconeStore {
         self.spotify = spotify
     }
 
-    public static func live(spotify: SpotifyBridge) -> SconeStore {
-        let support = URL.applicationSupportDirectory
-        let targetDir = support.appending(path: "Sconeos")
-        #if targetEnvironment(simulator)
-        if let hostHome = ProcessInfo.processInfo.environment["SIMULATOR_HOST_HOME"], !hostHome.isEmpty {
-            let hostAppSupport = URL(fileURLWithPath: hostHome).appending(path: "Library/Application Support/Sconeos")
-            SconeFiles.migrateLegacyDirectoryIfNeeded(from: hostAppSupport, to: targetDir)
-        }
-        #endif
-        let files = SconeFiles(directory: targetDir)
-        let loaded = files.loadAll()
+    public static func live(spotify: SpotifyBridge) async -> SconeStore {
+        let (files, loaded) = await Task.detached(priority: .userInitiated) {
+            let targetDir = URL.applicationSupportDirectory.appending(path: "Sconeos")
+            #if targetEnvironment(simulator)
+            if let hostHome = ProcessInfo.processInfo.environment["SIMULATOR_HOST_HOME"], !hostHome.isEmpty {
+                let hostAppSupport = URL(fileURLWithPath: hostHome).appending(path: "Library/Application Support/Sconeos")
+                SconeFiles.migrateLegacyDirectoryIfNeeded(from: hostAppSupport, to: targetDir)
+            }
+            #endif
+            let files = SconeFiles(directory: targetDir)
+            return (files, files.loadAll())
+        }.value
         return SconeStore(
             loaded: loaded,
             files: files,
@@ -363,12 +365,20 @@ public final class SconeStore {
 
     public func moveRoom(_ room: SpeakerUUID, to coordinate: RoomCoordinate) {
         mutateState { $0.pin(room, at: coordinate) }
-        persistChangedSlices()
+        schedulePersist()
     }
 
     public func resetRoom(_ room: SpeakerUUID) {
         mutateState { $0.unpin(room) }
-        persistChangedSlices()
+        schedulePersist()
+    }
+
+    private func schedulePersist() {
+        let previous = pendingPersist
+        pendingPersist = Task {
+            await previous?.value
+            await persistChangedSlicesAsync()
+        }
     }
 
     public func savePreset(from group: GroupID, name: String? = nil) {
@@ -757,20 +767,6 @@ public final class SconeStore {
         return cached.filter { seen.insert($0).inserted }
     }
 
-    private func persistChangedSlices() {
-        let next = state.persisted
-        if next.positions != written.positions, save(next.positions, to: .floorplanPositions) {
-            written = PersistedSlices(cache: written.cache, positions: next.positions)
-        }
-        let rosterOrNameChanged = next.cache.speakers.map(\.id) != written.cache.speakers.map(\.id)
-            || next.cache.networkName != written.cache.networkName
-        let cacheIsDue = rosterOrNameChanged || Date().timeIntervalSince(lastCacheWrite) >= 30
-        if next.cache != written.cache, cacheIsDue, save(next.cache, to: .cachedSpeakers) {
-            written = PersistedSlices(cache: next.cache, positions: written.positions)
-            lastCacheWrite = Date()
-        }
-    }
-
     private func persistChangedSlicesAsync() async {
         let next = state.persisted
         if next.positions != written.positions, await saveAsync(next.positions, to: .floorplanPositions) {
@@ -782,16 +778,6 @@ public final class SconeStore {
         if next.cache != written.cache, cacheIsDue, await saveAsync(next.cache, to: .cachedSpeakers) {
             written = PersistedSlices(cache: next.cache, positions: written.positions)
             lastCacheWrite = Date()
-        }
-    }
-
-    private func save<C>(_ content: C, to slot: FileSlot<C>) -> Bool {
-        do {
-            try files.save(content, to: slot)
-            return true
-        } catch {
-            mutateState { $0.report(.quarantined(fileName: slot.name)) }
-            return false
         }
     }
 

@@ -20,12 +20,6 @@ Sconeos is structured as a single Swift Package (`SconeKit`) with strict module 
 
 ## Building and Running on macOS
 
-Generate the one-time local code-signing certificate so macOS TCC and Local Network permissions persist across rebuilds:
-
-```bash
-./scripts/setup-self-signed-cert.sh
-```
-
 Build, sign, and launch `Sconeos.app` in release configuration:
 
 ```bash
@@ -52,12 +46,7 @@ xcodebuild -scheme Sconeos \
 
 `scripts/build-macos.sh` embeds `Sparkle.framework` and signs all nested XPC services (`Installer.xpc`, `Downloader.xpc`, `Autoupdate`, `Updater.app`) inside-out before signing `Sconeos.app` with `Sconeos.local.entitlements`.
 
-Signing identity resolution lives in `scripts/lib/signing.sh` and selects the first available identity:
-
-1. `SCONEOS_SIGN_IDENTITY` environment variable.
-2. `Developer ID Application` certificate in the login keychain.
-3. `Sconeos Local Dev` self-signed certificate created by `./scripts/setup-self-signed-cert.sh`.
-4. Ad-hoc signing (`-`) as a fallback.
+`scripts/lib/signing.sh` signs ad-hoc (`-`) unless `SCONEOS_SIGN_IDENTITY` names a real identity. Untrusted self-signed certificates get killed by `syspolicyd`/`amfid` on quarantined launches, so releases stay ad-hoc.
 
 To rotate or generate a Sparkle EdDSA keypair (storing the private key in the macOS login Keychain and writing the public key to `sparkle-public-key.txt`):
 

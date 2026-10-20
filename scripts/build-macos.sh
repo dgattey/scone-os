@@ -2,7 +2,7 @@
 # Build build/Sconeos.app (Swift release binaries by default, matching GP's package-macos.sh).
 #
 # Dev defaults reproduce GP's package-macos.sh behavior (ad-hoc signature unless SCONEOS_SIGN_IDENTITY
-# or self-signed cert is present, embeds Sparkle.framework, signs inside-out with local entitlements).
+# is set, embeds Sparkle.framework, signs inside-out with local entitlements).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"

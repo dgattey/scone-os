@@ -72,14 +72,9 @@ struct SconeosApp: App {
     @NSApplicationDelegateAdaptor(SconeAppDelegate.self) private var appDelegate
     @StateObject private var updater = AppUpdaterModel()
     #endif
-    @State private var spotify: SpotifyBridge
-    @State private var store: SconeStore
+    @State private var session: LiveSession?
 
     init() {
-        let redirectURI = URL(string: "sconeos://spotify-callback")!
-        let spotify = SpotifyBridge(redirectURI: redirectURI)
-        _spotify = State(initialValue: spotify)
-        _store = State(initialValue: SconeStore.live(spotify: spotify))
         #if os(macOS)
         UserDefaults.standard.set(false, forKey: "NSQuitAlwaysKeepsWindows")
         if let scheme = LaunchView.requestedColorScheme() {
@@ -108,21 +103,21 @@ struct SconeosApp: App {
             CommandMenu("Playback") {
                 Button("Play / Pause") {
                     if let target = primaryTargetGroup {
-                        store.togglePlayOrHandOffSpotify(for: target)
+                        store?.togglePlayOrHandOffSpotify(for: target)
                     }
                 }
                 .keyboardShortcut(.space, modifiers: [])
 
                 Button("Next Track") {
                     if let target = primaryTargetGroup {
-                        store.send(.nextTrack(group: target.id))
+                        store?.send(.nextTrack(group: target.id))
                     }
                 }
                 .keyboardShortcut(.rightArrow, modifiers: [.command])
 
                 Button("Previous Track") {
                     if let target = primaryTargetGroup {
-                        store.send(.previousTrack(group: target.id))
+                        store?.send(.previousTrack(group: target.id))
                     }
                 }
                 .keyboardShortcut(.leftArrow, modifiers: [.command])
@@ -135,7 +130,7 @@ struct SconeosApp: App {
                         let volumeTarget: VolumeTarget = target.speakers.count > 1
                             ? .group(target.id)
                             : .speaker(target.coordinator.id)
-                        store.send(.setVolume(next, for: volumeTarget))
+                        store?.send(.setVolume(next, for: volumeTarget))
                     }
                 }
                 .keyboardShortcut(.upArrow, modifiers: [.command])
@@ -146,7 +141,7 @@ struct SconeosApp: App {
                         let volumeTarget: VolumeTarget = target.speakers.count > 1
                             ? .group(target.id)
                             : .speaker(target.coordinator.id)
-                        store.send(.setVolume(next, for: volumeTarget))
+                        store?.send(.setVolume(next, for: volumeTarget))
                     }
                 }
                 .keyboardShortcut(.downArrow, modifiers: [.command])
@@ -154,7 +149,7 @@ struct SconeosApp: App {
                 Divider()
 
                 Button("Group All Rooms (Everywhere)") {
-                    store.groupEverywhere()
+                    store?.groupEverywhere()
                 }
                 .keyboardShortcut("g", modifiers: [.command, .shift])
             }
@@ -162,26 +157,28 @@ struct SconeosApp: App {
         #endif
     }
 
+    private var store: SconeStore? { session?.store }
+
     private var primaryTargetGroup: SonosGroup? {
-        if let playing = store.state.groups.first(where: {
+        guard let groups = store?.state.groups else { return nil }
+        if let playing = groups.first(where: {
             if case .playing = $0.playback { return true }
             return false
         }) {
             return playing
         }
-        if let multi = store.state.groups.first(where: { $0.speakers.count > 1 }) {
+        if let multi = groups.first(where: { $0.speakers.count > 1 }) {
             return multi
         }
-        return store.state.groups.first
+        return groups.first
     }
 
     private var root: some View {
         let requestedScheme = LaunchView.requestedColorScheme()
         let isIOSPreview = LaunchView.requestsIOS()
-        let view = SconeRootView()
-            .environment(store)
-            .environment(spotify)
+        let view = sessionContent
             .preferredColorScheme(requestedScheme)
+            .task { session = await LiveSession.shared.value }
         #if os(macOS)
         return view
             .frame(
@@ -212,5 +209,15 @@ struct SconeosApp: App {
         #else
         return view
         #endif
+    }
+
+    @ViewBuilder private var sessionContent: some View {
+        if let session {
+            SconeRootView()
+                .environment(session.store)
+                .environment(session.spotify)
+        } else {
+            Color.clear
+        }
     }
 }
