@@ -23,7 +23,7 @@ macOS Sparkle files (`appcast.xml` and `Sconeos-<version>.zip`) in `server/publi
   2. `bundle` and `sign` build and ad-hoc sign `Sconeos.app` in `build/release/`.
   3. `appcast` writes cumulative notes, runs Sparkle's `generate_appcast`, verifies the new `sparkle:edSignature` against `SUPublicEDKey` in the built app (failing closed), and installs `server/public/appcast.xml` and `server/public/Sconeos-<version>.zip`.
   4. `check` runs the release checks, `publish` commits `server/public/`, tags `v<version>` and pushes both with plain git.
-  5. `check --live` waits for `https://sconeos.gattey.com/appcast.xml` to serve the new version, then verifies the live zip's signature and that the download page shows it.
+  5. An ubuntu job waits up to 15 minutes for `https://sconeos.gattey.com/appcast.xml` and the download page to show the new version. `./run release check --live` on a Mac also verifies the live zip's signature.
 - Sparkle only renders the winning appcast item's `<description>`, so `release-kit` bakes the new version's notes plus the previous 9 versions (from the committed and live appcasts) into it. Preview them with `./run release notes --body-file <pr-body.md>`.
 - Squash merges must carry the PR description in the commit message (repo setting: **Default commit message → Pull request title and description**), since that is where `release-kit` reads the release checkbox and notes. Without it, releases default to a patch bump with the PR title as the notes.
 - That release commit only touches `server/public/**`, so the workflow does **not** run again (no loop). Vercel's Git integration deploys the updated `server/public/` automatically.

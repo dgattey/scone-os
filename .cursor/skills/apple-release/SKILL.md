@@ -12,7 +12,7 @@ The release is `release-kit`, run in steps by the CI wrapper or locally with `./
 3. `sign` signs inside-out (frameworks, helpers, then the app), pins the designated requirement to the bundle ID, verifies, and zips.
 4. `appcast` writes cumulative notes and the appcast, signs the enclosure with `SPARKLE_ED_PRIVATE_KEY_BASE64`, and checks the signature against the key baked into the app.
 5. `check` runs the release checks against the staged feed; `publish` commits `server/public/`, tags `v<version>` and pushes with plain git.
-6. `check --live --wait 600` polls the deployed feed until it serves the new version with a valid signature.
+6. CI then waits on ubuntu for the site to serve the new version. `check --live` checks the deployed feed, its signature and the download page.
 
 `./run release check` runs the same tier 3 checks on any branch. Its rule IDs explain themselves; read the finding instead of restating it here.
 
