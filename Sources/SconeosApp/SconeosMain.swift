@@ -86,7 +86,7 @@ struct SconeosApp: App {
             "Sconeos",
             palette: MidnightGlassPalette(),
             launch: LaunchView.overrides,
-            defaultSize: LaunchView.requestsIOS() ? CGSize(width: 402, height: 874) : CGSize(width: 1280, height: 840)
+            defaultSize: LaunchView.isIOSLayout ? CGSize(width: 402, height: 874) : CGSize(width: 1280, height: 840)
         ) {
             root
         } commands: {
@@ -172,7 +172,7 @@ struct SconeosApp: App {
     }
 
     private var root: some View {
-        let isIOSPreview = LaunchView.requestsIOS()
+        let isIOSPreview = LaunchView.isIOSLayout
         let view = sessionContent.task { session = await LiveSession.shared.value }
         #if os(macOS)
         return view.frame(

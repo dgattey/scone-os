@@ -116,14 +116,24 @@ func deduplicatedActiveHubGroups(from groups: [SonosGroup]) -> [SonosGroup] {
 
 /// Sconeos's launch flags for screenshots and agent runs, read through DylKit's `LaunchOverrides`.
 public enum LaunchView {
-    public static let overrides = LaunchOverrides(prefix: "SCONEOS")
+    /// `--initial-view`. Nil when the flag is unset or not one of these screens.
+    fileprivate enum Screen: String {
+        case group, living, guest
+    }
 
-    public static func requestsGroup() -> Bool { overrides.initialView == "group" }
-    public static func requestsLivingRoom() -> Bool { overrides.initialView == "living" }
-    public static func requestsGuestRoom() -> Bool { overrides.initialView == "guest" }
-    public static func requestsQueuePopover() -> Bool { overrides.flag("show-queue") }
-    public static func requestsIOS() -> Bool { overrides.value("layout") == "ios" }
-    public static func requestedCompactTab() -> String? { overrides.value("tab") }
+    public static let overrides = LaunchOverrides(prefix: "SCONEOS")
+    fileprivate static let screen = overrides.initialView.flatMap(Screen.init(rawValue:))
+    public static let isIOSLayout = overrides.value("layout") == "ios"
+    public static let showsQueue = overrides.flag("show-queue")
+    /// `--tab`. `spotify` opens Settings. Nil when the flag is unset, so a later apply does not reset the tab.
+    fileprivate static let compactTab: AppTab? = {
+        switch overrides.value("tab") {
+        case nil: nil
+        case "rooms": .rooms
+        case "settings", "spotify": .settings
+        default: .map
+        }
+    }()
 }
 
 enum SidebarDestination: Hashable {
@@ -132,7 +142,7 @@ enum SidebarDestination: Hashable {
     case speaker(SpeakerUUID)
 }
 
-private enum AppTab: Hashable {
+fileprivate enum AppTab: Hashable {
     case map
     case rooms
     case settings
@@ -152,12 +162,7 @@ public struct SconeRootView: View {
     @State private var dockSelectedGroupID: GroupID?
 
     public init() {
-        let initialTab: AppTab = switch LaunchView.requestedCompactTab() {
-        case "rooms": .rooms
-        case "settings", "spotify": .settings
-        default: .map
-        }
-        _activeTab = State(initialValue: initialTab)
+        _activeTab = State(initialValue: LaunchView.compactTab ?? .map)
     }
 
     private var dockEligibleGroups: [SonosGroup] {
@@ -199,9 +204,9 @@ public struct SconeRootView: View {
 
     private var isCompactLayout: Bool {
         #if os(iOS)
-        return horizontalSizeClass == .compact || LaunchView.requestsIOS()
+        return horizontalSizeClass == .compact || LaunchView.isIOSLayout
         #else
-        return LaunchView.requestsIOS()
+        return LaunchView.isIOSLayout
         #endif
     }
 
@@ -600,18 +605,12 @@ public struct SconeRootView: View {
     }
 
     private func applyLaunchSelection() {
-        if !appliedLaunch, let tab = LaunchView.requestedCompactTab() {
-            switch tab {
-            case "rooms":
-                activeTab = .rooms
-            case "settings", "spotify":
-                activeTab = .settings
-            default:
-                activeTab = .map
-            }
+        if !appliedLaunch, let tab = LaunchView.compactTab {
+            activeTab = tab
         }
         guard !appliedLaunch else { return }
-        if LaunchView.requestsGuestRoom() {
+        switch LaunchView.screen {
+        case .guest:
             if let guestGroup = store.state.groups.first(where: {
                 $0.speakers.contains { $0.roomName.lowercased().contains("guest") }
             }) ?? store.state.groups.first(where: { $0.playback.nowPlaying != nil }) {
@@ -619,9 +618,7 @@ public struct SconeRootView: View {
                 if isCompactLayout { mapPath = [guestGroup.id] }
                 appliedLaunch = true
             }
-            return
-        }
-        if LaunchView.requestsLivingRoom() {
+        case .living:
             if let livingGroup = store.state.groups.first(where: {
                 $0.speakers.contains { $0.roomName.lowercased().contains("living") || !$0.bondedSatellites.isEmpty }
             }) {
@@ -629,27 +626,28 @@ public struct SconeRootView: View {
                 if isCompactLayout { mapPath = [livingGroup.id] }
                 appliedLaunch = true
             }
-            return
-        }
-        guard LaunchView.requestsGroup() else { return }
-        if let bondedGroup = store.state.groups.first(where: {
-            $0.speakers.contains { !$0.bondedSatellites.isEmpty }
-        }) {
-            selection = .group(bondedGroup.id)
-            if isCompactLayout { mapPath = [bondedGroup.id] }
-            appliedLaunch = true
-            return
-        }
-        let multi = store.state.groups.filter { $0.speakers.count > 1 }
-        if let count = multi.map(\.speakers.count).max(),
-           let group = multi.first(where: { $0.speakers.count == count }) {
-            selection = .group(group.id)
-            if isCompactLayout { mapPath = [group.id] }
-            appliedLaunch = true
-        } else if let first = store.state.groups.first {
-            selection = .group(first.id)
-            if isCompactLayout { mapPath = [first.id] }
-            appliedLaunch = true
+        case .group:
+            if let bondedGroup = store.state.groups.first(where: {
+                $0.speakers.contains { !$0.bondedSatellites.isEmpty }
+            }) {
+                selection = .group(bondedGroup.id)
+                if isCompactLayout { mapPath = [bondedGroup.id] }
+                appliedLaunch = true
+                return
+            }
+            let multi = store.state.groups.filter { $0.speakers.count > 1 }
+            if let count = multi.map(\.speakers.count).max(),
+               let group = multi.first(where: { $0.speakers.count == count }) {
+                selection = .group(group.id)
+                if isCompactLayout { mapPath = [group.id] }
+                appliedLaunch = true
+            } else if let first = store.state.groups.first {
+                selection = .group(first.id)
+                if isCompactLayout { mapPath = [first.id] }
+                appliedLaunch = true
+            }
+        case nil:
+            break
         }
     }
 

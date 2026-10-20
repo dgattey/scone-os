@@ -73,7 +73,7 @@ struct FloorplanMapView: View {
         let topologyKey = groups.map { "\($0.id.coordinator.rawValue):\($0.speakers.map(\.id.rawValue).joined(separator: ","))" }.joined(separator: "|")
 
         GeometryReader { geo in
-            let isCompact = geo.size.width < 520 || LaunchView.requestsIOS()
+            let isCompact = geo.size.width < 520 || LaunchView.isIOSLayout
             if isCompact {
                 CompactFloorplanMapView(
                     nodes: nodes,

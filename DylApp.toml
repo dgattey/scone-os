@@ -28,7 +28,6 @@ sparkle-public-key = "sparkle-public-key.txt"
 site-url = "https://sconeos.gattey.com"
 artifacts-dir = "server/public"
 check-interval = 3600
-notes-max-versions = 10
 # Only what ships in the app. Test release-kit or workflow changes with a manual workflow_dispatch run.
 inputs = [
     "Sources/**",
@@ -43,9 +42,6 @@ inputs = [
     "sparkle-public-key.txt",
     "scripts/generate-icon.swift",
 ]
-
-[launch]
-env-prefix = "SCONEOS"
 
 # Read by @dylkit/web for sconeos.gattey.com. Screenshot paths are under release.artifacts-dir.
 [site]
