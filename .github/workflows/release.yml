@@ -5,7 +5,7 @@ on:
     branches: [main]
     paths:
       - 'Sources/**'
-      - 'Packages/DylKit/Sources/**'
+      - 'Packages/DylKit/Sources/DylCore/**'
       - 'Packages/DylKit/Package.swift'
       - 'Package.swift'
       - 'Package.resolved'
@@ -13,7 +13,6 @@ on:
       - 'Sconeos.local.entitlements'
       - 'sparkle-public-key.txt'
       - 'scripts/generate-icon.swift'
-      - '.github/workflows/release.yml'
   workflow_dispatch:
     inputs:
       release_type:
@@ -33,6 +32,7 @@ concurrency:
 jobs:
   release:
     runs-on: macos-26
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with:

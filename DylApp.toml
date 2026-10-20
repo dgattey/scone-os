@@ -29,9 +29,10 @@ site-url = "https://sconeos.gattey.com"
 artifacts-dir = "server/public"
 check-interval = 3600
 notes-max-versions = 10
+# Only what ships in the app. Test release-kit or workflow changes with a manual workflow_dispatch run.
 inputs = [
     "Sources/**",
-    "Packages/DylKit/Sources/**",
+    "Packages/DylKit/Sources/DylCore/**",
     "Packages/DylKit/Package.swift",
     "Package.swift",
     "Package.resolved",
