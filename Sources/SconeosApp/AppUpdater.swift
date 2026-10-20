@@ -105,6 +105,7 @@ final class AppUpdaterModel: ObservableObject {
     private let sparkleDelegate = SparkleUpdaterDelegate()
     private let sparkleUserDriverDelegate = SparkleStandardUserDriverDelegate()
     private var launchCheckCancellable: AnyCancellable?
+    private var canCheckCancellable: AnyCancellable?
 
     init() {
         let feedURL = Bundle.main.object(forInfoDictionaryKey: "SUFeedURL") as? String
@@ -119,7 +120,9 @@ final class AppUpdaterModel: ObservableObject {
             userDriverDelegate: sparkleUserDriverDelegate
         )
         sparkleUserDriverDelegate.updater = controller.updater
-        controller.updater.publisher(for: \.canCheckForUpdates).assign(to: &$canCheckForUpdates)
+        canCheckCancellable = controller.updater.publisher(for: \.canCheckForUpdates)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] canCheck in self?.canCheckForUpdates = canCheck }
     }
 
     func checkForUpdates() {
