@@ -1,3 +1,4 @@
+import DylCore
 import Foundation
 import SconeDomain
 
@@ -607,7 +608,7 @@ public actor SonosHousehold {
         if let node = try? await client.call(getPresetsReq, at: endpoint) {
             let raw = node.value("StringValue").trimmingCharacters(in: .whitespacesAndNewlines)
             if let data = raw.data(using: .utf8),
-               let decoded = try? JSONDecoder().decode([PresetPill].self, from: data) {
+               let decoded = JSONDecoder().decodeOrLog([PresetPill].self, from: data) {
                 storedCustomPresets = decoded
             }
         }
@@ -1199,7 +1200,7 @@ package enum SonosMuseClient {
     }
 
     package static func parsePlayerHouseholdID(_ data: Data) -> String? {
-        guard let info = try? JSONDecoder().decode(PlayerInfoPayload.self, from: data),
+        guard let info = JSONDecoder().decodeOrLog(PlayerInfoPayload.self, from: data),
               let householdId = info.householdId?.trimmingCharacters(in: .whitespacesAndNewlines),
               !householdId.isEmpty else {
             return nil
@@ -1261,7 +1262,7 @@ package enum SonosMuseClient {
 
     package static func parseAreasMessage(_ text: String, validSpeakers: Set<SpeakerUUID>) -> [PresetPill]? {
         guard let data = text.data(using: .utf8),
-              let envelope = try? JSONDecoder().decode(AreasResponseEnvelope.self, from: data),
+              let envelope = JSONDecoder().decodeOrLog(AreasResponseEnvelope.self, from: data),
               let areas = envelope.body.areas else {
             return nil
         }
