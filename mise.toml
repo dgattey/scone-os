@@ -1,2 +1,3 @@
 [tools]
 node = "22"
+swiftlint = "0.65.1"

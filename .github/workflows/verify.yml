@@ -28,7 +28,8 @@ jobs:
             Packages/DylKit/.build
           key: swiftpm-${{ runner.os }}-${{ hashFiles('Package.resolved', 'Packages/DylKit/Package.resolved') }}
           restore-keys: swiftpm-${{ runner.os }}-
-      - name: Install SwiftLint
-        run: command -v swiftlint >/dev/null || brew install swiftlint
+      - uses: jdx/mise-action@v2
+        with:
+          install_args: swiftlint
       - name: Verify
         run: ./run dev verify
