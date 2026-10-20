@@ -66,7 +66,8 @@ for i in "${!numbers[@]}"; do
   notes_html+="$(SCONEOS_RELEASE_NOTES="$body" "$ROOT/scripts/format-release-notes.sh" "$VERSION")"$'\n'
   forge_notes+="- ${titles[$i]} (#${numbers[$i]})"$'\n'
 done
-notes_html="${notes_html//$'</ul>\n<ul>'/}"
+list_break=$'</ul>\n<ul>'
+notes_html="${notes_html//"$list_break"/}"
 
 echo "release-local: v$(tr -d '[:space:]' <VERSION) -> v$VERSION from PRs: ${numbers[*]/#/#}"
 if [[ "$dry_run" == true ]]; then
