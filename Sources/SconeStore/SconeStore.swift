@@ -40,17 +40,18 @@ public final class SconeStore {
         self.spotify = spotify
     }
 
-    public static func live(spotify: SpotifyBridge) -> SconeStore {
-        let support = URL.applicationSupportDirectory
-        let targetDir = support.appending(path: "Sconeos")
-        #if targetEnvironment(simulator)
-        if let hostHome = ProcessInfo.processInfo.environment["SIMULATOR_HOST_HOME"], !hostHome.isEmpty {
-            let hostAppSupport = URL(fileURLWithPath: hostHome).appending(path: "Library/Application Support/Sconeos")
-            SconeFiles.migrateLegacyDirectoryIfNeeded(from: hostAppSupport, to: targetDir)
-        }
-        #endif
-        let files = SconeFiles(directory: targetDir)
-        let loaded = files.loadAll()
+    public static func live(spotify: SpotifyBridge) async -> SconeStore {
+        let (files, loaded) = await Task.detached(priority: .userInitiated) {
+            let targetDir = URL.applicationSupportDirectory.appending(path: "Sconeos")
+            #if targetEnvironment(simulator)
+            if let hostHome = ProcessInfo.processInfo.environment["SIMULATOR_HOST_HOME"], !hostHome.isEmpty {
+                let hostAppSupport = URL(fileURLWithPath: hostHome).appending(path: "Library/Application Support/Sconeos")
+                SconeFiles.migrateLegacyDirectoryIfNeeded(from: hostAppSupport, to: targetDir)
+            }
+            #endif
+            let files = SconeFiles(directory: targetDir)
+            return (files, files.loadAll())
+        }.value
         return SconeStore(
             loaded: loaded,
             files: files,
