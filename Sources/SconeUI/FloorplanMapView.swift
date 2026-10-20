@@ -1,3 +1,4 @@
+import DylUI
 import SwiftUI
 import SconeDomain
 import SconeStore
@@ -703,7 +704,7 @@ private struct RoomContainerNode: View {
             } else if let battery = node.speaker.model.battery {
                 SpeakerBatteryBadge(battery: battery)
             } else if !node.speaker.reachability.isOnline {
-                OfflinePill()
+                StatusPill("Offline")
             } else {
                 Text("\(node.speaker.volume.percent)%")
                     .font(.caption2.monospacedDigit())

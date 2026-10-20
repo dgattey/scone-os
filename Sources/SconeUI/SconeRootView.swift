@@ -1,4 +1,5 @@
 import AuthenticationServices
+import DylCore
 import SwiftUI
 import SconeDomain
 import SconeStore
@@ -113,89 +114,16 @@ func deduplicatedActiveHubGroups(from groups: [SonosGroup]) -> [SonosGroup] {
     return groups.filter { keptIDs.contains($0.id) }
 }
 
+/// Sconeos's launch flags for screenshots and agent runs, read through DylKit's `LaunchOverrides`.
 public enum LaunchView {
-    public static func requestsGroup(
-        environment: [String: String] = ProcessInfo.processInfo.environment,
-        arguments: [String] = ProcessInfo.processInfo.arguments
-    ) -> Bool {
-        if environment["SCONEOS_INITIAL_VIEW"]?.lowercased() == "group" { return true }
-        if arguments.contains(where: { $0.lowercased() == "--initial-view=group" }) { return true }
-        guard let index = arguments.firstIndex(of: "--initial-view"),
-              arguments.indices.contains(index + 1) else { return false }
-        return arguments[index + 1].lowercased() == "group"
-    }
+    public static let overrides = LaunchOverrides(prefix: "SCONEOS")
 
-    public static func requestsLivingRoom(
-        environment: [String: String] = ProcessInfo.processInfo.environment,
-        arguments: [String] = ProcessInfo.processInfo.arguments
-    ) -> Bool {
-        if environment["SCONEOS_INITIAL_VIEW"]?.lowercased() == "living" { return true }
-        if arguments.contains(where: { $0.lowercased() == "--initial-view=living" }) { return true }
-        return false
-    }
-
-    public static func requestsGuestRoom(
-        environment: [String: String] = ProcessInfo.processInfo.environment,
-        arguments: [String] = ProcessInfo.processInfo.arguments
-    ) -> Bool {
-        if environment["SCONEOS_INITIAL_VIEW"]?.lowercased() == "guest" { return true }
-        if arguments.contains(where: { $0.lowercased() == "--initial-view=guest" }) { return true }
-        return false
-    }
-
-    public static func requestsQueuePopover(
-        environment: [String: String] = ProcessInfo.processInfo.environment,
-        arguments: [String] = ProcessInfo.processInfo.arguments
-    ) -> Bool {
-        if environment["SCONEOS_SHOW_QUEUE"] == "1" { return true }
-        if arguments.contains(where: { $0.lowercased() == "--show-queue" }) { return true }
-        return false
-    }
-
-    public static func requestsIOS(
-        environment: [String: String] = ProcessInfo.processInfo.environment,
-        arguments: [String] = ProcessInfo.processInfo.arguments
-    ) -> Bool {
-        if environment["SCONEOS_LAYOUT"]?.lowercased() == "ios" { return true }
-        if arguments.contains(where: { $0.lowercased() == "--layout=ios" }) { return true }
-        return false
-    }
-
-    public static func requestedCompactTab(
-        environment: [String: String] = ProcessInfo.processInfo.environment,
-        arguments: [String] = ProcessInfo.processInfo.arguments
-    ) -> String? {
-        if let tab = environment["SCONEOS_COMPACT_TAB"]?.lowercased(), !tab.isEmpty {
-            return tab
-        }
-        for arg in arguments {
-            let lowered = arg.lowercased()
-            if lowered.hasPrefix("--tab=") {
-                return String(lowered.dropFirst("--tab=".count))
-            }
-        }
-        return nil
-    }
-
-    public static func requestedColorScheme(
-        environment: [String: String] = ProcessInfo.processInfo.environment,
-        arguments: [String] = ProcessInfo.processInfo.arguments
-    ) -> ColorScheme? {
-        let env = environment["SCONEOS_APPEARANCE"]?.lowercased()
-        if env == "light" { return .light }
-        if env == "dark" { return .dark }
-        for arg in arguments {
-            let lowered = arg.lowercased()
-            if lowered == "--appearance=light" { return .light }
-            if lowered == "--appearance=dark" { return .dark }
-        }
-        if let index = arguments.firstIndex(of: "--appearance"), arguments.indices.contains(index + 1) {
-            let next = arguments[index + 1].lowercased()
-            if next == "light" { return .light }
-            if next == "dark" { return .dark }
-        }
-        return nil
-    }
+    public static func requestsGroup() -> Bool { overrides.initialView == "group" }
+    public static func requestsLivingRoom() -> Bool { overrides.initialView == "living" }
+    public static func requestsGuestRoom() -> Bool { overrides.initialView == "guest" }
+    public static func requestsQueuePopover() -> Bool { overrides.flag("show-queue") }
+    public static func requestsIOS() -> Bool { overrides.value("layout") == "ios" }
+    public static func requestedCompactTab() -> String? { overrides.value("tab") }
 }
 
 enum SidebarDestination: Hashable {
@@ -292,8 +220,6 @@ public struct SconeRootView: View {
                 .hideWindowToolbarBackground()
             }
         }
-        .tint(MidnightGlass.gold)
-        .optionalPreferredColorScheme(LaunchView.requestedColorScheme())
         .overlay(alignment: .topTrailing) {
             if let alert = store.state.alert {
                 AlertBanner(
@@ -759,15 +685,6 @@ public struct SconeRootView: View {
 }
 
 private extension View {
-    @ViewBuilder
-    func optionalPreferredColorScheme(_ scheme: ColorScheme?) -> some View {
-        if let scheme {
-            self.preferredColorScheme(scheme)
-        } else {
-            self
-        }
-    }
-
     @ViewBuilder
     func hideWindowToolbarBackground() -> some View {
         #if os(macOS)

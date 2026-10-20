@@ -1,3 +1,4 @@
+import DylUI
 import DylUpdates
 import SwiftUI
 import SconeDomain
@@ -77,29 +78,18 @@ struct SconeosApp: App {
     init() {
         #if os(macOS)
         UserDefaults.standard.set(false, forKey: "NSQuitAlwaysKeepsWindows")
-        if let scheme = LaunchView.requestedColorScheme() {
-            NSApplication.shared.appearance = NSAppearance(
-                named: scheme == .dark ? .darkAqua : .aqua
-            )
-        }
         #endif
     }
 
     var body: some Scene {
-        WindowGroup("Sconeos") {
+        AppWindow(
+            "Sconeos",
+            palette: MidnightGlassPalette(),
+            launch: LaunchView.overrides,
+            defaultSize: LaunchView.requestsIOS() ? CGSize(width: 402, height: 874) : CGSize(width: 1280, height: 840)
+        ) {
             root
-        }
-        #if os(macOS)
-        .windowToolbarStyle(.unified(showsTitle: false))
-        .defaultSize(
-            width: LaunchView.requestsIOS() ? 402 : 1280,
-            height: LaunchView.requestsIOS() ? 874 : 840
-        )
-        .windowResizability(.contentMinSize)
-        .commands {
-            CommandGroup(after: .appInfo) {
-                CheckForUpdatesButton()
-            }
+        } commands: {
             CommandMenu("Playback") {
                 Button("Play / Pause") {
                     if let target = primaryTargetGroup {
@@ -154,6 +144,14 @@ struct SconeosApp: App {
                 .keyboardShortcut("g", modifiers: [.command, .shift])
             }
         }
+        #if os(macOS)
+        SettingsWindow(
+            palette: MidnightGlassPalette(),
+            pages: [
+                SettingsPage("General", systemImage: "gearshape") { UpdatesSection() },
+                SettingsPage("About", systemImage: "info.circle") { AboutSection() },
+            ]
+        )
         #endif
     }
 
@@ -174,38 +172,16 @@ struct SconeosApp: App {
     }
 
     private var root: some View {
-        let requestedScheme = LaunchView.requestedColorScheme()
         let isIOSPreview = LaunchView.requestsIOS()
-        let view = sessionContent
-            .preferredColorScheme(requestedScheme)
-            .task { session = await LiveSession.shared.value }
+        let view = sessionContent.task { session = await LiveSession.shared.value }
         #if os(macOS)
-        return view
-            .frame(
-                minWidth: isIOSPreview ? 402 : 980,
-                idealWidth: isIOSPreview ? 402 : 1280,
-                maxWidth: isIOSPreview ? 430 : .infinity,
-                minHeight: isIOSPreview ? 850 : 660,
-                idealHeight: isIOSPreview ? 874 : 840
-            )
-            .onAppear {
-                AppUpdater.shared.mainWindowDidAppear()
-                if let scheme = requestedScheme {
-                    NSApp.appearance = NSAppearance(named: scheme == .dark ? .darkAqua : .aqua)
-                }
-                if let rawSize = ProcessInfo.processInfo.environment["SCONEOS_WINDOW_SIZE"] {
-                    let parts = rawSize.split(separator: "x").compactMap { Double($0) }
-                    if parts.count == 2 {
-                        let targetSize = NSSize(width: parts[0], height: parts[1])
-                        Task { @MainActor in
-                            try? await Task.sleep(for: .milliseconds(150))
-                            for window in NSApp.windows where window.frame.width > 300 {
-                                window.setContentSize(targetSize)
-                            }
-                        }
-                    }
-                }
-            }
+        return view.frame(
+            minWidth: isIOSPreview ? 402 : 980,
+            idealWidth: isIOSPreview ? 402 : 1280,
+            maxWidth: isIOSPreview ? 430 : .infinity,
+            minHeight: isIOSPreview ? 850 : 660,
+            idealHeight: isIOSPreview ? 874 : 840
+        )
         #else
         return view
         #endif
