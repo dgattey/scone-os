@@ -1328,6 +1328,54 @@ struct SconeStateTests {
         #expect(quarantined.presets.isEmpty)
     }
 
+    @Test func cachedRosterLoadsOfflineAndHidesWhenNoHouseholdAnswers() {
+        let lastSeen = Date(timeIntervalSinceReferenceDate: 500)
+        let soundbar = soundbarWithRearSatellite(reachability: .offline(lastKnownIP: "192.168.68.92", lastSeenAt: lastSeen))
+        var state = SconeState(loaded: LoadedFiles(
+            cache: CachedSpeakersFile(speakers: [soundbar], rf: .empty, networkName: "Feeling 22"),
+            positions: nil, quarantined: []))
+        #expect(state.connection == .searching)
+        #expect(state.speakers.map(\.id) == [House.living])
+        #expect(state.speakers.flatMap(\.bondedSatellites).map(\.isOnline) == [false])
+
+        state.absorb(HouseholdSnapshot(
+            observedAt: Date(timeIntervalSinceReferenceDate: 600), speakers: [:], topology: .empty, groupStatus: [:], rf: .empty))
+        #expect(state.connection == .away(lastSeenAt: lastSeen))
+        #expect(state.speakers.isEmpty)
+        #expect(state.floorplan.isEmpty)
+        #expect(state.persisted.cache.speakers.map(\.id) == [House.living])
+    }
+
+    @Test func aDifferentHouseholdReplacesTheStaleRoster() {
+        let stale = soundbarWithRearSatellite(
+            reachability: .offline(lastKnownIP: "192.168.68.92", lastSeenAt: Date(timeIntervalSinceReferenceDate: 500)))
+        var state = SconeState(
+            loaded: LoadedFiles(
+                cache: CachedSpeakersFile(speakers: [stale], rf: .empty, networkName: "Feeling 22"),
+                positions: nil, quarantined: []),
+            initialPresets: [PresetPill(name: "Movie", coordinatorUUID: House.living, memberUUIDs: [])])
+        state.absorb(snapshot(
+            [speaker(House.kitchen, room: "Kitchen Speaker", ip: "10.0.0.8")],
+            coordinatorOf: alone([House.kitchen])))
+
+        #expect(state.connection == .live)
+        #expect(state.speakers.map(\.id) == [House.kitchen])
+        #expect(state.speakers.allSatisfy { $0.reachability.isOnline })
+        #expect(state.networkName == nil)
+        #expect(state.presets.isEmpty)
+        #expect(state.persisted.cache.speakers.map(\.id) == [House.kitchen])
+    }
+
+    @Test func liveSatellitesAreSavedOffline() {
+        var state = SconeState(loaded: LoadedFiles(cache: nil, positions: nil, quarantined: []))
+        let soundbar = soundbarWithRearSatellite(reachability: .online(ip: "192.168.68.92", rssi: -40, noiseFloor: -98))
+        state.absorb(HouseholdSnapshot(
+            observedAt: Date(timeIntervalSinceReferenceDate: 1_000), speakers: [House.living: soundbar],
+            topology: topology(alone([House.living])), groupStatus: [:], rf: .empty))
+        #expect(state.speakers.flatMap(\.bondedSatellites).map(\.isOnline) == [true])
+        #expect(state.persisted.cache.speakers.flatMap(\.bondedSatellites).map(\.isOnline) == [false])
+    }
+
     @Test func renameAndUpdateTrimAndLeaveBlankOrUnknownIdsAlone() {
         let initial = PresetPill(name: "Kitchen + Dining", coordinatorUUID: House.kitchen, memberUUIDs: [House.dining])
         var state = SconeState(
@@ -1347,8 +1395,11 @@ struct SconeStateTests {
         let basement = Speaker(
             id: House.basement, roomName: "Basement Speaker", model: .move(battery: nil),
             reachability: .offline(lastKnownIP: "192.168.68.95", lastSeenAt: old), volume: .v10)
+        let cachedKitchenBefore = Speaker(
+            id: House.kitchen, roomName: "Kitchen Speaker", model: .era100,
+            reachability: .offline(lastKnownIP: "192.168.68.58", lastSeenAt: old), volume: .v20)
         var state = SconeState(loaded: LoadedFiles(
-            cache: CachedSpeakersFile(speakers: [basement], rf: .empty),
+            cache: CachedSpeakersFile(speakers: [basement, cachedKitchenBefore], rf: .empty),
             positions: nil,
             quarantined: []))
         let seen = Date(timeIntervalSinceReferenceDate: 80)
@@ -2323,6 +2374,14 @@ private func speaker(
     Speaker(
         id: id, roomName: room, model: .era100,
         reachability: .online(ip: ip, rssi: -40, noiseFloor: -98), volume: volume)
+}
+
+private func soundbarWithRearSatellite(reachability: ReachabilityState) -> Speaker {
+    Speaker(
+        id: House.living, roomName: "Living Room", model: .arc, reachability: reachability, volume: .v20,
+        bondedSatellites: [BondedSatellite(
+            id: SpeakerUUID(rawValue: "RINCON_F0F6C1AAF58601400")!, parentID: House.living, role: .rearLeft,
+            modelNumber: "S39", displayName: "Sonos Era 100", isOnline: true, linkQuality: 63)])
 }
 
 private func snapshot(

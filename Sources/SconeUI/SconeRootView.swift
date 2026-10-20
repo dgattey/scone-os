@@ -374,6 +374,12 @@ public struct SconeRootView: View {
                     }
                     .textCase(nil)
 
+                    if store.state.connection != .live {
+                        HouseholdStatusCard(connection: store.state.connection, networkName: store.state.networkName)
+                            .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
+                            .listRowBackground(MidnightGlass.cardFill)
+                    }
+
                     if !offlineSpeakers.isEmpty {
                         Section {
                             ForEach(offlineSpeakers) { speaker in
@@ -662,6 +668,7 @@ public struct SconeRootView: View {
     }
 
     private var offlineSpeakers: [Speaker] {
+        guard case .live = store.state.connection else { return [] }
         let grouped = Set(store.state.groups.flatMap { $0.speakers.map(\.id) })
         return store.state.speakers.filter { !$0.reachability.isOnline && !grouped.contains($0.id) }
     }
@@ -779,6 +786,7 @@ private extension View {
 }
 
 private struct HomePane: View {
+    @Environment(SconeStore.self) private var store
     var showInlinePresets: Bool = false
     var onSelectGroup: (GroupID) -> Void
 
@@ -788,7 +796,54 @@ private struct HomePane: View {
                 PresetPillsBar(inToolbar: false)
                     .padding(.top, 8)
             }
+            if store.state.connection != .live {
+                HouseholdStatusCard(connection: store.state.connection, networkName: store.state.networkName)
+                    .padding(14)
+                    .midnightGlass(glowing: false, radius: 16)
+                    .padding(.horizontal, 16)
+                    .padding(.top, 12)
+            }
             FloorplanMapView(onSelectGroup: onSelectGroup)
+        }
+    }
+}
+
+private struct HouseholdStatusCard: View {
+    var connection: HouseholdConnection
+    var networkName: String?
+
+    var body: some View {
+        switch connection {
+        case .live:
+            EmptyView()
+        case .searching:
+            row(title: "Looking for \(networkName ?? "your speakers")", detail: "Checking this network for your Sonos system.") {
+                ProgressView().controlSize(.small)
+            }
+        case .away(let lastSeenAt):
+            row(
+                title: "No Sonos system on this network",
+                detail: lastSeenAt.map { "\(networkName ?? "Your speakers") last seen \($0.formatted(.relative(presentation: .named)))." }
+                    ?? "Sconeos will connect as soon as one appears."
+            ) {
+                Image(systemName: "wifi.slash")
+                    .foregroundStyle(MidnightGlass.gold)
+            }
+        }
+    }
+
+    private func row(title: String, detail: String, @ViewBuilder icon: () -> some View) -> some View {
+        HStack(spacing: 12) {
+            icon()
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(MidnightGlass.primaryText)
+                Text(detail)
+                    .font(.caption)
+                    .foregroundStyle(MidnightGlass.secondaryText)
+            }
+            Spacer(minLength: 0)
         }
     }
 }

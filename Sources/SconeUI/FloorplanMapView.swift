@@ -700,10 +700,10 @@ private struct RoomContainerNode: View {
                     .padding(.horizontal, 7)
                     .padding(.vertical, 2)
                     .background(Capsule().fill(MidnightGlass.gold))
-            } else if let battery = node.speaker.model.battery {
-                SpeakerBatteryBadge(battery: battery)
             } else if !node.speaker.reachability.isOnline {
                 OfflinePill()
+            } else if let battery = node.speaker.model.battery {
+                SpeakerBatteryBadge(battery: battery)
             } else {
                 Text("\(node.speaker.volume.percent)%")
                     .font(.caption2.monospacedDigit())
