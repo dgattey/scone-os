@@ -9,24 +9,54 @@ import AppKit
 @MainActor
 final class SconeAppDelegate: NSObject, NSApplicationDelegate {
     private var appearanceObservation: NSKeyValueObservation?
+    private lazy var darkDockIcon = Self.renderDarkBundleIcon()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        updateDockIcon(for: NSApp.effectiveAppearance)
-        appearanceObservation = NSApp.observe(\.effectiveAppearance, options: [.new]) { [weak self] app, _ in
+        appearanceObservation = NSApp.observe(\.effectiveAppearance, options: [.initial, .new]) { [weak self] app, _ in
             Task { @MainActor in
                 self?.updateDockIcon(for: app.effectiveAppearance)
             }
         }
     }
 
-    func updateDockIcon(for appearance: NSAppearance?) {
-        let resolved = appearance ?? NSApp.effectiveAppearance
-        let isDark = resolved.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-        let resourceName = isDark ? "AppIcon-Dark" : "AppIcon-Light"
-        if let url = Bundle.main.url(forResource: resourceName, withExtension: "icns"),
-           let image = NSImage(contentsOf: url) {
-            NSApp.applicationIconImage = image
-        }
+    /// Icon style Default keeps the closed Dock tile light even in Dark UI. Every other style and light UI keep
+    /// the bundle icon (nil), so the running tile only diverges from the closed one when the app is dark.
+    private func updateDockIcon(for appearance: NSAppearance) {
+        let isDark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        let usesDefaultIconStyle = UserDefaults.standard.object(forKey: "AppleIconAppearanceTheme") == nil
+        NSApp.applicationIconImage = isDark && usesDefaultIconStyle ? darkDockIcon : nil
+    }
+
+    /// Renders the compiled Icon Composer asset through the IconServices resource that draws the closed tile, so mask,
+    /// glass and shadow match it. No public API selects the dark iconstack while icon style is Default.
+    private static func renderDarkBundleIcon() -> NSImage? {
+        typealias MakeResource = @convention(c) (AnyObject, Selector, NSURL, NSString, UnsafeMutableRawPointer?) -> AnyObject?
+        typealias SetAppearance = @convention(c) (AnyObject, Selector, Int) -> Void
+        typealias ImageForSize = @convention(c) (AnyObject, Selector, CGSize, CGFloat) -> AnyObject?
+        typealias GetCGImage = @convention(c) (AnyObject, Selector) -> Unmanaged<CGImage>?
+        let makeResource = NSSelectorFromString("assetCatalogResourceWithURL:imageName:error:")
+        let setAppearance = NSSelectorFromString("setAppearance:")
+        let imageForSize = NSSelectorFromString("imageForSize:scale:")
+        let getCGImage = NSSelectorFromString("CGImage")
+        guard #available(macOS 26, *),
+              let resourceClass = NSClassFromString("ISAssetCatalogResource") as AnyObject?,
+              resourceClass.responds(to: makeResource),
+              let catalogURL = Bundle.main.url(forResource: "Assets", withExtension: "car"),
+              let iconName = Bundle.main.object(forInfoDictionaryKey: "CFBundleIconName") as? String,
+              let resource = unsafeBitCast(resourceClass.method(for: makeResource), to: MakeResource.self)(
+                  resourceClass, makeResource, catalogURL as NSURL, iconName as NSString, nil
+              ),
+              resource.responds(to: setAppearance),
+              resource.responds(to: imageForSize)
+        else { return nil }
+        let darkAppearance = 1
+        unsafeBitCast(resource.method(for: setAppearance), to: SetAppearance.self)(resource, setAppearance, darkAppearance)
+        let points = CGSize(width: 512, height: 512)
+        guard let image = unsafeBitCast(resource.method(for: imageForSize), to: ImageForSize.self)(resource, imageForSize, points, 2),
+              image.responds(to: getCGImage),
+              let cgImage = unsafeBitCast(image.method(for: getCGImage), to: GetCGImage.self)(image, getCGImage)?.takeUnretainedValue()
+        else { return nil }
+        return NSImage(cgImage: cgImage, size: points)
     }
 
     /// Sparkle closes its alert when installing; without this, a single-window app can quit before download/install runs.
