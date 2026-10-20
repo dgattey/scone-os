@@ -32,17 +32,7 @@ public final class SpotifyBridge {
     @ObservationIgnored private var inFlightTokenRefresh: Task<String?, any Error>?
 
     private nonisolated static let displayNameKey = "Sconeos.Spotify.displayName"
-    private nonisolated static let scopes =
-        "user-read-currently-playing user-read-playback-state user-modify-playback-state"
-
-    /// Derives the vault key and decrypts the stored session off the main actor.
-    public static func restore(redirectURI: URL, service: String = "Sconeos.Spotify") async -> SpotifyBridge {
-        let (vault, snapshot) = await Task.detached(priority: .userInitiated) {
-            let vault = TokenVault(service: service)
-            return (vault, vault.loadSnapshot())
-        }.value
-        return SpotifyBridge(redirectURI: redirectURI, vault: vault, snapshot: snapshot)
-    }
+    private nonisolated static let scopes = "user-read-currently-playing user-read-playback-state user-modify-playback-state"
 
     /// Derives the vault key and decrypts the stored session off the main actor.
     public static func restore(redirectURI: URL, service: String = "Sconeos.Spotify") async -> SpotifyBridge {
@@ -69,8 +59,7 @@ public final class SpotifyBridge {
         }
         self.refreshToken = snapshot.refreshToken
         if snapshot.refreshToken != nil || snapshot.accessToken != nil {
-            let storedName =
-                snapshot.displayName
+            let storedName = snapshot.displayName
                 ?? UserDefaults.standard.string(forKey: Self.displayNameKey)
             let name = (storedName?.isEmpty == false) ? storedName! : "Spotify"
             UserDefaults.standard.set(name, forKey: Self.displayNameKey)
@@ -82,10 +71,9 @@ public final class SpotifyBridge {
             if storedName == nil {
                 Task { [weak self] in
                     guard let self,
-                        let token = try? await self.validAccessToken(),
-                        let fetchedName = try? await WebAPI.profileName(accessToken: token),
-                        !fetchedName.isEmpty
-                    else { return }
+                          let token = try? await self.validAccessToken(),
+                          let fetchedName = try? await WebAPI.profileName(accessToken: token),
+                          !fetchedName.isEmpty else { return }
                     UserDefaults.standard.set(fetchedName, forKey: Self.displayNameKey)
                     self.vault.storeDisplayNameAsync(fetchedName)
                     self.authorization = .connected(displayName: fetchedName)
@@ -217,13 +205,11 @@ public final class SpotifyBridge {
 
         // 2. Query /v1/me/player/devices for a Spotify Connect target matching the group coordinator or a member room.
         let devices = await WebAPI.availableDevices(accessToken: token)
-        let matchingDevice =
-            devices.first(where: {
-                SpotifyDeviceMatcher.matches(deviceName: $0.name, roomName: coordinatorRoomName)
-            })
-            ?? devices.first(where: {
-                SpotifyDeviceMatcher.matchesAny(deviceName: $0.name, roomNames: memberRoomNames)
-            })
+        let matchingDevice = devices.first(where: {
+            SpotifyDeviceMatcher.matches(deviceName: $0.name, roomName: coordinatorRoomName)
+        }) ?? devices.first(where: {
+            SpotifyDeviceMatcher.matchesAny(deviceName: $0.name, roomNames: memberRoomNames)
+        })
         if let coordDevice = matchingDevice {
             if coordDevice.isActive {
                 if await WebAPI.resume(accessToken: token, deviceID: coordDevice.id) {

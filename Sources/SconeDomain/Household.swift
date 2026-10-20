@@ -43,18 +43,16 @@ public struct HouseholdSnapshot: Hashable, Sendable {
 
     public func isSemanticallyEquivalent(to other: HouseholdSnapshot) -> Bool {
         guard topology == other.topology,
-            rf == other.rf,
-            presets == other.presets,
-            networkName == other.networkName,
-            externalSpotify == other.externalSpotify,
-            speakers.count == other.speakers.count
-        else {
+              rf == other.rf,
+              presets == other.presets,
+              networkName == other.networkName,
+              externalSpotify == other.externalSpotify,
+              speakers.count == other.speakers.count else {
             return false
         }
         for (id, lhsSpeaker) in speakers {
             guard let rhsSpeaker = other.speakers[id],
-                lhsSpeaker.isSemanticallyEquivalent(to: rhsSpeaker)
-            else {
+                  lhsSpeaker.isSemanticallyEquivalent(to: rhsSpeaker) else {
                 return false
             }
         }
@@ -63,8 +61,7 @@ public struct HouseholdSnapshot: Hashable, Sendable {
             let lhsStatus = status(of: groupID)
             let rhsStatus = other.status(of: groupID)
             if lhsStatus.volume != rhsStatus.volume
-                || !lhsStatus.playback.isSemanticallyEquivalent(to: rhsStatus.playback)
-            {
+                || !lhsStatus.playback.isSemanticallyEquivalent(to: rhsStatus.playback) {
                 return false
             }
         }
@@ -127,8 +124,7 @@ public struct HouseholdSnapshot: Hashable, Sendable {
         var playingGroups: [(id: GroupID, nowPlaying: NowPlaying)] = []
         for groupID in validGroups {
             if let status = updated[groupID],
-                case .playing(let nowPlaying, _, _) = status.playback
-            {
+               case .playing(let nowPlaying, _, _) = status.playback {
                 playingGroups.append((groupID, nowPlaying))
             }
         }
@@ -166,19 +162,17 @@ public struct HouseholdSnapshot: Hashable, Sendable {
             }
             for groupID in validGroups {
                 guard let status = updated[groupID],
-                    case .paused(let pausedNow, _) = status.playback
-                else {
+                      case .paused(let pausedNow, _) = status.playback else {
                     continue
                 }
                 let matchesPlaying = playingGroups.contains { playing in
                     playing.nowPlaying.matchesSession(of: pausedNow)
                 }
                 let isSpotifyPaused = pausedNow.isSpotifyOrStreaming
-                let isStaleMusicSession: Bool =
-                    switch pausedNow {
-                    case .track, .stream: anyPlayingMusicOrStream
-                    case .tvAudio: false
-                    }
+                let isStaleMusicSession: Bool = switch pausedNow {
+                case .track, .stream: anyPlayingMusicOrStream
+                case .tvAudio: false
+                }
                 if matchesPlaying || isSpotifyPaused || isStaleMusicSession {
                     clearGroup(groupID)
                 }
@@ -193,8 +187,7 @@ public struct HouseholdSnapshot: Hashable, Sendable {
         var pausedGroups: [(id: GroupID, nowPlaying: NowPlaying)] = []
         for groupID in validGroups {
             if let status = updated[groupID],
-                case .paused(let nowPlaying, _) = status.playback
-            {
+               case .paused(let nowPlaying, _) = status.playback {
                 pausedGroups.append((groupID, nowPlaying))
             }
         }
@@ -230,8 +223,7 @@ public struct HouseholdSnapshot: Hashable, Sendable {
                 if left != right { return left < right }
                 return lhs.id < rhs.id
             }
-            let status =
-                groupStatus[groupID]
+            let status = groupStatus[groupID]
                 ?? GroupStatus(playback: .stopped, volume: speakers[groupID.coordinator]?.volume ?? .v0)
             return SonosGroup(
                 id: groupID,

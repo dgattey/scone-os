@@ -1,9 +1,8 @@
 import DylCore
-import DylDesign
 import ImageIO
+import SwiftUI
 import SconeDomain
 import SconeStore
-import SwiftUI
 
 #if canImport(AppKit)
 import AppKit
@@ -42,10 +41,9 @@ final class ArtworkImageCache {
             var request = URLRequest(url: url, timeoutInterval: 8)
             request.cachePolicy = .returnCacheDataElseLoad
             guard let (data, response) = try? await artworkSession.data(for: request),
-                let http = response as? HTTPURLResponse,
-                (200..<300).contains(http.statusCode),
-                !data.isEmpty
-            else {
+                  let http = response as? HTTPURLResponse,
+                  (200..<300).contains(http.statusCode),
+                  !data.isEmpty else {
                 return nil
             }
             return Self.downsample(data: data, maxPixelSize: maxPixelSize)
@@ -189,7 +187,7 @@ struct UpNextQueueCard: View {
         } else {
             content
                 .padding(16)
-                .glassCard(radius: 18)
+                .midnightGlass(radius: 18)
         }
     }
 

@@ -23,9 +23,7 @@ public enum SonosCommand: Hashable, Sendable {
         case .group(let member, let group): .memberOf(group, member: member)
         case .ungroup(let member): .standalone(member)
         case .applyPreset(let preset): preset.target
-        case .setVolume, .playPause, .nextTrack, .previousTrack, .seekToQueueTrack, .enqueueAndPlaySpotify,
-            .savePresets, .setSystemName:
-            nil
+        case .setVolume, .playPause, .nextTrack, .previousTrack, .seekToQueueTrack, .enqueueAndPlaySpotify, .savePresets, .setSystemName: nil
         }
     }
 }

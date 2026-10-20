@@ -1,7 +1,6 @@
-import DylDesign
+import SwiftUI
 import SconeDomain
 import SconeStore
-import SwiftUI
 
 struct OfflineSpeakerDetail: View {
     @Environment(SconeStore.self) private var store
@@ -14,7 +13,7 @@ struct OfflineSpeakerDetail: View {
                     Text(RoomNaming.shortName(speaker.roomName, merged: false))
                         .font(.system(.largeTitle, design: .serif, weight: .semibold))
                         .foregroundStyle(MidnightGlass.primaryText)
-                    StatusPill("Offline")
+                    OfflinePill()
                 }
                 SpeakerRowView(
                     speaker: speaker,
@@ -24,7 +23,7 @@ struct OfflineSpeakerDetail: View {
                     onVolume: { store.send(.setVolume($0, for: .speaker(speaker.id))) }
                 )
                 .padding(16)
-                .glassCard(radius: 18)
+                .midnightGlass(radius: 18)
             }
             .padding(28)
             .frame(maxWidth: 880, alignment: .leading)
@@ -74,7 +73,7 @@ struct SpeakerRowView: View {
                             SpeakerBatteryBadge(battery: battery)
                         }
                         if !speaker.reachability.isOnline {
-                            StatusPill("Offline")
+                            OfflinePill()
                         }
                         Spacer(minLength: 4)
                         if canRemove && isHovered {
@@ -153,7 +152,7 @@ struct BondedSatelliteRow: View {
             }
             Spacer(minLength: 8)
             if !satellite.isOnline {
-                StatusPill("Offline")
+                OfflinePill()
             }
         }
         .padding(.vertical, 2)

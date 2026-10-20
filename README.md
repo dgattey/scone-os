@@ -31,7 +31,7 @@ Sconeos builds with [DylKit](Packages/DylKit), Dylan's shared app framework. `Dy
 ./run dev --help
 ```
 
-Agent skills and the always-applied rule come from `Packages/DylKit/skills` and `Packages/DylKit/rules`. Edit them there and run `./run dev skills sync` to refresh `.cursor/`. Swift is formatted with `swift format` using the root `.swift-format` (4 spaces, 120 columns).
+Agent skills and the always-applied rule come from `Packages/DylKit/skills` and `Packages/DylKit/rules`. Edit them there and run `./run dev skills sync` to refresh `.cursor/`.
 
 ## Code signing and Sparkle updates
 

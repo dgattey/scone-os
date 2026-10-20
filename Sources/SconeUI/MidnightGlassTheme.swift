@@ -1,62 +1,194 @@
-import DylDesign
 import SwiftUI
-
 #if os(macOS)
 import AppKit
 #elseif os(iOS)
 import UIKit
 #endif
 
+private func adaptiveColor(
+    light: (CGFloat, CGFloat, CGFloat, CGFloat),
+    dark: (CGFloat, CGFloat, CGFloat, CGFloat)
+) -> Color {
+    #if os(macOS)
+    return Color(nsColor: NSColor(name: nil) { appearance in
+        let match = appearance.bestMatch(from: [.aqua, .darkAqua])
+        let c = (match == .darkAqua) ? dark : light
+        return NSColor(srgbRed: c.0, green: c.1, blue: c.2, alpha: c.3)
+    })
+    #elseif os(iOS)
+    return Color(uiColor: UIColor { traits in
+        let c = (traits.userInterfaceStyle == .dark) ? dark : light
+        return UIColor(red: c.0, green: c.1, blue: c.2, alpha: c.3)
+    })
+    #endif
+}
+
 enum MidnightGlass {
     // Background surfaces:
     // Light: Warm clotted-cream / oat parchment (#FAF5EC -> #F3EAD8)
     // Dark: Deep roasted espresso / hearth (#16120E -> #1E1813)
-    static let obsidian = Color.adaptive(light: .rgb(250, 245, 236), dark: .rgb(22, 18, 14))
-    static let slate = Color.adaptive(light: .rgb(243, 234, 216), dark: .rgb(30, 24, 19))
+    static let obsidian = adaptiveColor(
+        light: (250 / 255, 245 / 255, 236 / 255, 1.0),
+        dark: (22 / 255, 18 / 255, 14 / 255, 1.0)
+    )
+    static let slate = adaptiveColor(
+        light: (243 / 255, 234 / 255, 216 / 255, 1.0),
+        dark: (30 / 255, 24 / 255, 19 / 255, 1.0)
+    )
 
     // Accents:
     // Light: Golden honey / jam (#C87D20 / #B86B14)
     // Dark: Golden-butter & amber (#E5A93C / #C88232)
-    static let gold = Color.adaptive(light: .rgb(200, 125, 32), dark: .rgb(229, 169, 60))
-    static let copper = Color.adaptive(light: .rgb(184, 107, 20), dark: .rgb(200, 130, 50))
+    static let gold = adaptiveColor(
+        light: (200 / 255, 125 / 255, 32 / 255, 1.0),
+        dark: (229 / 255, 169 / 255, 60 / 255, 1.0)
+    )
+    static let copper = adaptiveColor(
+        light: (184 / 255, 107 / 255, 20 / 255, 1.0),
+        dark: (200 / 255, 130 / 255, 50 / 255, 1.0)
+    )
 
     // Typography:
     // Light: Espresso / roasted-barley (#2A1E14 primary, #6E5A48 secondary)
     // Dark: Warm cream (#F7EFE4 primary, #BDAE9C secondary)
-    static let primaryText = Color.adaptive(light: .rgb(42, 30, 20), dark: .rgb(247, 239, 228))
-    static let secondaryText = Color.adaptive(light: .rgb(110, 90, 72), dark: .rgb(189, 174, 156))
-    static let tertiaryText = Color.adaptive(light: .rgb(140, 118, 96), dark: .rgb(148, 132, 116))
+    static let primaryText = adaptiveColor(
+        light: (42 / 255, 30 / 255, 20 / 255, 1.0),
+        dark: (247 / 255, 239 / 255, 228 / 255, 1.0)
+    )
+    static let secondaryText = adaptiveColor(
+        light: (110 / 255, 90 / 255, 72 / 255, 1.0),
+        dark: (189 / 255, 174 / 255, 156 / 255, 1.0)
+    )
+    static let tertiaryText = adaptiveColor(
+        light: (140 / 255, 118 / 255, 96 / 255, 1.0),
+        dark: (148 / 255, 132 / 255, 116 / 255, 1.0)
+    )
 
     // Contrast ink on gold/honey buttons
-    static let ink = Color.adaptive(light: .rgb(255, 253, 249), dark: .rgb(26, 18, 11))
+    static let ink = adaptiveColor(
+        light: (255 / 255, 253 / 255, 249 / 255, 1.0),
+        dark: (26 / 255, 18 / 255, 11 / 255, 1.0)
+    )
 
     // Card & container surfaces:
     // Light: Warm toasted scone crust card (#FFFDF9) with #E5D5B8 border
     // Dark: Warm glazed espresso card (#261E17) with warm amber border
-    static let cardFill = Color.adaptive(light: .rgb(255, 253, 249, 0.94), dark: .rgb(38, 30, 23, 0.84))
-    static let cardElevatedFill = Color.adaptive(light: .rgb(255, 253, 249, 0.98), dark: .rgb(48, 38, 29, 0.92))
-    static let cardBorder = Color.adaptive(light: .rgb(229, 213, 184, 0.95), dark: .rgb(247, 239, 228, 0.16))
-    static let subtleFill = Color.adaptive(light: .rgb(238, 226, 205, 0.65), dark: .rgb(247, 239, 228, 0.08))
-    static let floorBandFill = Color.adaptive(light: .rgb(247, 239, 224, 0.82), dark: .rgb(32, 25, 19, 0.68))
-    static let floorBandBorder = Color.adaptive(light: .rgb(222, 202, 170, 0.90), dark: .rgb(229, 169, 60, 0.18))
-    static let roomEnclosureFill = Color.adaptive(light: .rgb(255, 252, 245, 0.86), dark: .rgb(44, 35, 27, 0.66))
-    static let roomEnclosureBorder = Color.adaptive(light: .rgb(216, 192, 154, 0.85), dark: .rgb(229, 169, 60, 0.24))
-    static let badgeBackground = Color.adaptive(light: .rgb(250, 243, 230, 0.96), dark: .rgb(24, 19, 15, 0.94))
+    static let cardFill = adaptiveColor(
+        light: (255 / 255, 253 / 255, 249 / 255, 0.94),
+        dark: (38 / 255, 30 / 255, 23 / 255, 0.84)
+    )
+    static let cardElevatedFill = adaptiveColor(
+        light: (255 / 255, 253 / 255, 249 / 255, 0.98),
+        dark: (48 / 255, 38 / 255, 29 / 255, 0.92)
+    )
+    static let cardBorder = adaptiveColor(
+        light: (229 / 255, 213 / 255, 184 / 255, 0.95),
+        dark: (247 / 255, 239 / 255, 228 / 255, 0.16)
+    )
+    static let subtleFill = adaptiveColor(
+        light: (238 / 255, 226 / 255, 205 / 255, 0.65),
+        dark: (247 / 255, 239 / 255, 228 / 255, 0.08)
+    )
+    static let floorBandFill = adaptiveColor(
+        light: (247 / 255, 239 / 255, 224 / 255, 0.82),
+        dark: (32 / 255, 25 / 255, 19 / 255, 0.68)
+    )
+    static let floorBandBorder = adaptiveColor(
+        light: (222 / 255, 202 / 255, 170 / 255, 0.90),
+        dark: (229 / 255, 169 / 255, 60 / 255, 0.18)
+    )
+    static let roomEnclosureFill = adaptiveColor(
+        light: (255 / 255, 252 / 255, 245 / 255, 0.86),
+        dark: (44 / 255, 35 / 255, 27 / 255, 0.66)
+    )
+    static let roomEnclosureBorder = adaptiveColor(
+        light: (216 / 255, 192 / 255, 154 / 255, 0.85),
+        dark: (229 / 255, 169 / 255, 60 / 255, 0.24)
+    )
+    static let badgeBackground = adaptiveColor(
+        light: (250 / 255, 243 / 255, 230 / 255, 0.96),
+        dark: (24 / 255, 19 / 255, 15 / 255, 0.94)
+    )
 }
 
-struct MidnightGlassPalette: ThemePalette {
-    var background: Color { MidnightGlass.obsidian }
-    var backgroundSecondary: Color { MidnightGlass.slate }
-    var accent: Color { MidnightGlass.gold }
-    var accentSecondary: Color { MidnightGlass.copper }
-    var primaryText: Color { MidnightGlass.primaryText }
-    var secondaryText: Color { MidnightGlass.secondaryText }
-    var tertiaryText: Color { MidnightGlass.tertiaryText }
-    var onAccent: Color { MidnightGlass.ink }
-    var cardFill: Color { MidnightGlass.cardFill }
-    var cardElevatedFill: Color { MidnightGlass.cardElevatedFill }
-    var cardBorder: Color { MidnightGlass.cardBorder }
-    var subtleFill: Color { MidnightGlass.subtleFill }
+struct MidnightBackground: View {
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        ZStack {
+            LinearGradient(
+                colors: [MidnightGlass.obsidian, MidnightGlass.slate],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing)
+            RadialGradient(
+                colors: [
+                    MidnightGlass.copper.opacity(colorScheme == .dark ? 0.16 : 0.10),
+                    .clear,
+                ],
+                center: .topTrailing,
+                startRadius: 12,
+                endRadius: 460)
+            RadialGradient(
+                colors: [
+                    MidnightGlass.gold.opacity(colorScheme == .dark ? 0.10 : 0.08),
+                    .clear,
+                ],
+                center: .bottomLeading,
+                startRadius: 8,
+                endRadius: 380)
+        }
+        .ignoresSafeArea()
+    }
+}
+
+struct MidnightGlassCard: ViewModifier {
+    @Environment(\.colorScheme) private var colorScheme
+    var glowing: Bool = false
+    var radius: CGFloat = 22
+
+    func body(content: Content) -> some View {
+        content
+            .background {
+                RoundedRectangle(cornerRadius: radius, style: .continuous)
+                    .fill(glowing ? MidnightGlass.cardElevatedFill : MidnightGlass.cardFill)
+            }
+            .overlay(alignment: .top) {
+                LinearGradient(
+                    colors: [
+                        Color.white.opacity(colorScheme == .dark ? 0.02 : 0.35),
+                        (glowing ? MidnightGlass.gold : Color.white).opacity(colorScheme == .dark ? (glowing ? 0.65 : 0.25) : 0.85),
+                        Color.white.opacity(colorScheme == .dark ? 0.04 : 0.35),
+                    ],
+                    startPoint: .leading,
+                    endPoint: .trailing)
+                    .frame(height: 1)
+                    .padding(.horizontal, radius * 0.7)
+                    .padding(.top, 1)
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: radius, style: .continuous)
+                    .strokeBorder(
+                        LinearGradient(
+                            colors: glowing
+                                ? [MidnightGlass.gold.opacity(0.92), MidnightGlass.copper.opacity(0.42)]
+                                : [MidnightGlass.cardBorder, MidnightGlass.cardBorder.opacity(0.65)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing),
+                        lineWidth: glowing ? 1.4 : 1)
+            }
+            .shadow(
+                color: glowing
+                    ? MidnightGlass.copper.opacity(colorScheme == .dark ? 0.34 : 0.18)
+                    : Color.black.opacity(colorScheme == .dark ? 0.28 : 0.07),
+                radius: glowing ? 16 : 10,
+                y: 6)
+    }
+}
+
+extension View {
+    func midnightGlass(glowing: Bool = false, radius: CGFloat = 22) -> some View {
+        modifier(MidnightGlassCard(glowing: glowing, radius: radius))
+    }
 }
 
 struct SconeConeWedgeShape: Shape {
@@ -164,8 +296,7 @@ struct SconeBrandEmblem: View {
 
         return ZStack {
             // Outer and inner honey-glass sound arcs
-            ForEach([(432.0, colorScheme == .dark ? 0.62 : 0.82), (336.0, colorScheme == .dark ? 0.96 : 1.0)], id: \.0)
-            { r, op in
+            ForEach([(432.0, colorScheme == .dark ? 0.62 : 0.82), (336.0, colorScheme == .dark ? 0.96 : 1.0)], id: \.0) { r, op in
                 ZStack {
                     if colorScheme == .dark {
                         SconeConeSoundArcShape(radiusUnits: r)
@@ -338,6 +469,26 @@ struct SconeBrandEmblem: View {
         colorScheme == .dark
             ? Color.black.opacity(0.50)
             : Color(red: 0.353, green: 0.196, blue: 0.063).opacity(0.28)
+    }
+}
+
+struct PressableStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.97 : 1)
+            .opacity(configuration.isPressed ? 0.86 : 1)
+    }
+}
+
+struct OfflinePill: View {
+    var body: some View {
+        Text("Offline")
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(MidnightGlass.secondaryText)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 3)
+            .background(Capsule().fill(MidnightGlass.subtleFill))
+            .overlay(Capsule().strokeBorder(MidnightGlass.cardBorder, lineWidth: 1))
     }
 }
 

@@ -1,11 +1,9 @@
-import DylCore
 import Foundation
 import SconeDomain
-import Testing
-
-@testable import SconeStore
 @testable import SonosProtocolBoundary
 @testable import SpotifyBridge
+import Testing
+@testable import SconeStore
 
 private enum House {
     static let kitchen = SpeakerUUID(rawValue: "RINCON_F0F6C1AAD22801400")!
@@ -135,16 +133,12 @@ struct TopologyTests {
     @Test func exactGroupPlanJoinsSortsReleasesAndStaysIdempotent() {
         let alone = topology(alone([House.kitchen, House.dining, House.bedroom]))
         let gather = TopologyTarget.exactGroup(coordinator: House.kitchen, members: [House.dining, House.bedroom])
-        #expect(
-            gather.plan(from: alone)
-                == .steps(
-                    [
-                        .join(House.bedroom, coordinator: House.kitchen),
-                        .join(House.dining, coordinator: House.kitchen),
-                    ], skipped: []))
+        #expect(gather.plan(from: alone) == .steps([
+            .join(House.bedroom, coordinator: House.kitchen),
+            .join(House.dining, coordinator: House.kitchen),
+        ], skipped: []))
         expectIdempotent(gather, from: alone)
-        let gathered =
-            alone
+        let gathered = alone
             .applying(.join(House.bedroom, coordinator: House.kitchen))
             .applying(.join(House.dining, coordinator: House.kitchen))
         #expect(gathered.groups[GroupID(coordinator: House.kitchen)] == [House.bedroom, House.dining])
@@ -159,16 +153,12 @@ struct TopologyTests {
             House.bedroom: House.dining,
         ])
         let kitchenLeadsDining = TopologyTarget.exactGroup(coordinator: House.kitchen, members: [House.dining])
-        #expect(
-            kitchenLeadsDining.plan(from: visiting)
-                == .steps(
-                    [
-                        .makeStandalone(House.kitchen),
-                        .join(House.dining, coordinator: House.kitchen),
-                    ], skipped: []))
+        #expect(kitchenLeadsDining.plan(from: visiting) == .steps([
+            .makeStandalone(House.kitchen),
+            .join(House.dining, coordinator: House.kitchen),
+        ], skipped: []))
         expectIdempotent(kitchenLeadsDining, from: visiting)
-        let ended =
-            visiting
+        let ended = visiting
             .applying(.makeStandalone(House.kitchen))
             .applying(.join(House.dining, coordinator: House.kitchen))
         #expect(ended.groups[GroupID(coordinator: House.kitchen)] == [House.dining])
@@ -194,12 +184,9 @@ struct TopologyTests {
             House.bedroom: House.bedroom,
         ])
         let joinBedroom = TopologyTarget.memberOf(GroupID(coordinator: House.dining), member: House.bedroom)
-        #expect(
-            joinBedroom.plan(from: diningLeads)
-                == .steps(
-                    [
-                        .join(House.bedroom, coordinator: House.dining)
-                    ], skipped: []))
+        #expect(joinBedroom.plan(from: diningLeads) == .steps([
+            .join(House.bedroom, coordinator: House.dining),
+        ], skipped: []))
         expectIdempotent(joinBedroom, from: diningLeads)
 
         let already = TopologyTarget.memberOf(GroupID(coordinator: House.dining), member: House.kitchen)
@@ -210,15 +197,11 @@ struct TopologyTests {
         #expect(dissolved.plan(from: diningLeads) == .impossible(.groupDissolved(GroupID(coordinator: House.kitchen))))
 
         let ungroup = TopologyTarget.standalone(House.dining)
-        #expect(
-            ungroup.plan(from: diningLeads)
-                == .steps(
-                    [
-                        .delegateCoordination(from: House.dining, to: House.kitchen, rejoinGroup: false)
-                    ], skipped: []))
+        #expect(ungroup.plan(from: diningLeads) == .steps([
+            .delegateCoordination(from: House.dining, to: House.kitchen, rejoinGroup: false),
+        ], skipped: []))
         expectIdempotent(ungroup, from: diningLeads)
-        let apart = diningLeads.applying(
-            .delegateCoordination(from: House.dining, to: House.kitchen, rejoinGroup: false))
+        let apart = diningLeads.applying(.delegateCoordination(from: House.dining, to: House.kitchen, rejoinGroup: false))
         #expect(apart.groups[GroupID(coordinator: House.dining)] == [])
         #expect(apart.groups[GroupID(coordinator: House.kitchen)] == [])
 
@@ -304,9 +287,7 @@ struct FloorplanTests {
         let reversed = FloorplanLayout.infer(speakers: [secondSpeaker, firstSpeaker], matrix: .empty)
         #expect(reversed[first] == RoomCoordinate(clampingX: 0.20, y: 0.50))
         #expect(reversed[second] == RoomCoordinate(clampingX: 0.80, y: 0.50))
-        #expect(
-            FloorplanLayout.infer(speakers: [firstSpeaker], matrix: .empty)[first]
-                == RoomCoordinate(clampingX: 0.50, y: 0.50))
+        #expect(FloorplanLayout.infer(speakers: [firstSpeaker], matrix: .empty)[first] == RoomCoordinate(clampingX: 0.50, y: 0.50))
 
         var matrix = RFPeerMatrix.empty
         matrix.record(House.kitchen, first, from: 40, to: 36)
@@ -514,9 +495,7 @@ struct FloorplanTests {
         #expect(floorBounds.contains(hubRect))
     }
 
-    @Test func upperFloorWithFiveRoomsAndMusicHubHasZeroOverlapsAndFullContainmentAtStandardAndCompactWindowSizes()
-        throws
-    {
+    @Test func upperFloorWithFiveRoomsAndMusicHubHasZeroOverlapsAndFullContainmentAtStandardAndCompactWindowSizes() throws {
         let satL = BondedSatellite(
             id: SpeakerUUID(rawValue: "RINCON_F0F6C1AAF58601400")!,
             parentID: House.living,
@@ -626,13 +605,9 @@ struct FloorplanTests {
                 let upperBand = try #require(bands.first { $0.level == .upper })
                 let upperNodes = nodes.filter { $0.level == .upper }
 
-                let basePoints = Dictionary(
-                    uniqueKeysWithValues: upperNodes.map { node in
-                        (
-                            node.id,
-                            upperBand.point(for: node.coordinate, hasSatellites: !node.speaker.bondedSatellites.isEmpty)
-                        )
-                    })
+                let basePoints = Dictionary(uniqueKeysWithValues: upperNodes.map { node in
+                    (node.id, upperBand.point(for: node.coordinate, hasSatellites: !node.speaker.bondedSatellites.isEmpty))
+                })
                 let initialRoomObstacles = upperNodes.map { node in
                     AcousticCurveRouter.nodeObstacleRect(
                         center: basePoints[node.id]!,
@@ -732,24 +707,21 @@ struct BondedSatelliteAndTelemetryTests {
         let satLeftID = SpeakerUUID(rawValue: "RINCON_F0F6C1AAF58601400")!
         let satRightID = SpeakerUUID(rawValue: "RINCON_C43875987BB201400")!
 
-        let era100Desc = Data(
-            """
-            <?xml version="1.0" encoding="utf-8" ?>
-            <root xmlns="urn:schemas-upnp-org:device-1-0">
-              <device>
-                <modelNumber>S39</modelNumber>
-                <modelName>Sonos Era 100</modelName>
-                <displayName>Era 100</displayName>
-                <UDN>uuid:RINCON_F0F6C1AAF58601400</UDN>
-              </device>
-            </root>
-            """.utf8)
+        let era100Desc = Data("""
+        <?xml version="1.0" encoding="utf-8" ?>
+        <root xmlns="urn:schemas-upnp-org:device-1-0">
+          <device>
+            <modelNumber>S39</modelNumber>
+            <modelName>Sonos Era 100</modelName>
+            <displayName>Era 100</displayName>
+            <UDN>uuid:RINCON_F0F6C1AAF58601400</UDN>
+          </device>
+        </root>
+        """.utf8)
         let parsedDesc = try TelemetryService.parseDeviceDescription(era100Desc)
         #expect(parsedDesc.modelNumber == "S39")
         #expect(parsedDesc.displayName == "Sonos Era 100")
-        #expect(
-            SpeakerModel.classify(modelName: parsedDesc.displayName, modelNumber: parsedDesc.modelNumber)
-                == SpeakerModel.era100)
+        #expect(SpeakerModel.classify(modelName: parsedDesc.displayName, modelNumber: parsedDesc.modelNumber) == SpeakerModel.era100)
 
         let satLeft = BondedSatellite(
             id: satLeftID,
@@ -764,24 +736,24 @@ struct BondedSatelliteAndTelemetryTests {
         #expect(satLeft.modelLabel == "Sonos Era 100")
 
         let zgsXML = """
-            <ZoneGroupState>
-              <ZoneGroups>
-                <ZoneGroup Coordinator="RINCON_542A1B95A13A01400" ID="RINCON_542A1B95A13A01400:1">
-                  <ZoneGroupMember UUID="RINCON_542A1B95A13A01400"
-                                   Location="http://192.168.68.92:1400/xml/device_description.xml"
-                                   ZoneName="Living Room Soundbar"
-                                   HTSatChanMapSet="RINCON_542A1B95A13A01400:LF,RF;RINCON_F0F6C1AAF58601400:LR,LTR;RINCON_C43875987BB201400:RR,RTR">
-                    <Satellite UUID="RINCON_F0F6C1AAF58601400"
-                               Location="http://192.168.68.72:1400/xml/device_description.xml"
-                               HTSatChanMapSet="RINCON_542A1B95A13A01400:LF,RF;RINCON_F0F6C1AAF58601400:LR,LTR" />
-                    <Satellite UUID="RINCON_C43875987BB201400"
-                               Location="http://192.168.68.83:1400/xml/device_description.xml"
-                               HTSatChanMapSet="RINCON_542A1B95A13A01400:LF,RF;RINCON_C43875987BB201400:RR,RTR" />
-                  </ZoneGroupMember>
-                </ZoneGroup>
-              </ZoneGroups>
-            </ZoneGroupState>
-            """
+        <ZoneGroupState>
+          <ZoneGroups>
+            <ZoneGroup Coordinator="RINCON_542A1B95A13A01400" ID="RINCON_542A1B95A13A01400:1">
+              <ZoneGroupMember UUID="RINCON_542A1B95A13A01400"
+                               Location="http://192.168.68.92:1400/xml/device_description.xml"
+                               ZoneName="Living Room Soundbar"
+                               HTSatChanMapSet="RINCON_542A1B95A13A01400:LF,RF;RINCON_F0F6C1AAF58601400:LR,LTR;RINCON_C43875987BB201400:RR,RTR">
+                <Satellite UUID="RINCON_F0F6C1AAF58601400"
+                           Location="http://192.168.68.72:1400/xml/device_description.xml"
+                           HTSatChanMapSet="RINCON_542A1B95A13A01400:LF,RF;RINCON_F0F6C1AAF58601400:LR,LTR" />
+                <Satellite UUID="RINCON_C43875987BB201400"
+                           Location="http://192.168.68.83:1400/xml/device_description.xml"
+                           HTSatChanMapSet="RINCON_542A1B95A13A01400:LF,RF;RINCON_C43875987BB201400:RR,RTR" />
+              </ZoneGroupMember>
+            </ZoneGroup>
+          </ZoneGroups>
+        </ZoneGroupState>
+        """
         let parsedTopology = try TopologyService.parse(zoneGroupState: zgsXML)
         #expect(parsedTopology.members.count == 1)
         let beamMember = try #require(parsedTopology.members[House.living])
@@ -865,8 +837,7 @@ struct SpeakerModelClassificationTests {
             sampledAt: Date(timeIntervalSinceReferenceDate: 1_000)
         )
         #expect(SpeakerModel.classify(modelName: "Sonos Move", modelNumber: "S17", battery: bat) == .move(battery: bat))
-        #expect(
-            SpeakerModel.classify(modelName: "Sonos Move 2", modelNumber: "S44", battery: bat) == .move(battery: bat))
+        #expect(SpeakerModel.classify(modelName: "Sonos Move 2", modelNumber: "S44", battery: bat) == .move(battery: bat))
         #expect(SpeakerModel.classify(modelName: "Sonos Roam", modelNumber: "S27", battery: bat) == .roam(battery: bat))
         #expect(SpeakerModel.classify(modelName: "Sonos Roam 2", modelNumber: "S43", battery: bat).battery == bat)
 
@@ -880,7 +851,7 @@ struct SpeakerModelClassificationTests {
 }
 
 struct TokenVaultSecurityTests {
-    @Test func tokenVaultEncryptsTokensOnDiskWithOwnerOnlyPermissions() async throws {
+    @Test func tokenVaultEncryptsTokensOnDiskWithOwnerOnlyPermissions() throws {
         let dir = try makeDirectory()
         defer { try? FileManager.default.removeItem(at: dir) }
         let service = "com.sconeos.tests.vault.\(UUID().uuidString)"
@@ -890,21 +861,21 @@ struct TokenVaultSecurityTests {
         let secretRefresh = "secret_refresh_token_\(UUID().uuidString)"
         let expiry = Date(timeIntervalSince1970: 1_900_000_000)
 
-        await vault.save(accessToken: secretAccess, expiry: expiry, refreshToken: secretRefresh)
-        await vault.saveDisplayName("Dylan Gattey")
+        vault.store(refreshToken: secretRefresh)
+        vault.store(accessToken: secretAccess, expiry: expiry)
+        vault.storeDisplayName("Dylan Gattey")
 
-        let snapshot = vault.loadSnapshot()
-        #expect(snapshot.refreshToken == secretRefresh)
-        let loadedAccess = try #require(snapshot.accessToken)
+        #expect(vault.refreshToken() == secretRefresh)
+        let loadedAccess = try #require(vault.accessToken())
         #expect(loadedAccess.token == secretAccess)
         #expect(loadedAccess.expiry == expiry)
-        #expect(snapshot.displayName == "Dylan Gattey")
+        #expect(vault.displayName() == "Dylan Gattey")
 
-        // A second TokenVault on the same directory restores tokens and displayName immediately.
-        let reopened = TokenVault(service: service, directory: dir).loadSnapshot()
-        #expect(reopened.refreshToken == secretRefresh)
-        #expect(reopened.accessToken?.token == secretAccess)
-        #expect(reopened.displayName == "Dylan Gattey")
+        // Verify a second TokenVault instance pointing at the same directory restores tokens and displayName immediately
+        let reopenedVault = TokenVault(service: service, directory: dir)
+        #expect(reopenedVault.refreshToken() == secretRefresh)
+        #expect(reopenedVault.accessToken()?.token == secretAccess)
+        #expect(reopenedVault.displayName() == "Dylan Gattey")
 
         let vaultFile = dir.appending(path: "spotify-vault.enc")
         let ciphertext = try Data(contentsOf: vaultFile)
@@ -916,9 +887,9 @@ struct TokenVaultSecurityTests {
         let posix = (attrs[.posixPermissions] as? NSNumber)?.intValue ?? 0
         #expect(posix == 0o600)
 
-        await vault.clear()
-        #expect(vault.loadSnapshot().refreshToken == nil)
-        #expect(vault.loadSnapshot().accessToken == nil)
+        vault.clear()
+        #expect(vault.refreshToken() == nil)
+        #expect(vault.accessToken() == nil)
         #expect(!FileManager.default.fileExists(atPath: vaultFile.path))
     }
 
@@ -974,10 +945,9 @@ struct SpotifyURITests {
 
 struct PlaybackTests {
     @Test func elapsedFollowsTransportAndClampsToTheTrack() {
-        let song = NowPlaying.track(
-            NowPlayingTrack(
-                title: "Song", artist: "Artist", album: nil, artworkURL: nil,
-                duration: .seconds(10), queuePosition: 1, spotifyURI: nil))
+        let song = NowPlaying.track(NowPlayingTrack(
+            title: "Song", artist: "Artist", album: nil, artworkURL: nil,
+            duration: .seconds(10), queuePosition: 1, spotifyURI: nil))
         let start = Date(timeIntervalSinceReferenceDate: 10)
         #expect(PlaybackState.stopped.elapsed(at: start) == nil)
         let paused = PlaybackState.paused(song, elapsed: .seconds(4))
@@ -993,30 +963,24 @@ struct PlaybackTests {
     @Test func parsesSpotifyConnectTrackWithRealAlbumArtAndRelativeGetAAURLs() throws {
         let endpoint = URL(string: "http://192.168.68.90:1400/xml/device_description.xml")!
         let vliURI = "x-sonos-vli:RINCON_542A1B5F08A001400:2,spotify:5973be481c0e48efacb7985c9c8fca58"
-        let transportInfo = try XMLNode.parse(
-            Data(
-                """
-                <GetTransportInfoResponse><CurrentTransportState>PAUSED_PLAYBACK</CurrentTransportState></GetTransportInfoResponse>
-                """.utf8))
-        let mediaInfo = try XMLNode.parse(
-            Data(
-                """
-                <GetMediaInfoResponse>
-                  <CurrentURI>\(vliURI)</CurrentURI>
-                  <CurrentURIMetaData>&lt;DIDL-Lite xmlns:dc=&quot;http://purl.org/dc/elements/1.1/&quot; xmlns:upnp=&quot;urn:schemas-upnp-org:metadata-1-0/upnp/&quot; xmlns=&quot;urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/&quot;&gt;&lt;item id=&quot;&quot; parentID=&quot;&quot; restricted=&quot;true&quot;&gt;&lt;dc:title&gt;Spotify&lt;/dc:title&gt;&lt;upnp:class&gt;object.item.audioItem.musicTrack&lt;/upnp:class&gt;&lt;/item&gt;&lt;/DIDL-Lite&gt;</CurrentURIMetaData>
-                </GetMediaInfoResponse>
-                """.utf8))
-        let positionInfo = try XMLNode.parse(
-            Data(
-                """
-                <GetPositionInfoResponse>
-                  <Track>1</Track>
-                  <TrackDuration>0:03:44</TrackDuration>
-                  <TrackMetaData>&lt;DIDL-Lite xmlns:dc=&quot;http://purl.org/dc/elements/1.1/&quot; xmlns:upnp=&quot;urn:schemas-upnp-org:metadata-1-0/upnp/&quot; xmlns=&quot;urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/&quot;&gt;&lt;item id=&quot;-1&quot; parentID=&quot;-1&quot; restricted=&quot;true&quot;&gt;&lt;res protocolInfo=&quot;sonos.com-spotify:*:audio/x-spotify:*&quot; duration=&quot;0:03:44&quot;&gt;x-sonos-spotify:spotify:track:2mqTtvbKxH7SoEQ2oGAnsA?sid=12&amp;amp;flags=0&amp;amp;sn=3&lt;/res&gt;&lt;upnp:albumArtURI&gt;https://i.scdn.co/image/ab67616d0000b27369a3c061676c2020adfe8315&lt;/upnp:albumArtURI&gt;&lt;dc:title&gt;CHURCH GIRL&lt;/dc:title&gt;&lt;upnp:class&gt;object.item.audioItem.musicTrack&lt;/upnp:class&gt;&lt;dc:creator&gt;Beyoncé&lt;/dc:creator&gt;&lt;upnp:album&gt;RENAISSANCE&lt;/upnp:album&gt;&lt;/item&gt;&lt;/DIDL-Lite&gt;</TrackMetaData>
-                  <TrackURI>\(vliURI)</TrackURI>
-                  <RelTime>0:01:47</RelTime>
-                </GetPositionInfoResponse>
-                """.utf8))
+        let transportInfo = try XMLNode.parse(Data("""
+        <GetTransportInfoResponse><CurrentTransportState>PAUSED_PLAYBACK</CurrentTransportState></GetTransportInfoResponse>
+        """.utf8))
+        let mediaInfo = try XMLNode.parse(Data("""
+        <GetMediaInfoResponse>
+          <CurrentURI>\(vliURI)</CurrentURI>
+          <CurrentURIMetaData>&lt;DIDL-Lite xmlns:dc=&quot;http://purl.org/dc/elements/1.1/&quot; xmlns:upnp=&quot;urn:schemas-upnp-org:metadata-1-0/upnp/&quot; xmlns=&quot;urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/&quot;&gt;&lt;item id=&quot;&quot; parentID=&quot;&quot; restricted=&quot;true&quot;&gt;&lt;dc:title&gt;Spotify&lt;/dc:title&gt;&lt;upnp:class&gt;object.item.audioItem.musicTrack&lt;/upnp:class&gt;&lt;/item&gt;&lt;/DIDL-Lite&gt;</CurrentURIMetaData>
+        </GetMediaInfoResponse>
+        """.utf8))
+        let positionInfo = try XMLNode.parse(Data("""
+        <GetPositionInfoResponse>
+          <Track>1</Track>
+          <TrackDuration>0:03:44</TrackDuration>
+          <TrackMetaData>&lt;DIDL-Lite xmlns:dc=&quot;http://purl.org/dc/elements/1.1/&quot; xmlns:upnp=&quot;urn:schemas-upnp-org:metadata-1-0/upnp/&quot; xmlns=&quot;urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/&quot;&gt;&lt;item id=&quot;-1&quot; parentID=&quot;-1&quot; restricted=&quot;true&quot;&gt;&lt;res protocolInfo=&quot;sonos.com-spotify:*:audio/x-spotify:*&quot; duration=&quot;0:03:44&quot;&gt;x-sonos-spotify:spotify:track:2mqTtvbKxH7SoEQ2oGAnsA?sid=12&amp;amp;flags=0&amp;amp;sn=3&lt;/res&gt;&lt;upnp:albumArtURI&gt;https://i.scdn.co/image/ab67616d0000b27369a3c061676c2020adfe8315&lt;/upnp:albumArtURI&gt;&lt;dc:title&gt;CHURCH GIRL&lt;/dc:title&gt;&lt;upnp:class&gt;object.item.audioItem.musicTrack&lt;/upnp:class&gt;&lt;dc:creator&gt;Beyoncé&lt;/dc:creator&gt;&lt;upnp:album&gt;RENAISSANCE&lt;/upnp:album&gt;&lt;/item&gt;&lt;/DIDL-Lite&gt;</TrackMetaData>
+          <TrackURI>\(vliURI)</TrackURI>
+          <RelTime>0:01:47</RelTime>
+        </GetPositionInfoResponse>
+        """.utf8))
         let parsed = TransportService.parsePlayback(
             transportInfo: transportInfo,
             positionInfo: positionInfo,
@@ -1050,37 +1014,31 @@ struct PlaybackTests {
                     duration: .seconds(368),
                     queueNumber: nil,
                     spotifyURI: SpotifyURI("spotify:track:0FlfN5cbUUpIHCRH8X1M44")
-                )
+                ),
             ]
         )
         #expect(enriched.source?.label == "Playing from Spotify · Playlist \"26\"")
         #expect(enriched.upNext.count == 1)
         #expect(enriched.upNext.first?.title == "VIRGO'S GROOVE")
 
-        let transportPlaying = try XMLNode.parse(
-            Data(
-                """
-                <GetTransportInfoResponse><CurrentTransportState>PLAYING</CurrentTransportState></GetTransportInfoResponse>
-                """.utf8))
-        let mediaRelative = try XMLNode.parse(
-            Data(
-                """
-                <GetMediaInfoResponse>
-                  <CurrentURI>x-rincon-queue:RINCON_542A1B5F08A001400#0</CurrentURI>
-                  <CurrentURIMetaData>&lt;DIDL-Lite xmlns:dc=&quot;http://purl.org/dc/elements/1.1/&quot; xmlns:upnp=&quot;urn:schemas-upnp-org:metadata-1-0/upnp/&quot; xmlns=&quot;urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/&quot;&gt;&lt;item id=&quot;1006206cspotify%3aplaylist%3a3wdvPfaJKS9AnZzRX35gyW&quot; parentID=&quot;10082664playlists&quot; restricted=&quot;true&quot;&gt;&lt;dc:title&gt;26&lt;/dc:title&gt;&lt;upnp:class&gt;object.container.playlistContainer&lt;/upnp:class&gt;&lt;/item&gt;&lt;/DIDL-Lite&gt;</CurrentURIMetaData>
-                </GetMediaInfoResponse>
-                """.utf8))
-        let positionRelative = try XMLNode.parse(
-            Data(
-                """
-                <GetPositionInfoResponse>
-                  <Track>2</Track>
-                  <TrackDuration>0:03:44</TrackDuration>
-                  <TrackMetaData>&lt;DIDL-Lite xmlns:dc=&quot;http://purl.org/dc/elements/1.1/&quot; xmlns:upnp=&quot;urn:schemas-upnp-org:metadata-1-0/upnp/&quot; xmlns=&quot;urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/&quot;&gt;&lt;item id=&quot;-1&quot; parentID=&quot;-1&quot; restricted=&quot;true&quot;&gt;&lt;res duration=&quot;0:03:44&quot;&gt;x-sonos-spotify:spotify:track:2mqTtvbKxH7SoEQ2oGAnsA?sid=12&amp;amp;flags=8224&amp;amp;sn=3&lt;/res&gt;&lt;upnp:albumArtURI&gt;/getaa?s=1&amp;amp;u=x-sonos-spotify%3Aspotify%3Atrack%3A2mqTtvbKxH7SoEQ2oGAnsA%3Fsid%3D12%26flags%3D8224%26sn%3D3&lt;/upnp:albumArtURI&gt;&lt;dc:title&gt;CHURCH GIRL&lt;/dc:title&gt;&lt;dc:creator&gt;Beyoncé&lt;/dc:creator&gt;&lt;upnp:album&gt;RENAISSANCE&lt;/upnp:album&gt;&lt;/item&gt;&lt;/DIDL-Lite&gt;</TrackMetaData>
-                  <TrackURI>x-sonos-spotify:spotify:track:2mqTtvbKxH7SoEQ2oGAnsA?sid=12&amp;flags=8224&amp;sn=3</TrackURI>
-                  <RelTime>0:00:12</RelTime>
-                </GetPositionInfoResponse>
-                """.utf8))
+        let transportPlaying = try XMLNode.parse(Data("""
+        <GetTransportInfoResponse><CurrentTransportState>PLAYING</CurrentTransportState></GetTransportInfoResponse>
+        """.utf8))
+        let mediaRelative = try XMLNode.parse(Data("""
+        <GetMediaInfoResponse>
+          <CurrentURI>x-rincon-queue:RINCON_542A1B5F08A001400#0</CurrentURI>
+          <CurrentURIMetaData>&lt;DIDL-Lite xmlns:dc=&quot;http://purl.org/dc/elements/1.1/&quot; xmlns:upnp=&quot;urn:schemas-upnp-org:metadata-1-0/upnp/&quot; xmlns=&quot;urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/&quot;&gt;&lt;item id=&quot;1006206cspotify%3aplaylist%3a3wdvPfaJKS9AnZzRX35gyW&quot; parentID=&quot;10082664playlists&quot; restricted=&quot;true&quot;&gt;&lt;dc:title&gt;26&lt;/dc:title&gt;&lt;upnp:class&gt;object.container.playlistContainer&lt;/upnp:class&gt;&lt;/item&gt;&lt;/DIDL-Lite&gt;</CurrentURIMetaData>
+        </GetMediaInfoResponse>
+        """.utf8))
+        let positionRelative = try XMLNode.parse(Data("""
+        <GetPositionInfoResponse>
+          <Track>2</Track>
+          <TrackDuration>0:03:44</TrackDuration>
+          <TrackMetaData>&lt;DIDL-Lite xmlns:dc=&quot;http://purl.org/dc/elements/1.1/&quot; xmlns:upnp=&quot;urn:schemas-upnp-org:metadata-1-0/upnp/&quot; xmlns=&quot;urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/&quot;&gt;&lt;item id=&quot;-1&quot; parentID=&quot;-1&quot; restricted=&quot;true&quot;&gt;&lt;res duration=&quot;0:03:44&quot;&gt;x-sonos-spotify:spotify:track:2mqTtvbKxH7SoEQ2oGAnsA?sid=12&amp;amp;flags=8224&amp;amp;sn=3&lt;/res&gt;&lt;upnp:albumArtURI&gt;/getaa?s=1&amp;amp;u=x-sonos-spotify%3Aspotify%3Atrack%3A2mqTtvbKxH7SoEQ2oGAnsA%3Fsid%3D12%26flags%3D8224%26sn%3D3&lt;/upnp:albumArtURI&gt;&lt;dc:title&gt;CHURCH GIRL&lt;/dc:title&gt;&lt;dc:creator&gt;Beyoncé&lt;/dc:creator&gt;&lt;upnp:album&gt;RENAISSANCE&lt;/upnp:album&gt;&lt;/item&gt;&lt;/DIDL-Lite&gt;</TrackMetaData>
+          <TrackURI>x-sonos-spotify:spotify:track:2mqTtvbKxH7SoEQ2oGAnsA?sid=12&amp;flags=8224&amp;sn=3</TrackURI>
+          <RelTime>0:00:12</RelTime>
+        </GetPositionInfoResponse>
+        """.utf8))
         let parsedRelative = TransportService.parsePlayback(
             transportInfo: transportPlaying,
             positionInfo: positionRelative,
@@ -1092,40 +1050,31 @@ struct PlaybackTests {
             Issue.record("expected playing track, got \(parsedRelative)")
             return
         }
-        #expect(
-            relTrack.artworkURL?.absoluteString
-                == "http://192.168.68.90:1400/getaa?s=1&u=x-sonos-spotify%3Aspotify%3Atrack%3A2mqTtvbKxH7SoEQ2oGAnsA%3Fsid%3D12%26flags%3D8224%26sn%3D3"
-        )
+        #expect(relTrack.artworkURL?.absoluteString == "http://192.168.68.90:1400/getaa?s=1&u=x-sonos-spotify%3Aspotify%3Atrack%3A2mqTtvbKxH7SoEQ2oGAnsA%3Fsid%3D12%26flags%3D8224%26sn%3D3")
         #expect(relTrack.source == PlaybackSource.spotify(contextTitle: "26"))
         #expect(relTrack.queuePosition == 2)
     }
 
     @Test func parsesSonosQueueBrowseResponseWithDIDLLiteItems() throws {
         let endpoint = URL(string: "http://192.168.68.90:1400/xml/device_description.xml")!
-        let soapResponse = try XMLNode.parse(
-            Data(
-                """
-                <BrowseResponse xmlns:u="urn:schemas-sonos-com:service:Queue:1">
-                  <Result>&lt;DIDL-Lite xmlns:dc=&quot;http://purl.org/dc/elements/1.1/&quot; xmlns:upnp=&quot;urn:schemas-upnp-org:metadata-1-0/upnp/&quot; xmlns=&quot;urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/&quot;&gt;&lt;item id=&quot;Q:0/1&quot; parentID=&quot;Q:0&quot; restricted=&quot;true&quot;&gt;&lt;res duration=&quot;0:03:44&quot;&gt;x-sonos-spotify:spotify:track:2mqTtvbKxH7SoEQ2oGAnsA?sid=12&amp;amp;flags=8224&amp;amp;sn=3&lt;/res&gt;&lt;upnp:albumArtURI&gt;/getaa?s=1&amp;amp;u=x-sonos-spotify%3Aspotify%3Atrack%3A2mqTtvbKxH7SoEQ2oGAnsA&lt;/upnp:albumArtURI&gt;&lt;dc:title&gt;CHURCH GIRL&lt;/dc:title&gt;&lt;dc:creator&gt;Beyoncé&lt;/dc:creator&gt;&lt;upnp:album&gt;RENAISSANCE&lt;/upnp:album&gt;&lt;/item&gt;&lt;item id=&quot;Q:0/2&quot; parentID=&quot;Q:0&quot; restricted=&quot;true&quot;&gt;&lt;res duration=&quot;0:06:08&quot;&gt;x-sonos-spotify:spotify:track:0FlfN5cbUUpIHCRH8X1M44?sid=12&amp;amp;flags=8224&amp;amp;sn=3&lt;/res&gt;&lt;upnp:albumArtURI&gt;https://i.scdn.co/image/ab67616d0000b27369a3c061676c2020adfe8315&lt;/upnp:albumArtURI&gt;&lt;dc:title&gt;VIRGO&amp;apos;S GROOVE&lt;/dc:title&gt;&lt;dc:creator&gt;Beyoncé&lt;/dc:creator&gt;&lt;upnp:album&gt;RENAISSANCE&lt;/upnp:album&gt;&lt;/item&gt;&lt;/DIDL-Lite&gt;</Result>
-                  <NumberReturned>2</NumberReturned>
-                  <TotalMatches>2</TotalMatches>
-                  <UpdateID>1</UpdateID>
-                </BrowseResponse>
-                """.utf8))
-        let items = TransportService.parseQueueBrowseResponse(
-            soapResponse, startingIndex: 0, coordinatorEndpoint: endpoint)
+        let soapResponse = try XMLNode.parse(Data("""
+        <BrowseResponse xmlns:u="urn:schemas-sonos-com:service:Queue:1">
+          <Result>&lt;DIDL-Lite xmlns:dc=&quot;http://purl.org/dc/elements/1.1/&quot; xmlns:upnp=&quot;urn:schemas-upnp-org:metadata-1-0/upnp/&quot; xmlns=&quot;urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/&quot;&gt;&lt;item id=&quot;Q:0/1&quot; parentID=&quot;Q:0&quot; restricted=&quot;true&quot;&gt;&lt;res duration=&quot;0:03:44&quot;&gt;x-sonos-spotify:spotify:track:2mqTtvbKxH7SoEQ2oGAnsA?sid=12&amp;amp;flags=8224&amp;amp;sn=3&lt;/res&gt;&lt;upnp:albumArtURI&gt;/getaa?s=1&amp;amp;u=x-sonos-spotify%3Aspotify%3Atrack%3A2mqTtvbKxH7SoEQ2oGAnsA&lt;/upnp:albumArtURI&gt;&lt;dc:title&gt;CHURCH GIRL&lt;/dc:title&gt;&lt;dc:creator&gt;Beyoncé&lt;/dc:creator&gt;&lt;upnp:album&gt;RENAISSANCE&lt;/upnp:album&gt;&lt;/item&gt;&lt;item id=&quot;Q:0/2&quot; parentID=&quot;Q:0&quot; restricted=&quot;true&quot;&gt;&lt;res duration=&quot;0:06:08&quot;&gt;x-sonos-spotify:spotify:track:0FlfN5cbUUpIHCRH8X1M44?sid=12&amp;amp;flags=8224&amp;amp;sn=3&lt;/res&gt;&lt;upnp:albumArtURI&gt;https://i.scdn.co/image/ab67616d0000b27369a3c061676c2020adfe8315&lt;/upnp:albumArtURI&gt;&lt;dc:title&gt;VIRGO&amp;apos;S GROOVE&lt;/dc:title&gt;&lt;dc:creator&gt;Beyoncé&lt;/dc:creator&gt;&lt;upnp:album&gt;RENAISSANCE&lt;/upnp:album&gt;&lt;/item&gt;&lt;/DIDL-Lite&gt;</Result>
+          <NumberReturned>2</NumberReturned>
+          <TotalMatches>2</TotalMatches>
+          <UpdateID>1</UpdateID>
+        </BrowseResponse>
+        """.utf8))
+        let items = TransportService.parseQueueBrowseResponse(soapResponse, startingIndex: 0, coordinatorEndpoint: endpoint)
         #expect(items.count == 2)
         #expect(items[0].queueNumber == 1)
         #expect(items[0].title == "CHURCH GIRL")
-        #expect(
-            items[0].artworkURL?.absoluteString
-                == "http://192.168.68.90:1400/getaa?s=1&u=x-sonos-spotify%3Aspotify%3Atrack%3A2mqTtvbKxH7SoEQ2oGAnsA")
+        #expect(items[0].artworkURL?.absoluteString == "http://192.168.68.90:1400/getaa?s=1&u=x-sonos-spotify%3Aspotify%3Atrack%3A2mqTtvbKxH7SoEQ2oGAnsA")
         #expect(items[0].spotifyURI?.description == "spotify:track:2mqTtvbKxH7SoEQ2oGAnsA")
         #expect(items[1].queueNumber == 2)
         #expect(items[1].title == "VIRGO'S GROOVE")
         #expect(items[1].duration == .seconds(368))
-        #expect(
-            items[1].artworkURL?.absoluteString == "https://i.scdn.co/image/ab67616d0000b27369a3c061676c2020adfe8315")
+        #expect(items[1].artworkURL?.absoluteString == "https://i.scdn.co/image/ab67616d0000b27369a3c061676c2020adfe8315")
     }
 }
 
@@ -1221,9 +1170,7 @@ struct HouseholdTests {
             at: now
         )
 
-        #expect(
-            playingVsPaused.status(of: livingGroup).playback
-                == .playing(.track(notoriousTrack), elapsed: .seconds(48), sampledAt: now))
+        #expect(playingVsPaused.status(of: livingGroup).playback == .playing(.track(notoriousTrack), elapsed: .seconds(48), sampledAt: now))
         #expect(playingVsPaused.status(of: bedroomGroup).playback == .stopped)
         #expect(playingVsPaused.status(of: kitchenGroup).playback == .stopped)
 
@@ -1231,12 +1178,11 @@ struct HouseholdTests {
         // only ONE group (preferring the larger group or preferred coordinator) retains the .paused session!
         let allPaused = HouseholdSnapshot(
             observedAt: now,
-            speakers: Dictionary(
-                uniqueKeysWithValues: [
-                    speaker(House.living, room: "Living Room"),
-                    speaker(House.dining, room: "Dining Room"),
-                    speaker(House.bedroom, room: "Bedroom"),
-                ].map { ($0.id, $0) }),
+            speakers: Dictionary(uniqueKeysWithValues: [
+                speaker(House.living, room: "Living Room"),
+                speaker(House.dining, room: "Dining Room"),
+                speaker(House.bedroom, room: "Bedroom"),
+            ].map { ($0.id, $0) }),
             topology: topology([
                 House.living: House.living,
                 House.dining: House.living,
@@ -1261,30 +1207,24 @@ struct HouseholdTests {
         // 3. When TransportService parses STOPPED with leftover Spotify metadata in GetPositionInfo,
         // it must return .stopped instead of .paused.
         let endpoint = URL(string: "http://192.168.68.90:1400/xml/device_description.xml")!
-        let stoppedTransport = try XMLNode.parse(
-            Data(
-                """
-                <GetTransportInfoResponse><CurrentTransportState>STOPPED</CurrentTransportState></GetTransportInfoResponse>
-                """.utf8))
-        let mediaInfo = try XMLNode.parse(
-            Data(
-                """
-                <GetMediaInfoResponse>
-                  <CurrentURI>x-rincon-queue:RINCON_542A1B5F08A001400#0</CurrentURI>
-                  <CurrentURIMetaData></CurrentURIMetaData>
-                </GetMediaInfoResponse>
-                """.utf8))
-        let positionInfo = try XMLNode.parse(
-            Data(
-                """
-                <GetPositionInfoResponse>
-                  <Track>1</Track>
-                  <TrackDuration>0:03:30</TrackDuration>
-                  <TrackMetaData>&lt;DIDL-Lite xmlns:dc=&quot;http://purl.org/dc/elements/1.1/&quot; xmlns:upnp=&quot;urn:schemas-upnp-org:metadata-1-0/upnp/&quot; xmlns=&quot;urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/&quot;&gt;&lt;item id=&quot;-1&quot; parentID=&quot;-1&quot; restricted=&quot;true&quot;&gt;&lt;res duration=&quot;0:03:30&quot;&gt;x-sonos-spotify:spotify:track:2mqTtvbKxH7SoEQ2oGAnsA?sid=12&amp;amp;flags=8224&amp;amp;sn=3&lt;/res&gt;&lt;dc:title&gt;Notorious&lt;/dc:title&gt;&lt;dc:creator&gt;Collect 200&lt;/dc:creator&gt;&lt;/item&gt;&lt;/DIDL-Lite&gt;</TrackMetaData>
-                  <TrackURI>x-sonos-spotify:spotify:track:2mqTtvbKxH7SoEQ2oGAnsA?sid=12&amp;flags=8224&amp;sn=3</TrackURI>
-                  <RelTime>0:00:48</RelTime>
-                </GetPositionInfoResponse>
-                """.utf8))
+        let stoppedTransport = try XMLNode.parse(Data("""
+        <GetTransportInfoResponse><CurrentTransportState>STOPPED</CurrentTransportState></GetTransportInfoResponse>
+        """.utf8))
+        let mediaInfo = try XMLNode.parse(Data("""
+        <GetMediaInfoResponse>
+          <CurrentURI>x-rincon-queue:RINCON_542A1B5F08A001400#0</CurrentURI>
+          <CurrentURIMetaData></CurrentURIMetaData>
+        </GetMediaInfoResponse>
+        """.utf8))
+        let positionInfo = try XMLNode.parse(Data("""
+        <GetPositionInfoResponse>
+          <Track>1</Track>
+          <TrackDuration>0:03:30</TrackDuration>
+          <TrackMetaData>&lt;DIDL-Lite xmlns:dc=&quot;http://purl.org/dc/elements/1.1/&quot; xmlns:upnp=&quot;urn:schemas-upnp-org:metadata-1-0/upnp/&quot; xmlns=&quot;urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/&quot;&gt;&lt;item id=&quot;-1&quot; parentID=&quot;-1&quot; restricted=&quot;true&quot;&gt;&lt;res duration=&quot;0:03:30&quot;&gt;x-sonos-spotify:spotify:track:2mqTtvbKxH7SoEQ2oGAnsA?sid=12&amp;amp;flags=8224&amp;amp;sn=3&lt;/res&gt;&lt;dc:title&gt;Notorious&lt;/dc:title&gt;&lt;dc:creator&gt;Collect 200&lt;/dc:creator&gt;&lt;/item&gt;&lt;/DIDL-Lite&gt;</TrackMetaData>
+          <TrackURI>x-sonos-spotify:spotify:track:2mqTtvbKxH7SoEQ2oGAnsA?sid=12&amp;flags=8224&amp;sn=3</TrackURI>
+          <RelTime>0:00:48</RelTime>
+        </GetPositionInfoResponse>
+        """.utf8))
         let parsedStopped = TransportService.parsePlayback(
             transportInfo: stoppedTransport,
             positionInfo: positionInfo,
@@ -1315,7 +1255,7 @@ struct HouseholdTests {
                 livingGroup: GroupStatus(
                     playback: .playing(.track(track), elapsed: .seconds(10), sampledAt: t0),
                     volume: .v25
-                )
+                ),
             ],
             at: t0
         )
@@ -1326,7 +1266,7 @@ struct HouseholdTests {
                 livingGroup: GroupStatus(
                     playback: .playing(.track(track), elapsed: .seconds(12), sampledAt: t1),
                     volume: .v25
-                )
+                ),
             ],
             at: t1
         )
@@ -1340,7 +1280,7 @@ struct HouseholdTests {
                 livingGroup: GroupStatus(
                     playback: .playing(.track(track), elapsed: .seconds(55), sampledAt: t1),
                     volume: .v25
-                )
+                ),
             ],
             at: t1
         )
@@ -1350,11 +1290,11 @@ struct HouseholdTests {
     @Test func parsesSonosMuseAreasIncludingWoodshopSavedGroup() throws {
         let validSpeakers: Set<SpeakerUUID> = [House.kitchen, House.dining, House.living, House.bedroom]
         let museJSON = """
-            [{"namespace":"areas","command":"getAreas","cmdId":"1"},{"areas":[
-              {"id":"550E8400-E29B-41D4-A716-446655440000","name":"Woodshop","isReadOnly":false,"playerIds":["\(House.living.rawValue)","\(House.kitchen.rawValue)"]},
-              {"id":"550E8400-E29B-41D4-A716-446655440001","name":"ReadOnlySystemArea","isReadOnly":true,"playerIds":["\(House.bedroom.rawValue)"]}
-            ]}]
-            """
+        [{"namespace":"areas","command":"getAreas","cmdId":"1"},{"areas":[
+          {"id":"550E8400-E29B-41D4-A716-446655440000","name":"Woodshop","isReadOnly":false,"playerIds":["\(House.living.rawValue)","\(House.kitchen.rawValue)"]},
+          {"id":"550E8400-E29B-41D4-A716-446655440001","name":"ReadOnlySystemArea","isReadOnly":true,"playerIds":["\(House.bedroom.rawValue)"]}
+        ]}]
+        """
         let pills = try #require(SonosMuseClient.parseAreasMessage(museJSON, validSpeakers: validSpeakers))
         #expect(pills.count == 1)
         #expect(pills[0].name == "Woodshop")
@@ -1382,9 +1322,8 @@ struct SconeStateTests {
         #expect(seeded.presets.map(\.name) == ["Movie"])
         #expect(seeded.networkName == "Feeling 22")
 
-        let quarantined = SconeState(
-            loaded: LoadedFiles(
-                cache: nil, positions: nil, quarantined: ["floorplan-positions.json.corrupt-10"]))
+        let quarantined = SconeState(loaded: LoadedFiles(
+            cache: nil, positions: nil, quarantined: ["floorplan-positions.json.corrupt-10"]))
         #expect(quarantined.alert == .quarantined(fileName: "floorplan-positions.json.corrupt-10"))
         #expect(quarantined.presets.isEmpty)
     }
@@ -1408,17 +1347,15 @@ struct SconeStateTests {
         let basement = Speaker(
             id: House.basement, roomName: "Basement Speaker", model: .move(battery: nil),
             reachability: .offline(lastKnownIP: "192.168.68.95", lastSeenAt: old), volume: .v10)
-        var state = SconeState(
-            loaded: LoadedFiles(
-                cache: CachedSpeakersFile(speakers: [basement], rf: .empty),
-                positions: nil,
-                quarantined: []))
+        var state = SconeState(loaded: LoadedFiles(
+            cache: CachedSpeakersFile(speakers: [basement], rf: .empty),
+            positions: nil,
+            quarantined: []))
         let seen = Date(timeIntervalSinceReferenceDate: 80)
-        state.absorb(
-            snapshot(
-                [speaker(House.kitchen, room: "Kitchen Speaker", ip: "192.168.68.58")],
-                coordinatorOf: alone([House.kitchen]),
-                at: seen))
+        state.absorb(snapshot(
+            [speaker(House.kitchen, room: "Kitchen Speaker", ip: "192.168.68.58")],
+            coordinatorOf: alone([House.kitchen]),
+            at: seen))
         #expect(state.floorplan.map(\.speaker.roomName) == ["Basement Speaker", "Kitchen Speaker"])
         #expect(state.floorplan[0].speaker.reachability == .offline(lastKnownIP: "192.168.68.95", lastSeenAt: old))
         #expect(state.floorplan[0].group == nil)
@@ -1439,45 +1376,38 @@ struct SconeStateTests {
     }
 
     @Test func playPauseProjectsTheDesiredTransportAndDropsItWhenTheCommandFinishes() {
-        let song = NowPlaying.track(
-            NowPlayingTrack(
-                title: "Song", artist: "Artist", album: nil, artworkURL: nil,
-                duration: .seconds(180), queuePosition: 2, spotifyURI: nil))
+        let song = NowPlaying.track(NowPlayingTrack(
+            title: "Song", artist: "Artist", album: nil, artworkURL: nil,
+            duration: .seconds(180), queuePosition: 2, spotifyURI: nil))
         let observed = Date(timeIntervalSinceReferenceDate: 1_000)
         let paused = PlaybackState.paused(song, elapsed: .seconds(12))
         let group = GroupID(coordinator: House.kitchen)
-        var state = SconeState(
-            loaded: LoadedFiles(
-                cache: nil, positions: nil, quarantined: []))
-        state.absorb(
-            snapshot(
-                [speaker(House.kitchen, room: "Kitchen Speaker")],
-                coordinatorOf: alone([House.kitchen]),
-                status: [group: GroupStatus(playback: paused, volume: .v30)],
-                at: observed))
+        var state = SconeState(loaded: LoadedFiles(
+            cache: nil, positions: nil, quarantined: []))
+        state.absorb(snapshot(
+            [speaker(House.kitchen, room: "Kitchen Speaker")],
+            coordinatorOf: alone([House.kitchen]),
+            status: [group: GroupStatus(playback: paused, volume: .v30)],
+            at: observed))
         let ticket = state.begin(.playPause(.play, group: group))
         #expect(state.groups.map(\.playback) == [.playing(song, elapsed: .seconds(12), sampledAt: observed)])
         state.finish(ticket, with: .success(.applied))
         #expect(state.groups.map(\.playback) == [paused])
 
         let started = observed.addingTimeInterval(-5)
-        state.absorb(
-            snapshot(
-                [speaker(House.kitchen, room: "Kitchen Speaker")],
-                coordinatorOf: alone([House.kitchen]),
-                status: [
-                    group: GroupStatus(
-                        playback: .playing(song, elapsed: .seconds(12), sampledAt: started), volume: .v30)
-                ],
-                at: observed))
+        state.absorb(snapshot(
+            [speaker(House.kitchen, room: "Kitchen Speaker")],
+            coordinatorOf: alone([House.kitchen]),
+            status: [group: GroupStatus(
+                playback: .playing(song, elapsed: .seconds(12), sampledAt: started), volume: .v30)],
+            at: observed))
         _ = state.begin(.playPause(.pause, group: group))
         #expect(state.groups.map(\.playback) == [.paused(song, elapsed: .seconds(12))])
 
-        state.absorb(
-            snapshot(
-                [speaker(House.kitchen, room: "Kitchen Speaker")],
-                coordinatorOf: alone([House.kitchen]),
-                at: observed))
+        state.absorb(snapshot(
+            [speaker(House.kitchen, room: "Kitchen Speaker")],
+            coordinatorOf: alone([House.kitchen]),
+            at: observed))
         _ = state.begin(.playPause(.play, group: group))
         #expect(state.groups.map(\.playback) == [.stopped])
     }
@@ -1485,14 +1415,13 @@ struct SconeStateTests {
     @Test func optimisticVolumeSuppressesIncomingPollUpdatesUntilWindowExpires() {
         var state = SconeState(loaded: LoadedFiles(cache: nil, positions: nil, quarantined: []))
         let initialTime = Date()
-        state.absorb(
-            snapshot(
-                [
-                    speaker(House.kitchen, room: "Kitchen Speaker", volume: .v15),
-                    speaker(House.dining, room: "Dining Room Speaker", volume: .v25),
-                ],
-                coordinatorOf: [House.kitchen: House.kitchen, House.dining: House.kitchen],
-                at: initialTime))
+        state.absorb(snapshot(
+            [
+                speaker(House.kitchen, room: "Kitchen Speaker", volume: .v15),
+                speaker(House.dining, room: "Dining Room Speaker", volume: .v25),
+            ],
+            coordinatorOf: [House.kitchen: House.kitchen, House.dining: House.kitchen],
+            at: initialTime))
 
         state.setOptimisticVolume(.v40, for: .speaker(House.kitchen), now: initialTime)
         #expect(state.speakers.first { $0.id == House.kitchen }?.volume == .v40)
@@ -1501,26 +1430,24 @@ struct SconeStateTests {
         #expect(state.groups.first?.volume == .v35)
 
         // Incoming stale poll 300ms later still reporting .v15 should be suppressed by optimistic window
-        state.absorb(
-            snapshot(
-                [
-                    speaker(House.kitchen, room: "Kitchen Speaker", volume: .v15),
-                    speaker(House.dining, room: "Dining Room Speaker", volume: .v25),
-                ],
-                coordinatorOf: [House.kitchen: House.kitchen, House.dining: House.kitchen],
-                at: initialTime.addingTimeInterval(0.3)))
+        state.absorb(snapshot(
+            [
+                speaker(House.kitchen, room: "Kitchen Speaker", volume: .v15),
+                speaker(House.dining, room: "Dining Room Speaker", volume: .v25),
+            ],
+            coordinatorOf: [House.kitchen: House.kitchen, House.dining: House.kitchen],
+            at: initialTime.addingTimeInterval(0.3)))
         #expect(state.speakers.first { $0.id == House.kitchen }?.volume == .v40)
 
         // Poll after 1.5s expiration window reflects the speaker's actual state
         let afterWindow = initialTime.addingTimeInterval(1.5)
-        state.absorb(
-            snapshot(
-                [
-                    speaker(House.kitchen, room: "Kitchen Speaker", volume: .v38),
-                    speaker(House.dining, room: "Dining Room Speaker", volume: .v25),
-                ],
-                coordinatorOf: [House.kitchen: House.kitchen, House.dining: House.kitchen],
-                at: afterWindow))
+        state.absorb(snapshot(
+            [
+                speaker(House.kitchen, room: "Kitchen Speaker", volume: .v38),
+                speaker(House.dining, room: "Dining Room Speaker", volume: .v25),
+            ],
+            coordinatorOf: [House.kitchen: House.kitchen, House.dining: House.kitchen],
+            at: afterWindow))
         #expect(state.speakers.first { $0.id == House.kitchen }?.volume == .v38)
     }
 
@@ -1579,8 +1506,7 @@ struct SconeFileTests {
         let directory = try makeDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
         let files = SconeFiles(directory: directory)
-        let seededPreset = PresetPill(
-            name: "Kitchen + Dining", coordinatorUUID: House.kitchen, memberUUIDs: [House.dining])
+        let seededPreset = PresetPill(name: "Kitchen + Dining", coordinatorUUID: House.kitchen, memberUUIDs: [House.dining])
         let recorder = RecordingSonos(yielded: [])
         let store = SconeStore(
             loaded: LoadedFiles(cache: nil, positions: nil, quarantined: []),
@@ -1642,10 +1568,9 @@ struct SconeFileTests {
 
     @Test func discoverySeedsDeduplicateCachedAddressesWithoutHardcodedFallbacks() {
         #expect(SconeStore.mergedSeedIPs(cached: []).isEmpty)
-        #expect(
-            SconeStore.mergedSeedIPs(cached: ["10.0.0.8", "10.0.0.12", "10.0.0.8"]) == [
-                "10.0.0.8", "10.0.0.12",
-            ])
+        #expect(SconeStore.mergedSeedIPs(cached: ["10.0.0.8", "10.0.0.12", "10.0.0.8"]) == [
+            "10.0.0.8", "10.0.0.12",
+        ])
     }
 
     @Test @MainActor func draggingAnySpeakerOntoAnyOtherSpeakerOrSeveringUnitesAndDissolvesCleanly() async throws {
@@ -1701,16 +1626,15 @@ struct SconeFileTests {
         let directory = try makeDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
         let files = SconeFiles(directory: directory)
-        let pausedSong = NowPlaying.track(
-            NowPlayingTrack(
-                title: "Creep",
-                artist: "Radiohead",
-                album: "Pablo Honey",
-                artworkURL: nil,
-                duration: .seconds(238),
-                queuePosition: 1,
-                spotifyURI: SpotifyURI("spotify:track:70LcF31zb1H0PyJoS1Sx1r")
-            ))
+        let pausedSong = NowPlaying.track(NowPlayingTrack(
+            title: "Creep",
+            artist: "Radiohead",
+            album: "Pablo Honey",
+            artworkURL: nil,
+            duration: .seconds(238),
+            queuePosition: 1,
+            spotifyURI: SpotifyURI("spotify:track:70LcF31zb1H0PyJoS1Sx1r")
+        ))
         let guestGroupID = GroupID(coordinator: House.guest)
         let bedroomGroupID = GroupID(coordinator: House.bedroom)
         let initial = snapshot(
@@ -1767,20 +1691,19 @@ struct SconeFileTests {
 
         // Preset pill should report active even when Guest is coordinator and Bedroom is member
         var groupedState = store.state
-        groupedState.absorb(
-            snapshot(
-                [
-                    speaker(House.bedroom, room: "Bedroom Speaker"),
-                    speaker(House.guest, room: "Guest Room Speaker"),
-                ],
-                coordinatorOf: [
-                    House.bedroom: House.guest,
-                    House.guest: House.guest,
-                ],
-                status: [
-                    guestGroupID: GroupStatus(playback: .paused(pausedSong, elapsed: .seconds(42)), volume: .v25)
-                ]
-            ))
+        groupedState.absorb(snapshot(
+            [
+                speaker(House.bedroom, room: "Bedroom Speaker"),
+                speaker(House.guest, room: "Guest Room Speaker"),
+            ],
+            coordinatorOf: [
+                House.bedroom: House.guest,
+                House.guest: House.guest,
+            ],
+            status: [
+                guestGroupID: GroupStatus(playback: .paused(pausedSong, elapsed: .seconds(42)), volume: .v25),
+            ]
+        ))
         #expect(groupedState.isActive(preset))
     }
 
@@ -1808,11 +1731,10 @@ struct SconeFileTests {
         let makePoll = { (time: Date, elapsedSec: Int) -> HouseholdSnapshot in
             HouseholdSnapshot(
                 observedAt: time,
-                speakers: Dictionary(
-                    uniqueKeysWithValues: [
-                        speaker(House.living, room: "Living Room"),
-                        speaker(House.bedroom, room: "Bedroom"),
-                    ].map { ($0.id, $0) }),
+                speakers: Dictionary(uniqueKeysWithValues: [
+                    speaker(House.living, room: "Living Room"),
+                    speaker(House.bedroom, room: "Bedroom"),
+                ].map { ($0.id, $0) }),
                 topology: topology([
                     House.living: House.living,
                     House.bedroom: House.bedroom,
@@ -1852,7 +1774,7 @@ struct SconeFileTests {
                             title: "Next Track",
                             artist: "Collect 200",
                             spotifyURI: SpotifyURI("spotify:track:0FlfN5cbUUpIHCRH8X1M44")
-                        )
+                        ),
                     ]
                 )
             )
@@ -1931,7 +1853,7 @@ struct SconeFileTests {
             House.bedroom: CGPoint(x: 500, y: 160),
         ]
         let hubs: [GroupID: CGPoint] = [
-            GroupID(coordinator: House.bedroom): CGPoint(x: 500, y: 95)
+            GroupID(coordinator: House.bedroom): CGPoint(x: 500, y: 95),
         ]
         let hitSpeaker = FloorplanDragHitTesting.nearestTarget(
             to: CGPoint(x: 352, y: 168),
@@ -2017,7 +1939,7 @@ struct SconeFileTests {
                     title: "Next Song",
                     artist: "Artist 2",
                     spotifyURI: SpotifyURI("spotify:track:1301WleyT98MSxVHPZCA6M")
-                )
+                ),
             ]
         )
         let sonosRecorder = RecordingSonos(yielded: [snap])
@@ -2068,26 +1990,26 @@ struct SconeFileTests {
 
         let presetUUID = UUID()
         let areasPayload = """
-            [
-              {"namespace":"areas","name":"areasResult"},
+        [
+          {"namespace":"areas","name":"areasResult"},
+          {
+            "areas": [
               {
-                "areas": [
-                  {
-                    "id": "\(presetUUID.uuidString)",
-                    "name": "Upstairs",
-                    "isReadOnly": false,
-                    "playerIds": ["\(House.kitchen.rawValue)", "\(House.dining.rawValue)", "\(House.living.rawValue)"]
-                  },
-                  {
-                    "id": "read-only-area",
-                    "name": "Everywhere",
-                    "isReadOnly": true,
-                    "playerIds": ["\(House.kitchen.rawValue)"]
-                  }
-                ]
+                "id": "\(presetUUID.uuidString)",
+                "name": "Upstairs",
+                "isReadOnly": false,
+                "playerIds": ["\(House.kitchen.rawValue)", "\(House.dining.rawValue)", "\(House.living.rawValue)"]
+              },
+              {
+                "id": "read-only-area",
+                "name": "Everywhere",
+                "isReadOnly": true,
+                "playerIds": ["\(House.kitchen.rawValue)"]
               }
             ]
-            """
+          }
+        ]
+        """
         let parsedPills = try #require(
             SonosMuseClient.parseAreasMessage(
                 areasPayload,
@@ -2113,18 +2035,22 @@ struct SconeFileTests {
 
         let vault = TokenVault(service: "Sconeos.UnitTest", directory: directory)
         let expiry = Date(timeIntervalSince1970: 2_000_000_000)
-        await vault.save(accessToken: "access-123", expiry: expiry, refreshToken: "refresh-456")
-        await vault.saveDisplayName("Dylan")
-        let saved = vault.loadSnapshot()
-        #expect(saved.accessToken?.token == "access-123")
-        #expect(saved.accessToken?.expiry == expiry)
-        #expect(saved.refreshToken == "refresh-456")
-        #expect(saved.displayName == "Dylan")
-        await vault.clear()
-        let cleared = vault.loadSnapshot()
-        #expect(cleared.accessToken == nil)
-        #expect(cleared.refreshToken == nil)
-        #expect(cleared.displayName == nil)
+        vault.storeAsync(
+            accessToken: "access-123",
+            expiry: expiry,
+            refreshToken: "refresh-456"
+        )
+        vault.storeDisplayNameAsync("Dylan")
+        try? await Task.sleep(for: .milliseconds(50))
+        #expect(vault.accessToken()?.token == "access-123")
+        #expect(vault.accessToken()?.expiry == expiry)
+        #expect(vault.refreshToken() == "refresh-456")
+        #expect(vault.displayName() == "Dylan")
+        vault.clearAsync()
+        try? await Task.sleep(for: .milliseconds(50))
+        #expect(vault.accessToken() == nil)
+        #expect(vault.refreshToken() == nil)
+        #expect(vault.displayName() == nil)
     }
 
     @Test @MainActor func dormantSpotifyConnectVLIAndExternalComputerPlaybackTransferToGroup() async throws {
@@ -2132,36 +2058,30 @@ struct SconeFileTests {
         // parses as .stopped instead of a hollow .paused track with empty title.
         let endpoint = URL(string: "http://192.168.68.73:1400/xml/device_description.xml")!
         let vliURI = "x-sonos-vli:RINCON_542A1B5F088401400:2,spotify:5a215012d5e6e8eea3c522adc26c27ea"
-        let dormantTransport = try XMLNode.parse(
-            Data(
-                """
-                <GetTransportInfoResponse>
-                  <CurrentTransportState>PAUSED_PLAYBACK</CurrentTransportState>
-                  <CurrentTransportStatus>OK</CurrentTransportStatus>
-                  <CurrentSpeed>1</CurrentSpeed>
-                </GetTransportInfoResponse>
-                """.utf8))
-        let dormantPosition = try XMLNode.parse(
-            Data(
-                """
-                <GetPositionInfoResponse>
-                  <Track>1</Track>
-                  <TrackDuration>NOT_IMPLEMENTED</TrackDuration>
-                  <TrackMetaData>NOT_IMPLEMENTED</TrackMetaData>
-                  <TrackURI>\(vliURI)</TrackURI>
-                  <RelTime>NOT_IMPLEMENTED</RelTime>
-                </GetPositionInfoResponse>
-                """.utf8))
-        let dormantMedia = try XMLNode.parse(
-            Data(
-                """
-                <GetMediaInfoResponse>
-                  <NrTracks>1</NrTracks>
-                  <MediaDuration>NOT_IMPLEMENTED</MediaDuration>
-                  <CurrentURI>\(vliURI)</CurrentURI>
-                  <CurrentURIMetaData>&lt;DIDL-Lite xmlns:dc=&quot;http://purl.org/dc/elements/1.1/&quot; xmlns:upnp=&quot;urn:schemas-upnp-org:metadata-1-0/upnp/&quot; xmlns:r=&quot;urn:schemas-rinconnetworks-com:metadata-1-0/&quot; xmlns=&quot;urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/&quot;&gt;&lt;item id=&quot;spotify&quot; parentID=&quot;0&quot; restricted=&quot;true&quot;&gt;&lt;dc:title&gt;Spotify&lt;/dc:title&gt;&lt;upnp:class&gt;object.item.audioItem.linein&lt;/upnp:class&gt;&lt;/item&gt;&lt;/DIDL-Lite&gt;</CurrentURIMetaData>
-                </GetMediaInfoResponse>
-                """.utf8))
+        let dormantTransport = try XMLNode.parse(Data("""
+        <GetTransportInfoResponse>
+          <CurrentTransportState>PAUSED_PLAYBACK</CurrentTransportState>
+          <CurrentTransportStatus>OK</CurrentTransportStatus>
+          <CurrentSpeed>1</CurrentSpeed>
+        </GetTransportInfoResponse>
+        """.utf8))
+        let dormantPosition = try XMLNode.parse(Data("""
+        <GetPositionInfoResponse>
+          <Track>1</Track>
+          <TrackDuration>NOT_IMPLEMENTED</TrackDuration>
+          <TrackMetaData>NOT_IMPLEMENTED</TrackMetaData>
+          <TrackURI>\(vliURI)</TrackURI>
+          <RelTime>NOT_IMPLEMENTED</RelTime>
+        </GetPositionInfoResponse>
+        """.utf8))
+        let dormantMedia = try XMLNode.parse(Data("""
+        <GetMediaInfoResponse>
+          <NrTracks>1</NrTracks>
+          <MediaDuration>NOT_IMPLEMENTED</MediaDuration>
+          <CurrentURI>\(vliURI)</CurrentURI>
+          <CurrentURIMetaData>&lt;DIDL-Lite xmlns:dc=&quot;http://purl.org/dc/elements/1.1/&quot; xmlns:upnp=&quot;urn:schemas-upnp-org:metadata-1-0/upnp/&quot; xmlns:r=&quot;urn:schemas-rinconnetworks-com:metadata-1-0/&quot; xmlns=&quot;urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/&quot;&gt;&lt;item id=&quot;spotify&quot; parentID=&quot;0&quot; restricted=&quot;true&quot;&gt;&lt;dc:title&gt;Spotify&lt;/dc:title&gt;&lt;upnp:class&gt;object.item.audioItem.linein&lt;/upnp:class&gt;&lt;/item&gt;&lt;/DIDL-Lite&gt;</CurrentURIMetaData>
+        </GetMediaInfoResponse>
+        """.utf8))
         let parsedDormant = TransportService.parsePlayback(
             transportInfo: dormantTransport,
             positionInfo: dormantPosition,
@@ -2195,7 +2115,7 @@ struct SconeFileTests {
                     title: "Next Up Track",
                     artist: "Kid Cudi",
                     spotifyURI: SpotifyURI("spotify:track:2mqTtvbKxH7SoEQ2oGAnsA")
-                )
+                ),
             ]
         )
         #expect(computerCtx.externalDeviceDisplayName == "This computer")
@@ -2226,7 +2146,7 @@ struct SconeFileTests {
                 House.dining: House.bedroom,
             ],
             status: [
-                GroupID(coordinator: House.bedroom): GroupStatus(playback: .stopped, volume: .v25)
+                GroupID(coordinator: House.bedroom): GroupStatus(playback: .stopped, volume: .v25),
             ]
         )
 
@@ -2255,8 +2175,7 @@ struct SconeFileTests {
         #expect(directTransferSpotify.transferredRooms.first?.members.contains("Dining Room Speaker") == true)
         #expect(store1.state.externalSpotify == nil)
         if let activeGroup = store1.state.groups.first,
-            case .playing(.track(let transferredTrack), _, _) = activeGroup.playback
-        {
+           case .playing(.track(let transferredTrack), _, _) = activeGroup.playback {
             #expect(transferredTrack.title == "DON'T BELIEVE IT")
             #expect(transferredTrack.artist == "Kid Cudi")
         } else {

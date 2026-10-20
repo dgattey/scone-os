@@ -1,11 +1,8 @@
 import AuthenticationServices
-import DylCore
-import DylDesign
+import SwiftUI
 import SconeDomain
 import SconeStore
 import SpotifyBridge
-import SwiftUI
-
 #if os(macOS)
 import AppKit
 #elseif os(iOS)
@@ -60,8 +57,7 @@ func isSuppressedPausedDuplicate(_ group: SonosGroup, in allGroups: [SonosGroup]
         }
     }
     if case .track(let pausedTrack) = pausedNP,
-        (pausedTrack.source?.isSpotify == true || pausedTrack.spotifyURI != nil)
-    {
+       (pausedTrack.source?.isSpotify == true || pausedTrack.spotifyURI != nil) {
         if playingGroups.contains(where: {
             if case .track(let activeTrack) = $0.playback.nowPlaying {
                 return activeTrack.source?.isSpotify == true || activeTrack.spotifyURI != nil
@@ -104,8 +100,7 @@ func deduplicatedActiveHubGroups(from groups: [SonosGroup]) -> [SonosGroup] {
             }
         }
         if case .track(let track) = group.playback.nowPlaying,
-            (track.source?.isSpotify == true || track.spotifyURI != nil)
-        {
+           (track.source?.isSpotify == true || track.spotifyURI != nil) {
             if seenSpotifyAccount && !playbackIsActive(group.playback) && group.speakers.count <= 1 {
                 continue
             }
@@ -119,26 +114,87 @@ func deduplicatedActiveHubGroups(from groups: [SonosGroup]) -> [SonosGroup] {
 }
 
 public enum LaunchView {
-    public static let overrides = LaunchOverrides(prefix: "SCONEOS")
+    public static func requestsGroup(
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        arguments: [String] = ProcessInfo.processInfo.arguments
+    ) -> Bool {
+        if environment["SCONEOS_INITIAL_VIEW"]?.lowercased() == "group" { return true }
+        if arguments.contains(where: { $0.lowercased() == "--initial-view=group" }) { return true }
+        guard let index = arguments.firstIndex(of: "--initial-view"),
+              arguments.indices.contains(index + 1) else { return false }
+        return arguments[index + 1].lowercased() == "group"
+    }
 
-    public static func requestsGroup() -> Bool { overrides.initialView == "group" }
+    public static func requestsLivingRoom(
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        arguments: [String] = ProcessInfo.processInfo.arguments
+    ) -> Bool {
+        if environment["SCONEOS_INITIAL_VIEW"]?.lowercased() == "living" { return true }
+        if arguments.contains(where: { $0.lowercased() == "--initial-view=living" }) { return true }
+        return false
+    }
 
-    public static func requestsLivingRoom() -> Bool { overrides.initialView == "living" }
+    public static func requestsGuestRoom(
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        arguments: [String] = ProcessInfo.processInfo.arguments
+    ) -> Bool {
+        if environment["SCONEOS_INITIAL_VIEW"]?.lowercased() == "guest" { return true }
+        if arguments.contains(where: { $0.lowercased() == "--initial-view=guest" }) { return true }
+        return false
+    }
 
-    public static func requestsGuestRoom() -> Bool { overrides.initialView == "guest" }
+    public static func requestsQueuePopover(
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        arguments: [String] = ProcessInfo.processInfo.arguments
+    ) -> Bool {
+        if environment["SCONEOS_SHOW_QUEUE"] == "1" { return true }
+        if arguments.contains(where: { $0.lowercased() == "--show-queue" }) { return true }
+        return false
+    }
 
-    public static func requestsQueuePopover() -> Bool { overrides.flag("show-queue") }
+    public static func requestsIOS(
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        arguments: [String] = ProcessInfo.processInfo.arguments
+    ) -> Bool {
+        if environment["SCONEOS_LAYOUT"]?.lowercased() == "ios" { return true }
+        if arguments.contains(where: { $0.lowercased() == "--layout=ios" }) { return true }
+        return false
+    }
 
-    public static func requestsIOS() -> Bool { overrides.value("layout") == "ios" }
-
-    public static func requestedCompactTab() -> String? { overrides.value("tab") }
-
-    public static func requestedColorScheme() -> ColorScheme? {
-        switch overrides.appearance {
-        case .light: .light
-        case .dark: .dark
-        case nil: nil
+    public static func requestedCompactTab(
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        arguments: [String] = ProcessInfo.processInfo.arguments
+    ) -> String? {
+        if let tab = environment["SCONEOS_COMPACT_TAB"]?.lowercased(), !tab.isEmpty {
+            return tab
         }
+        for arg in arguments {
+            let lowered = arg.lowercased()
+            if lowered.hasPrefix("--tab=") {
+                return String(lowered.dropFirst("--tab=".count))
+            }
+        }
+        return nil
+    }
+
+    public static func requestedColorScheme(
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        arguments: [String] = ProcessInfo.processInfo.arguments
+    ) -> ColorScheme? {
+        let env = environment["SCONEOS_APPEARANCE"]?.lowercased()
+        if env == "light" { return .light }
+        if env == "dark" { return .dark }
+        for arg in arguments {
+            let lowered = arg.lowercased()
+            if lowered == "--appearance=light" { return .light }
+            if lowered == "--appearance=dark" { return .dark }
+        }
+        if let index = arguments.firstIndex(of: "--appearance"), arguments.indices.contains(index + 1) {
+            let next = arguments[index + 1].lowercased()
+            if next == "light" { return .light }
+            if next == "dark" { return .dark }
+        }
+        return nil
     }
 }
 
@@ -168,12 +224,11 @@ public struct SconeRootView: View {
     @State private var dockSelectedGroupID: GroupID?
 
     public init() {
-        let initialTab: AppTab =
-            switch LaunchView.requestedCompactTab() {
-            case "rooms": .rooms
-            case "settings", "spotify": .settings
-            default: .map
-            }
+        let initialTab: AppTab = switch LaunchView.requestedCompactTab() {
+        case "rooms": .rooms
+        case "settings", "spotify": .settings
+        default: .map
+        }
         _activeTab = State(initialValue: initialTab)
     }
 
@@ -183,12 +238,10 @@ public struct SconeRootView: View {
 
     private var activeDockGroup: SonosGroup? {
         if case .group(let viewedID) = selection,
-            let viewedGroup = store.state.groups.first(where: { $0.id == viewedID }),
-            (playbackIsActive(viewedGroup.playback)
-                || (playbackHasSession(viewedGroup.playback)
-                    && !isSuppressedPausedDuplicate(viewedGroup, in: store.state.groups))
-                || viewedGroup.speakers.count > 1)
-        {
+           let viewedGroup = store.state.groups.first(where: { $0.id == viewedID }),
+           (playbackIsActive(viewedGroup.playback)
+            || (playbackHasSession(viewedGroup.playback) && !isSuppressedPausedDuplicate(viewedGroup, in: store.state.groups))
+            || viewedGroup.speakers.count > 1) {
             return viewedGroup
         }
         let eligible = dockEligibleGroups
@@ -205,8 +258,7 @@ public struct SconeRootView: View {
             return eligible.first
         }
         if isCompactLayout {
-            if let dockSelectedGroupID, let matched = store.state.groups.first(where: { $0.id == dockSelectedGroupID })
-            {
+            if let dockSelectedGroupID, let matched = store.state.groups.first(where: { $0.id == dockSelectedGroupID }) {
                 return matched
             }
             return store.state.groups.first(where: { $0.playback.nowPlaying != nil })
@@ -241,18 +293,16 @@ public struct SconeRootView: View {
             }
         }
         .tint(MidnightGlass.gold)
-        .themePalette(MidnightGlassPalette())
         .optionalPreferredColorScheme(LaunchView.requestedColorScheme())
         .overlay(alignment: .topTrailing) {
             if let alert = store.state.alert {
                 AlertBanner(
                     message: alertMessage(alert),
                     actionTitle: isNotConnectedAlert(alert) ? "Connect Spotify" : nil,
-                    onAction: isNotConnectedAlert(alert)
-                        ? {
-                            store.dismissAlert()
-                            triggerSpotifyConnect()
-                        } : nil,
+                    onAction: isNotConnectedAlert(alert) ? {
+                        store.dismissAlert()
+                        triggerSpotifyConnect()
+                    } : nil,
                     dismiss: { store.dismissAlert() }
                 )
                 .padding(.top, 12)
@@ -379,7 +429,7 @@ public struct SconeRootView: View {
                 compactTabBody(title: title, onOpenDockGroup: onOpenDockGroup, content: content)
                     .navigationDestination(for: GroupID.self) { groupID in
                         ZStack {
-                            ThemedBackground()
+                            MidnightBackground()
                             if let group = store.state.groups.first(where: { $0.id == groupID }) {
                                 GroupDetailView(group: group)
                             }
@@ -405,7 +455,7 @@ public struct SconeRootView: View {
         @ViewBuilder content: () -> Content
     ) -> some View {
         ZStack {
-            ThemedBackground()
+            MidnightBackground()
             content()
         }
         .navigationTitle(title)
@@ -544,18 +594,17 @@ public struct SconeRootView: View {
     }
 
     @ViewBuilder private var detail: some View {
-        let isShowingHome: Bool =
-            switch selection {
-            case .home, nil:
-                true
-            case .group(let id):
-                !store.state.groups.contains(where: { $0.id == id })
-            case .speaker(let id):
-                !store.state.speakers.contains(where: { $0.id == id })
-            }
+        let isShowingHome: Bool = switch selection {
+        case .home, nil:
+            true
+        case .group(let id):
+            !store.state.groups.contains(where: { $0.id == id })
+        case .speaker(let id):
+            !store.state.speakers.contains(where: { $0.id == id })
+        }
 
         ZStack {
-            ThemedBackground()
+            MidnightBackground()
             Group {
                 switch selection {
                 case .home, nil:
@@ -660,8 +709,7 @@ public struct SconeRootView: View {
         }
         let multi = store.state.groups.filter { $0.speakers.count > 1 }
         if let count = multi.map(\.speakers.count).max(),
-            let group = multi.first(where: { $0.speakers.count == count })
-        {
+           let group = multi.first(where: { $0.speakers.count == count }) {
             selection = .group(group.id)
             if isCompactLayout { mapPath = [group.id] }
             appliedLaunch = true
@@ -833,6 +881,6 @@ private struct AlertBanner: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
-        .glassCard(glowing: true, radius: 16)
+        .midnightGlass(glowing: true, radius: 16)
     }
 }

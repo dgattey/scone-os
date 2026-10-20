@@ -2,16 +2,12 @@ import Foundation
 import SconeDomain
 
 enum TransportService {
-    static let getTransportInfo = SOAPRequest(
-        service: .avTransport, action: "GetTransportInfo", arguments: [("InstanceID", "0")])
-    static let getPositionInfo = SOAPRequest(
-        service: .avTransport, action: "GetPositionInfo", arguments: [("InstanceID", "0")])
-    static let getMediaInfo = SOAPRequest(
-        service: .avTransport, action: "GetMediaInfo", arguments: [("InstanceID", "0")])
+    static let getTransportInfo = SOAPRequest(service: .avTransport, action: "GetTransportInfo", arguments: [("InstanceID", "0")])
+    static let getPositionInfo = SOAPRequest(service: .avTransport, action: "GetPositionInfo", arguments: [("InstanceID", "0")])
+    static let getMediaInfo = SOAPRequest(service: .avTransport, action: "GetMediaInfo", arguments: [("InstanceID", "0")])
     static let getVolume = SOAPRequest(
         service: .renderingControl, action: "GetVolume", arguments: [("InstanceID", "0"), ("Channel", "Master")])
-    static let getGroupVolume = SOAPRequest(
-        service: .groupRenderingControl, action: "GetGroupVolume", arguments: [("InstanceID", "0")])
+    static let getGroupVolume = SOAPRequest(service: .groupRenderingControl, action: "GetGroupVolume", arguments: [("InstanceID", "0")])
     static let next = SOAPRequest(service: .avTransport, action: "Next", arguments: [("InstanceID", "0")])
     static let previous = SOAPRequest(service: .avTransport, action: "Previous", arguments: [("InstanceID", "0")])
 
@@ -68,16 +64,14 @@ enum TransportService {
         let currentMeta = mediaInfo.value("CurrentURIMetaData")
         let facts = mergedFacts(track: trackMeta, current: currentMeta)
         let elapsed = clock(positionInfo.value("RelTime")) ?? .zero
-        let spotify =
-            spotifyTrack(in: trackURI)
+        let spotify = spotifyTrack(in: trackURI)
             ?? spotifyTrack(in: currentURI)
             ?? spotifyTrack(in: facts.resURI)
             ?? spotifyTrack(in: trackMeta)
         if activity == .paused && facts.title.isEmpty && facts.streamContent.isEmpty && spotify == nil {
             return .stopped
         }
-        let isSpotifyOrigin =
-            spotify != nil
+        let isSpotifyOrigin = spotify != nil
             || isSpotifyURI(trackURI)
             || isSpotifyURI(currentURI)
             || isSpotifyURI(facts.resURI)
@@ -88,36 +82,33 @@ enum TransportService {
             let trackNumber = Int(positionInfo.value("Track")) ?? 0
             let artist = facts.creator.isEmpty ? facts.streamContent.nilIfEmpty : facts.creator.nilIfEmpty
             let contextTitle = extractContextTitle(currentMeta: currentMeta, trackFacts: facts)
-            let source: PlaybackSource =
-                if isSpotifyOrigin {
-                    .spotify(contextTitle: contextTitle)
-                } else if queued {
-                    .sonosQueue
-                } else {
-                    .radio
-                }
+            let source: PlaybackSource = if isSpotifyOrigin {
+                .spotify(contextTitle: contextTitle)
+            } else if queued {
+                .sonosQueue
+            } else {
+                .radio
+            }
 
             let resolvedQueuePosition = queued && trackNumber > 0 ? trackNumber : nil
-            let filteredUpNext: [QueueItem] =
-                if let pos = resolvedQueuePosition {
-                    queueItems.filter { ($0.queueNumber ?? 0) > pos }
-                } else {
-                    queueItems
-                }
+            let filteredUpNext: [QueueItem] = if let pos = resolvedQueuePosition {
+                queueItems.filter { ($0.queueNumber ?? 0) > pos }
+            } else {
+                queueItems
+            }
 
-            now = .track(
-                NowPlayingTrack(
-                    title: facts.title,
-                    artist: artist,
-                    album: facts.album.nilIfEmpty,
-                    artworkURL: artwork(facts.art, relativeTo: coordinatorEndpoint),
-                    duration: clock(positionInfo.value("TrackDuration")),
-                    queuePosition: resolvedQueuePosition,
-                    spotifyURI: spotify,
-                    source: source,
-                    upNext: filteredUpNext,
-                    canSkip: queued || isSpotifyOrigin
-                ))
+            now = .track(NowPlayingTrack(
+                title: facts.title,
+                artist: artist,
+                album: facts.album.nilIfEmpty,
+                artworkURL: artwork(facts.art, relativeTo: coordinatorEndpoint),
+                duration: clock(positionInfo.value("TrackDuration")),
+                queuePosition: resolvedQueuePosition,
+                spotifyURI: spotify,
+                source: source,
+                upNext: filteredUpNext,
+                canSkip: queued || isSpotifyOrigin
+            ))
         } else {
             now = .stream(title: facts.title.nilIfEmpty ?? facts.streamContent.nilIfEmpty)
         }
@@ -149,9 +140,8 @@ enum TransportService {
             let itemIDAttr = itemNode.attribute("id") ?? ""
             let parsedQueueIndex: Int = {
                 if let slash = itemIDAttr.lastIndex(of: "/"),
-                    let num = Int(itemIDAttr[itemIDAttr.index(after: slash)...]),
-                    num > 0
-                {
+                   let num = Int(itemIDAttr[itemIDAttr.index(after: slash)...]),
+                   num > 0 {
                     return num
                 }
                 return startingIndex + offset + 1
@@ -187,16 +177,13 @@ enum TransportService {
 
     static func transport(_ desired: PlayPause) -> SOAPRequest {
         switch desired {
-        case .play:
-            SOAPRequest(service: .avTransport, action: "Play", arguments: [("InstanceID", "0"), ("Speed", "1")])
+        case .play: SOAPRequest(service: .avTransport, action: "Play", arguments: [("InstanceID", "0"), ("Speed", "1")])
         case .pause: SOAPRequest(service: .avTransport, action: "Pause", arguments: [("InstanceID", "0")])
         }
     }
 
     static func seek(toTrack number: Int) -> SOAPRequest {
-        SOAPRequest(
-            service: .avTransport, action: "Seek",
-            arguments: [("InstanceID", "0"), ("Unit", "TRACK_NR"), ("Target", String(number))])
+        SOAPRequest(service: .avTransport, action: "Seek", arguments: [("InstanceID", "0"), ("Unit", "TRACK_NR"), ("Target", String(number))])
     }
 
     static func seek(to elapsed: Duration) -> SOAPRequest {
@@ -278,9 +265,8 @@ enum TransportService {
         let currentFacts = facts(from: currentMeta)
         let candidate = currentFacts.title.trimmingCharacters(in: .whitespacesAndNewlines)
         if !candidate.isEmpty,
-            candidate.lowercased() != "spotify",
-            candidate != trackFacts.title
-        {
+           candidate.lowercased() != "spotify",
+           candidate != trackFacts.title {
             return candidate
         }
         return nil
@@ -309,8 +295,7 @@ enum TransportService {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty || trimmed == "NOT_IMPLEMENTED" { return nil }
         let parts = trimmed.split(separator: ":")
-        guard parts.count == 3, let hours = Int(parts[0]), let minutes = Int(parts[1]), let seconds = Int(parts[2])
-        else {
+        guard parts.count == 3, let hours = Int(parts[0]), let minutes = Int(parts[1]), let seconds = Int(parts[2]) else {
             return nil
         }
         return .seconds(hours * 3600 + minutes * 60 + seconds)
@@ -327,8 +312,7 @@ enum TransportService {
 
     static func unescapeXML(_ text: String) -> String {
         guard text.contains("&") else { return text }
-        return
-            text
+        return text
             .replacingOccurrences(of: "&lt;", with: "<")
             .replacingOccurrences(of: "&gt;", with: ">")
             .replacingOccurrences(of: "&quot;", with: "\"")

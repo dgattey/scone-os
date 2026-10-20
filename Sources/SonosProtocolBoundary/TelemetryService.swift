@@ -46,23 +46,20 @@ enum TelemetryService {
         var links: [SpeakerUUID: Int] = [:]
         for line in text.split(whereSeparator: \.isNewline) {
             if let match = line.firstMatch(of: /(?i)Noise Floor:\s*(-?\d+)\s*dBm/),
-                let value = Int(match.1)
-            {
+               let value = Int(match.1) {
                 if value != 0, noiseFloor == nil { noiseFloor = value }
                 continue
             }
             if rssi == nil, !line.contains("AVG"),
-                let match = line.firstMatch(of: /(?i)RSSI:\s*(-?\d+)\s*dBm/),
-                let value = Int(match.1), value != 0
-            {
+               let match = line.firstMatch(of: /(?i)RSSI:\s*(-?\d+)\s*dBm/),
+               let value = Int(match.1), value != 0 {
                 rssi = value
                 continue
             }
             if let match = line.firstMatch(of: /(?i)Node\s+([0-9A-Fa-f:]+)\s*-\s*FROM\s+(-?\d+)\s*:\s*TO\s+(-?\d+)/),
-                let from = Int(match.2),
-                let to = Int(match.3),
-                let peer = resolveMAC(String(match.1), resolve: resolve)
-            {
+               let from = Int(match.2),
+               let to = Int(match.3),
+               let peer = resolveMAC(String(match.1), resolve: resolve) {
                 if let existing = peers[peer] {
                     peers[peer] = (max(existing.from, from), max(existing.to, to))
                 } else {
@@ -76,10 +73,9 @@ enum TelemetryService {
                 continue
             }
             if let match = line.firstMatch(of: /(?i)RSSI AVG:?\s*(-?\d+)/),
-                let average = Int(match.1),
-                let mac = satelliteMAC,
-                let id = resolveMAC(mac, resolve: resolve)
-            {
+               let average = Int(match.1),
+               let mac = satelliteMAC,
+               let id = resolveMAC(mac, resolve: resolve) {
                 links[id] = max(links[id] ?? average, average)
             }
         }

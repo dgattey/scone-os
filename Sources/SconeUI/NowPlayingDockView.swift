@@ -1,7 +1,6 @@
-import DylDesign
+import SwiftUI
 import SconeDomain
 import SconeStore
-import SwiftUI
 
 struct NowPlayingDock: View {
     @Environment(SconeStore.self) private var store
@@ -33,7 +32,7 @@ struct NowPlayingDock: View {
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 10)
-                .glassCard(glowing: true, radius: 18)
+                .midnightGlass(glowing: true, radius: 18)
             }
 
             if showingVolumePopover && isCompactFloatingPill {
@@ -55,7 +54,7 @@ struct NowPlayingDock: View {
                 )
                 .frame(maxWidth: isCompactFloatingPill ? .infinity : 390)
                 .padding(14)
-                .glassCard(glowing: true, radius: 18)
+                .midnightGlass(glowing: true, radius: 18)
                 .shadow(color: Color.black.opacity(0.55), radius: 24, y: 10)
                 .offset(y: isCompactFloatingPill ? -66 : -74)
                 .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .bottomTrailing)))
@@ -197,8 +196,7 @@ struct NowPlayingDock: View {
                 .buttonStyle(.plain)
             }
             DiscreteVolumeControl(volume: group.volume, compact: true) { volume in
-                let target: VolumeTarget =
-                    group.speakers.count > 1
+                let target: VolumeTarget = group.speakers.count > 1
                     ? .group(group.id)
                     : .speaker(group.coordinator.id)
                 store.send(.setVolume(volume, for: target))
@@ -206,7 +204,7 @@ struct NowPlayingDock: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
-        .glassCard(glowing: true, radius: 16)
+        .midnightGlass(glowing: true, radius: 16)
         .shadow(color: Color.black.opacity(0.50), radius: 20, y: 8)
     }
 
@@ -243,8 +241,7 @@ struct NowPlayingDock: View {
             Spacer(minLength: 10)
             transportButtons
             DiscreteVolumeControl(volume: group.volume, compact: true) { volume in
-                let target: VolumeTarget =
-                    group.speakers.count > 1
+                let target: VolumeTarget = group.speakers.count > 1
                     ? .group(group.id)
                     : .speaker(group.coordinator.id)
                 store.send(.setVolume(volume, for: target))
@@ -264,8 +261,7 @@ struct NowPlayingDock: View {
                 transportButtons
             }
             DiscreteVolumeControl(volume: group.volume, compact: true) { volume in
-                let target: VolumeTarget =
-                    group.speakers.count > 1
+                let target: VolumeTarget = group.speakers.count > 1
                     ? .group(group.id)
                     : .speaker(group.coordinator.id)
                 store.send(.setVolume(volume, for: target))
@@ -509,8 +505,7 @@ struct NowPlayingDock: View {
 
     private var sourceLine: String? {
         if case .track(let track) = group.playback.nowPlaying,
-            let source = track.source
-        {
+           let source = track.source {
             return source.label
         }
         if let external = externalSpotify {
@@ -537,11 +532,7 @@ struct NowPlayingDock: View {
             Image(systemName: system)
                 .font(.system(size: prominent ? 13 : 11, weight: .bold))
                 .contentTransition(.symbolEffect(.replace))
-                .foregroundStyle(
-                    enabled
-                        ? (prominent ? MidnightGlass.ink : MidnightGlass.primaryText)
-                        : MidnightGlass.secondaryText.opacity(0.35)
-                )
+                .foregroundStyle(enabled ? (prominent ? MidnightGlass.ink : MidnightGlass.primaryText) : MidnightGlass.secondaryText.opacity(0.35))
                 .frame(width: prominent ? 34 : 28, height: prominent ? 34 : 28)
                 .background {
                     if prominent {

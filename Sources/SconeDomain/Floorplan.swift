@@ -64,9 +64,7 @@ public struct FloorLevel: Hashable, Sendable, Codable, Comparable, Identifiable 
         for word in upperKeywords where lowered.contains(word) {
             return 1
         }
-        let lowerKeywords = [
-            "basement", "lower", "downstairs", "cellar", "sublevel", "den", "rec", "garage", "patio", "yard",
-        ]
+        let lowerKeywords = ["basement", "lower", "downstairs", "cellar", "sublevel", "den", "rec", "garage", "patio", "yard"]
         for word in lowerKeywords where lowered.contains(word) {
             return -1
         }
@@ -225,15 +223,12 @@ public struct FloorBandLayout: Identifiable, Hashable, Sendable {
         let effectiveMinX = min(safeInnerRect.midX, safeInnerRect.minX + extraHalfX)
         let effectiveMaxX = max(effectiveMinX, safeInnerRect.maxX - extraHalfX)
         let effectiveWidth = max(0, effectiveMaxX - effectiveMinX)
-        let effectiveMaxY = max(
-            safeInnerRect.minY, safeInnerRect.maxY - (hasSatellites ? Self.satelliteExtraHeight * 0.5 : 0))
+        let effectiveMaxY = max(safeInnerRect.minY, safeInnerRect.maxY - (hasSatellites ? Self.satelliteExtraHeight * 0.5 : 0))
         let effectiveHeight = max(0, effectiveMaxY - safeInnerRect.minY)
-        let localX =
-            effectiveWidth > 1
+        let localX = effectiveWidth > 1
             ? Double((clamped.x - effectiveMinX) / effectiveWidth)
             : 0.5
-        let localY =
-            effectiveHeight > 1
+        let localY = effectiveHeight > 1
             ? Double((clamped.y - safeInnerRect.minY) / effectiveHeight)
             : 0.5
         let mappedY = ySpan.lowerBound + min(max(localY, 0), 1) * (ySpan.upperBound - ySpan.lowerBound)
@@ -273,8 +268,7 @@ public struct FloorBandLayout: Identifiable, Hashable, Sendable {
 
         for (index, level) in levels.enumerated() {
             let share = minBandHeights[index] / totalMinHeight
-            let bandHeight =
-                floorCount == 1
+            let bandHeight = floorCount == 1
                 ? max(minBandHeights[index], availableHeight)
                 : minBandHeights[index] + extraHeight * share
             let topMargin = headerHeight + cardSize.height * 0.5 + 14
@@ -355,8 +349,7 @@ public enum FloorplanLayout {
                 let total = rfClusters.count
                 var assigned: [SpeakerUUID: FloorLevel] = [:]
                 for (index, cluster) in rfClusters.enumerated() {
-                    let level = floorLevel(
-                        forIndexFromTop: index, totalFloors: total, highestTier: total - 1, lowestTier: 0)
+                    let level = floorLevel(forIndexFromTop: index, totalFloors: total, highestTier: total - 1, lowestTier: 0)
                     for id in cluster {
                         assigned[id] = level
                     }
@@ -439,10 +432,7 @@ public enum FloorplanLayout {
         for id in ids {
             grouped[find(id), default: []].append(id)
         }
-        let components = grouped.values.sorted {
-            ($0.first ?? SpeakerUUID(rawValue: "RINCON_00000000000001400")!)
-                < ($1.first ?? SpeakerUUID(rawValue: "RINCON_00000000000001400")!)
-        }
+        let components = grouped.values.sorted { ($0.first ?? SpeakerUUID(rawValue: "RINCON_00000000000001400")!) < ($1.first ?? SpeakerUUID(rawValue: "RINCON_00000000000001400")!) }
         guard components.count >= 2, components.allSatisfy({ $0.count >= 2 }) else { return [ids] }
 
         for c1 in components.indices {
@@ -556,8 +546,7 @@ public enum FloorplanLayout {
                 let a = ordered[left]
                 let b = ordered[right]
                 guard let band = matrix.band(a, b), let pull = pullPercent(band),
-                    let ax = x[a], let ay = y[a], let bx = x[b], let by = y[b]
-                else { continue }
+                      let ax = x[a], let ay = y[a], let bx = x[b], let by = y[b] else { continue }
                 let sameLevel = floorMap[a] == floorMap[b]
                 let dx = Int((Double(bx - ax) * Double(pull) / 100).rounded())
                 let dy = sameLevel ? Int((Double(by - ay) * Double(pull) / 100).rounded()) : 0
@@ -595,12 +584,10 @@ public enum FloorplanLayout {
             let row = index / columns
             let col = index % columns
             let itemsInRow = row == rows - 1 ? (count - row * columns) : columns
-            let xFraction =
-                itemsInRow == 1
+            let xFraction = itemsInRow == 1
                 ? 0.50
                 : 0.20 + (0.60 * Double(col) / Double(itemsInRow - 1))
-            let yFraction =
-                rows == 1
+            let yFraction = rows == 1
                 ? 0.50
                 : Double(row) / Double(rows - 1)
             let yValue = Double(ySpan.lowerBound) + yFraction * Double(ySpan.upperBound - ySpan.lowerBound)
@@ -627,8 +614,7 @@ public enum FloorplanLayout {
                 let bandR = matrix.band(current.id, remaining[rhs].id)?.rawValue ?? 0
                 if bandL != bandR { return bandL < bandR }
                 return lhs > rhs
-            }), (matrix.band(current.id, remaining[bestIndex].id)?.rawValue ?? 0) >= RFPeerMatrix.Band.moderate.rawValue
-            {
+            }), (matrix.band(current.id, remaining[bestIndex].id)?.rawValue ?? 0) >= RFPeerMatrix.Band.moderate.rawValue {
                 current = remaining.remove(at: bestIndex)
             } else {
                 current = remaining.removeFirst()
@@ -640,14 +626,10 @@ public enum FloorplanLayout {
 
     private static func semanticWingRank(_ roomName: String) -> Int {
         let lower = roomName.lowercased()
-        if lower.contains("kitchen") || lower.contains("dining") || lower.contains("living") || lower.contains("family")
-            || lower.contains("great")
-        {
+        if lower.contains("kitchen") || lower.contains("dining") || lower.contains("living") || lower.contains("family") || lower.contains("great") {
             return 0
         }
-        if lower.contains("bed") || lower.contains("guest") || lower.contains("nursery") || lower.contains("office")
-            || lower.contains("study")
-        {
+        if lower.contains("bed") || lower.contains("guest") || lower.contains("nursery") || lower.contains("office") || lower.contains("study") {
             return 1
         }
         return 2
@@ -767,8 +749,7 @@ public enum AcousticCurveRouter {
         let origDY = segment.end.y - segment.start.y
         let origLen = max(hypot(origDX, origDY), 1)
         let origMid = CGPoint(x: (segment.start.x + segment.end.x) * 0.5, y: (segment.start.y + segment.end.y) * 0.5)
-        let origPerp =
-            (segment.control.x - origMid.x) * (-origDY / origLen)
+        let origPerp = (segment.control.x - origMid.x) * (-origDY / origLen)
             + (segment.control.y - origMid.y) * (origDX / origLen)
 
         let newDX = clippedEnd.x - clippedStart.x
@@ -915,8 +896,7 @@ public enum AcousticCurveRouter {
             if ySpan < 36 {
                 let spaceBelow = safeBounds.maxY - cy
                 let spaceAbove = cy - safeBounds.minY
-                let shiftY: CGFloat =
-                    spaceBelow >= spaceAbove ? min(92, spaceBelow * 0.72) : -min(92, spaceAbove * 0.72)
+                let shiftY: CGFloat = spaceBelow >= spaceAbove ? min(92, spaceBelow * 0.72) : -min(92, spaceAbove * 0.72)
                 rawCentroid = CGPoint(x: cx, y: cy + shiftY)
             } else {
                 rawCentroid = CGPoint(x: cx, y: cy)
@@ -930,8 +910,7 @@ public enum AcousticCurveRouter {
             )
         }
 
-        let paddedObstacles =
-            roomObstacles.map { $0.insetBy(dx: -20, dy: -22) }
+        let paddedObstacles = roomObstacles.map { $0.insetBy(dx: -20, dy: -22) }
             + existingHubs.map { $0.insetBy(dx: -24, dy: -22) }
 
         func hubClearance(at center: CGPoint) -> CGFloat {
@@ -967,8 +946,7 @@ public enum AcousticCurveRouter {
             let clamped = clampToSafe(candidate)
             let clearance = hubClearance(at: clamped)
             let distFromCentroid = hypot(clamped.x - base.x, clamped.y - base.y)
-            let score =
-                (clearance >= 0 ? 1200.0 + min(clearance, 48.0) * 2.5 : clearance * 16.0) - distFromCentroid * 0.24
+            let score = (clearance >= 0 ? 1200.0 + min(clearance, 48.0) * 2.5 : clearance * 16.0) - distFromCentroid * 0.24
             if score > bestScore {
                 bestScore = score
                 bestPoint = clamped
@@ -1060,8 +1038,7 @@ public enum AcousticCurveRouter {
         }
 
         for rIdx in mutableRooms.indices where !mutableRooms[rIdx].isFixed {
-            mutableRooms[rIdx].center = clampRoom(
-                mutableRooms[rIdx].center, hasSatellites: mutableRooms[rIdx].hasSatellites)
+            mutableRooms[rIdx].center = clampRoom(mutableRooms[rIdx].center, hasSatellites: mutableRooms[rIdx].hasSatellites)
         }
         for hID in hubIDs {
             if let c = mutableHubs[hID] {
@@ -1204,21 +1181,15 @@ public enum AcousticCurveRouter {
                         let overlapY = min(rectA.maxY - rectB.minY, rectB.maxY - rectA.minY)
                         guard overlapX > 0, overlapY > 0 else { continue }
 
-                        let dirX: CGFloat =
-                            (abs(b.center.x - a.center.x) < 2)
+                        let dirX: CGFloat = (abs(b.center.x - a.center.x) < 2)
                             ? (a.id < b.id ? 1 : -1)
                             : (b.center.x >= a.center.x ? 1 : -1)
-                        let dirY: CGFloat =
-                            (abs(b.center.y - a.center.y) < 2)
+                        let dirY: CGFloat = (abs(b.center.y - a.center.y) < 2)
                             ? (a.id < b.id ? 1 : -1)
                             : (b.center.y >= a.center.y ? 1 : -1)
 
-                        let testAX = clampRoom(
-                            CGPoint(x: a.center.x - dirX * (overlapX * 0.6 + 2), y: a.center.y),
-                            hasSatellites: a.hasSatellites)
-                        let testBX = clampRoom(
-                            CGPoint(x: b.center.x + dirX * (overlapX * 0.6 + 2), y: b.center.y),
-                            hasSatellites: b.hasSatellites)
+                        let testAX = clampRoom(CGPoint(x: a.center.x - dirX * (overlapX * 0.6 + 2), y: a.center.y), hasSatellites: a.hasSatellites)
+                        let testBX = clampRoom(CGPoint(x: b.center.x + dirX * (overlapX * 0.6 + 2), y: b.center.y), hasSatellites: b.hasSatellites)
                         let achievedX = abs(testAX.x - a.center.x) + abs(testBX.x - b.center.x)
 
                         if overlapX <= overlapY * 1.25 && achievedX >= overlapX * 0.80 {
@@ -1228,15 +1199,13 @@ public enum AcousticCurveRouter {
                             let stepY = overlapY * 0.6 + 2
                             if !a.isFixed {
                                 mutableRooms[i].center = clampRoom(
-                                    CGPoint(
-                                        x: a.center.x - dirX * min(overlapX * 0.25, 16), y: a.center.y - dirY * stepY),
+                                    CGPoint(x: a.center.x - dirX * min(overlapX * 0.25, 16), y: a.center.y - dirY * stepY),
                                     hasSatellites: a.hasSatellites
                                 )
                             }
                             if !b.isFixed {
                                 mutableRooms[j].center = clampRoom(
-                                    CGPoint(
-                                        x: b.center.x + dirX * min(overlapX * 0.25, 16), y: b.center.y + dirY * stepY),
+                                    CGPoint(x: b.center.x + dirX * min(overlapX * 0.25, 16), y: b.center.y + dirY * stepY),
                                     hasSatellites: b.hasSatellites
                                 )
                             }
@@ -1249,10 +1218,7 @@ public enum AcousticCurveRouter {
         }
 
         // If any pair still overlaps within 24pt after force relaxation, run deterministic shelf packing
-        if hasAnyBandOverlap(
-            rooms: mutableRooms, hubs: mutableHubs, minGapX: minGapX, minGapY: minGapY, bandFrame: bandFrame,
-            edgeInset: edgeInset)
-        {
+        if hasAnyBandOverlap(rooms: mutableRooms, hubs: mutableHubs, minGapX: minGapX, minGapY: minGapY, bandFrame: bandFrame, edgeInset: edgeInset) {
             return deterministicShelfPack(
                 rooms: mutableRooms,
                 hubCenters: mutableHubs,
@@ -1400,17 +1366,14 @@ public enum AcousticCurveRouter {
             rows[rIdx].items.sort { $0.preferredPoint.x < $1.preferredPoint.x }
         }
 
-        let totalRowsHeight =
-            rows.reduce(CGFloat(0)) { $0 + $1.maxHeight }
+        let totalRowsHeight = rows.reduce(CGFloat(0)) { $0 + $1.maxHeight }
             + CGFloat(max(0, rows.count - 1)) * minGapY
         let availableH = max(totalRowsHeight, safeMaxY - safeMinY)
         let extraRowSpace = max(0, availableH - totalRowsHeight)
-        let rowGapY =
-            rows.count > 1
+        let rowGapY = rows.count > 1
             ? minGapY + min(28, extraRowSpace / CGFloat(rows.count))
             : minGapY
-        let totalUsedH =
-            rows.reduce(CGFloat(0)) { $0 + $1.maxHeight }
+        let totalUsedH = rows.reduce(CGFloat(0)) { $0 + $1.maxHeight }
             + CGFloat(max(0, rows.count - 1)) * rowGapY
         var cursorY = safeMinY + max(0, (availableH - totalUsedH) * 0.5)
 
@@ -1425,12 +1388,10 @@ public enum AcousticCurveRouter {
             let count = row.items.count
             let extraW = max(0, safeW - row.totalWidth)
             // Distribute horizontal slack evenly with generous breathing room
-            let gapX =
-                count > 1
+            let gapX = count > 1
                 ? minGapX + min(56, extraW / CGFloat(count))
                 : minGapX
-            let rowSpanW =
-                row.items.reduce(CGFloat(0)) { $0 + $1.size.width }
+            let rowSpanW = row.items.reduce(CGFloat(0)) { $0 + $1.size.width }
                 + CGFloat(max(0, count - 1)) * gapX
             var cursorX = safeMinX + max(0, (safeW - rowSpanW) * 0.5)
 
@@ -1569,9 +1530,7 @@ public enum AcousticCurveRouter {
             return primaryDefault
         }
         let flippedClearance = minObstacleClearance(for: flippedDefault, paddedObstacles: paddedObstacles)
-        if flippedClearance >= 0,
-            boundsMargin(for: flippedDefault, bounds: bounds) > boundsMargin(for: primaryDefault, bounds: bounds)
-        {
+        if flippedClearance >= 0, boundsMargin(for: flippedDefault, bounds: bounds) > boundsMargin(for: primaryDefault, bounds: bounds) {
             return flippedDefault
         }
 

@@ -15,9 +15,8 @@ public enum PlaybackSource: Hashable, Sendable, Codable {
         switch self {
         case .spotify(let contextTitle):
             if let title = contextTitle?.trimmingCharacters(in: .whitespacesAndNewlines),
-                !title.isEmpty,
-                title.lowercased() != "spotify"
-            {
+               !title.isEmpty,
+               title.lowercased() != "spotify" {
                 return "Playing from Spotify · \(title)"
             }
             return "Playing from Spotify"
@@ -36,9 +35,8 @@ public enum PlaybackSource: Hashable, Sendable, Codable {
         switch self {
         case .spotify(let contextTitle):
             if let title = contextTitle?.trimmingCharacters(in: .whitespacesAndNewlines),
-                !title.isEmpty,
-                title.lowercased() != "spotify"
-            {
+               !title.isEmpty,
+               title.lowercased() != "spotify" {
                 return "Spotify · \(title)"
             }
             return "Spotify"
@@ -121,10 +119,8 @@ public enum PlaybackState: Hashable, Sendable {
             return true
         case (.paused(let lhsNow, let lhsElapsed), .paused(let rhsNow, let rhsElapsed)):
             return lhsNow == rhsNow && lhsElapsed == rhsElapsed
-        case (
-            .playing(let lhsNow, let lhsElapsed, let lhsSampled),
-            .playing(let rhsNow, let rhsElapsed, let rhsSampled)
-        ):
+        case (.playing(let lhsNow, let lhsElapsed, let lhsSampled),
+              .playing(let rhsNow, let rhsElapsed, let rhsSampled)):
             guard lhsNow == rhsNow else { return false }
             let lhsSeconds = Double(lhsElapsed.components.seconds) + Double(lhsElapsed.components.attoseconds) / 1e18
             let rhsSeconds = Double(rhsElapsed.components.seconds) + Double(rhsElapsed.components.attoseconds) / 1e18
@@ -160,9 +156,8 @@ public enum NowPlaying: Hashable, Sendable {
             return false
         case (.stream(let lhsTitle), .stream(let rhsTitle)):
             guard let l = lhsTitle?.trimmingCharacters(in: .whitespacesAndNewlines),
-                let r = rhsTitle?.trimmingCharacters(in: .whitespacesAndNewlines),
-                !l.isEmpty, !r.isEmpty
-            else {
+                  let r = rhsTitle?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !l.isEmpty, !r.isEmpty else {
                 return false
             }
             return l.caseInsensitiveCompare(r) == .orderedSame
@@ -239,8 +234,7 @@ public struct NowPlayingTrack: Hashable, Sendable {
         let lhsTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         let rhsTitle = other.title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !lhsTitle.isEmpty,
-            lhsTitle.caseInsensitiveCompare(rhsTitle) == .orderedSame
-        else {
+              lhsTitle.caseInsensitiveCompare(rhsTitle) == .orderedSame else {
             return false
         }
         let lhsArtist = (artist ?? "").trimmingCharacters(in: .whitespacesAndNewlines)

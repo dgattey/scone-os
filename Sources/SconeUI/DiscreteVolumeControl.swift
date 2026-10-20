@@ -1,6 +1,5 @@
-import DylDesign
-import SconeDomain
 import SwiftUI
+import SconeDomain
 
 struct DiscreteVolumeControl: View {
     var volume: DiscreteVolume

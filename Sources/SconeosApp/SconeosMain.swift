@@ -1,11 +1,8 @@
-import DylShell
-import DylUpdates
+import SwiftUI
 import SconeDomain
 import SconeStore
 import SconeUI
 import SpotifyBridge
-import SwiftUI
-
 #if os(macOS)
 import AppKit
 
@@ -64,7 +61,7 @@ final class SconeAppDelegate: NSObject, NSApplicationDelegate {
 
     /// Sparkle closes its alert when installing; without this, a single-window app can quit before download/install runs.
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
-        QuitBlockers.shared.shouldTerminateAfterLastWindowClosed
+        !SparkleUpdateSession.shared.blocksQuitOnLastWindowClosed
     }
 }
 #endif
@@ -73,12 +70,19 @@ final class SconeAppDelegate: NSObject, NSApplicationDelegate {
 struct SconeosApp: App {
     #if os(macOS)
     @NSApplicationDelegateAdaptor(SconeAppDelegate.self) private var appDelegate
-    @StateObject private var updater = AppUpdater()
+    @StateObject private var updater = AppUpdaterModel()
     #endif
     @State private var session: LiveSession?
 
     init() {
-        LaunchShell.configure(LaunchView.overrides)
+        #if os(macOS)
+        UserDefaults.standard.set(false, forKey: "NSQuitAlwaysKeepsWindows")
+        if let scheme = LaunchView.requestedColorScheme() {
+            NSApplication.shared.appearance = NSAppearance(
+                named: scheme == .dark ? .darkAqua : .aqua
+            )
+        }
+        #endif
     }
 
     var body: some Scene {
@@ -94,7 +98,7 @@ struct SconeosApp: App {
         .windowResizability(.contentMinSize)
         .commands {
             CommandGroup(after: .appInfo) {
-                CheckForUpdatesButton(updater: updater)
+                CheckForUpdatesMenuItem(updater: updater)
             }
             CommandMenu("Playback") {
                 Button("Play / Pause") {
@@ -123,8 +127,7 @@ struct SconeosApp: App {
                 Button("Volume Up") {
                     if let target = primaryTargetGroup {
                         let next = target.volume.stepped(by: 1)
-                        let volumeTarget: VolumeTarget =
-                            target.speakers.count > 1
+                        let volumeTarget: VolumeTarget = target.speakers.count > 1
                             ? .group(target.id)
                             : .speaker(target.coordinator.id)
                         store?.send(.setVolume(next, for: volumeTarget))
@@ -135,8 +138,7 @@ struct SconeosApp: App {
                 Button("Volume Down") {
                     if let target = primaryTargetGroup {
                         let next = target.volume.stepped(by: -1)
-                        let volumeTarget: VolumeTarget =
-                            target.speakers.count > 1
+                        let volumeTarget: VolumeTarget = target.speakers.count > 1
                             ? .group(target.id)
                             : .speaker(target.coordinator.id)
                         store?.send(.setVolume(next, for: volumeTarget))
@@ -174,13 +176,11 @@ struct SconeosApp: App {
     private var root: some View {
         let requestedScheme = LaunchView.requestedColorScheme()
         let isIOSPreview = LaunchView.requestsIOS()
-        let view =
-            sessionContent
+        let view = sessionContent
             .preferredColorScheme(requestedScheme)
             .task { session = await LiveSession.shared.value }
         #if os(macOS)
-        return
-            view
+        return view
             .frame(
                 minWidth: isIOSPreview ? 402 : 980,
                 idealWidth: isIOSPreview ? 402 : 1280,
@@ -190,9 +190,22 @@ struct SconeosApp: App {
             )
             .onAppear {
                 updater.mainWindowDidAppear()
-                LaunchShell.applyAppearance(LaunchView.overrides.appearance)
+                if let scheme = requestedScheme {
+                    NSApp.appearance = NSAppearance(named: scheme == .dark ? .darkAqua : .aqua)
+                }
+                if let rawSize = ProcessInfo.processInfo.environment["SCONEOS_WINDOW_SIZE"] {
+                    let parts = rawSize.split(separator: "x").compactMap { Double($0) }
+                    if parts.count == 2 {
+                        let targetSize = NSSize(width: parts[0], height: parts[1])
+                        Task { @MainActor in
+                            try? await Task.sleep(for: .milliseconds(150))
+                            for window in NSApp.windows where window.frame.width > 300 {
+                                window.setContentSize(targetSize)
+                            }
+                        }
+                    }
+                }
             }
-            .launchWindowSize(LaunchView.overrides)
         #else
         return view
         #endif

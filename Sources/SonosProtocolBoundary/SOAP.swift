@@ -26,8 +26,7 @@ public enum NetworkDebugLog {
 
 private struct NetworkDebugLogWriter {
     private let fileURL: URL = {
-        let support =
-            FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support")
         let dir = support.appendingPathComponent("Sconeos", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -49,8 +48,7 @@ private struct NetworkDebugLogWriter {
 }
 
 enum UPnPService: CaseIterable {
-    case zoneGroupTopology, avTransport, renderingControl, groupRenderingControl, contentDirectory, queue,
-        systemProperties
+    case zoneGroupTopology, avTransport, renderingControl, groupRenderingControl, contentDirectory, queue, systemProperties
 
     var urn: String {
         switch self {
@@ -118,9 +116,7 @@ struct SOAPClient: Sendable {
         return URLSession(configuration: configuration)
     }()
 
-    func call(
-        _ request: SOAPRequest, on speaker: SpeakerUUID, at endpoint: URL
-    ) async throws(SonosCommandError) -> XMLNode {
+    func call(_ request: SOAPRequest, on speaker: SpeakerUUID, at endpoint: URL) async throws(SonosCommandError) -> XMLNode {
         try await perform(request, at: endpoint, failure: .speakerUnreachable(speaker))
     }
 
@@ -148,9 +144,7 @@ struct SOAPClient: Sendable {
         return data
     }
 
-    private func perform(
-        _ request: SOAPRequest, at endpoint: URL, failure: SonosCommandError
-    ) async throws(SonosCommandError) -> XMLNode {
+    private func perform(_ request: SOAPRequest, at endpoint: URL, failure: SonosCommandError) async throws(SonosCommandError) -> XMLNode {
         guard let url = sonosURL(endpoint: endpoint, path: request.service.controlPath) else { throw failure }
         var urlRequest = URLRequest(url: url, timeoutInterval: 8)
         urlRequest.httpMethod = "POST"
@@ -172,11 +166,8 @@ struct SOAPClient: Sendable {
             } catch {
                 let nsErr = error as NSError
                 if nsErr.domain != NSURLErrorDomain || nsErr.code != NSURLErrorCancelled {
-                    let underlying =
-                        (nsErr.userInfo[NSUnderlyingErrorKey] as? NSError).map { "\($0.domain):\($0.code)" } ?? "none"
-                    NetworkDebugLog.write(
-                        "SOAP \(request.action) -> \(url.absoluteString) FAILED: \(nsErr.domain) code=\(nsErr.code) underlying=\(underlying) desc=\(nsErr.localizedDescription)"
-                    )
+                    let underlying = (nsErr.userInfo[NSUnderlyingErrorKey] as? NSError).map { "\($0.domain):\($0.code)" } ?? "none"
+                    NetworkDebugLog.write("SOAP \(request.action) -> \(url.absoluteString) FAILED: \(nsErr.domain) code=\(nsErr.code) underlying=\(underlying) desc=\(nsErr.localizedDescription)")
                 }
                 throw failure
             }
@@ -201,11 +192,11 @@ struct SOAPClient: Sendable {
             "<\(name)>\(xmlEscaped(value))</\(name)>"
         }.joined()
         return """
-            <?xml version="1.0" encoding="utf-8"?>\
-            <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">\
-            <s:Body><u:\(request.action) xmlns:u="\(request.service.urn)">\(arguments)</u:\(request.action)></s:Body>\
-            </s:Envelope>
-            """
+        <?xml version="1.0" encoding="utf-8"?>\
+        <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">\
+        <s:Body><u:\(request.action) xmlns:u="\(request.service.urn)">\(arguments)</u:\(request.action)></s:Body>\
+        </s:Envelope>
+        """
     }
 }
 
