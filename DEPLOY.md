@@ -22,6 +22,17 @@ macOS Sparkle files (`appcast.xml` and `Sconeos-<version>.zip`) in `server/publi
 - Sparkle only renders the winning appcast item's `<description>`, so `scripts/cumulative-release-notes.sh` bakes the new version's notes plus the previous 9 versions (from the prior `appcast.xml` and GitHub Releases) into it. Preview the output with `./scripts/test-cumulative-release-notes.sh`.
 - That release commit only touches `server/public/**` and `VERSION`, so the workflow does **not** run again (no loop). Vercel’s Git integration deploys the updated `server/public/` automatically.
 
+## Releasing from a Mac without CI
+
+From a clean `main` that matches `origin/main`:
+
+```bash
+./scripts/release-local.sh --dry-run   # print the version and notes
+./scripts/release-local.sh             # build, sign, commit, tag, push
+```
+
+It batches every PR merged since the last `Release v…` commit and bumps by the highest checked `# Release info` box among them (pass `major`, `minor`, or `patch` to override). It needs the Sparkle key at `.cert/sparkle_ed.key` (or `SPARKLE_ED_KEY_FILE`). The pushed `server/public/` deploys through Vercel like a CI release.
+
 ## GitHub Actions secrets
 
 Push the Sparkle EdDSA signing secret:
