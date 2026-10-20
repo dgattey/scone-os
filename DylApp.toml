@@ -8,7 +8,6 @@ platforms = { macos = "14.0", ios = "17.0" }
 category = "public.app-category.music"
 
 [build]
-kind = "swiftpm"
 product = "Sconeos"
 entitlements = "Sconeos.local.entitlements"
 icon-generator = "scripts/generate-icon.swift"
@@ -44,7 +43,3 @@ inputs = [
 
 [launch]
 env-prefix = "SCONEOS"
-
-[site]
-tagline = "The spatial audio controller for Sonos households and Spotify."
-gatekeeper-note = true
