@@ -31,8 +31,6 @@ Sconeos builds with [DylKit](Packages/DylKit), Dylan's shared app framework. `Dy
 ./run dev --help
 ```
 
-Agent skills and the always-applied rule come from `Packages/DylKit/skills` and `Packages/DylKit/rules`. Edit them there and run `./run dev skills sync` to refresh `.cursor/`.
-
 ## Code signing and Sparkle updates
 
 `release-kit` bundles the app, strips build-machine rpaths, embeds `Sparkle.framework`, and signs everything inside-out (`Installer.xpc`, `Downloader.xpc` with its entitlements preserved, `Autoupdate`, `Updater.app`, then `Sconeos.app` with `Sconeos.local.entitlements`). Releases are signed ad-hoc with the designated requirement pinned to the bundle identifier, so Sparkle accepts each build as the same app. Untrusted self-signed certificates get killed by `syspolicyd`/`amfid` on quarantined launches.
