@@ -35,14 +35,24 @@ public struct Speaker: Identifiable, Hashable, Sendable, Codable {
         )
     }
 
-    public func with(reachability: ReachabilityState) -> Speaker {
+    public func lastKnown(seenAt: Date) -> Speaker {
         Speaker(
             id: id,
             roomName: roomName,
             model: model,
-            reachability: reachability,
+            reachability: .offline(lastKnownIP: reachability.ip, lastSeenAt: seenAt),
             volume: volume,
-            bondedSatellites: bondedSatellites
+            bondedSatellites: bondedSatellites.map {
+                BondedSatellite(
+                    id: $0.id,
+                    parentID: $0.parentID,
+                    role: $0.role,
+                    modelNumber: $0.modelNumber,
+                    displayName: $0.displayName,
+                    isOnline: false,
+                    linkQuality: $0.linkQuality
+                )
+            }
         )
     }
 

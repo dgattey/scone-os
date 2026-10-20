@@ -124,6 +124,13 @@ struct SOAPClient: Sendable {
         try await perform(request, at: endpoint, failure: .speakerRejected(detail: "\(request.action) unreachable"))
     }
 
+    /// Sweeps poll every few seconds, so a silent address must fail fast and quietly instead of retrying.
+    func probe(_ request: SOAPRequest, at endpoint: URL) async throws(SonosCommandError) -> XMLNode {
+        try await perform(
+            request, at: endpoint, failure: .speakerRejected(detail: "\(request.action) unreachable"),
+            timeout: 2, retries: false)
+    }
+
     func get(_ path: String, at endpoint: URL) async throws(SonosCommandError) -> Data {
         guard let url = sonosURL(endpoint: endpoint, path: path) else {
             throw .speakerRejected(detail: "GET \(path)")
@@ -144,9 +151,12 @@ struct SOAPClient: Sendable {
         return data
     }
 
-    private func perform(_ request: SOAPRequest, at endpoint: URL, failure: SonosCommandError) async throws(SonosCommandError) -> XMLNode {
+    private func perform(
+        _ request: SOAPRequest, at endpoint: URL, failure: SonosCommandError,
+        timeout: TimeInterval = 8, retries: Bool = true
+    ) async throws(SonosCommandError) -> XMLNode {
         guard let url = sonosURL(endpoint: endpoint, path: request.service.controlPath) else { throw failure }
-        var urlRequest = URLRequest(url: url, timeoutInterval: 8)
+        var urlRequest = URLRequest(url: url, timeoutInterval: timeout)
         urlRequest.httpMethod = "POST"
         urlRequest.setValue("text/xml; charset=\"utf-8\"", forHTTPHeaderField: "Content-Type")
         urlRequest.setValue("\"\(request.service.urn)#\(request.action)\"", forHTTPHeaderField: "SOAPACTION")
@@ -157,7 +167,7 @@ struct SOAPClient: Sendable {
             (data, response) = try await Self.session.data(for: urlRequest)
         } catch {
             let firstErr = error as NSError
-            if firstErr.domain == NSURLErrorDomain, firstErr.code == NSURLErrorCancelled {
+            if !retries || (firstErr.domain == NSURLErrorDomain && firstErr.code == NSURLErrorCancelled) {
                 throw failure
             }
             try? await Task.sleep(for: .milliseconds(150))

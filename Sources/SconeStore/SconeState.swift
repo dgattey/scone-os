@@ -61,7 +61,9 @@ public struct SconeState: Equatable, Sendable {
     public private(set) var floorplanRoomClusters: [FloorplanRoomCluster] = []
 
     public init(loaded: LoadedFiles, initialPresets: [PresetPill] = []) {
-        let initialKnown = Dictionary(uniqueKeysWithValues: (loaded.cache?.speakers ?? []).map { ($0.id, $0) })
+        let initialKnown = Dictionary(uniqueKeysWithValues: (loaded.cache?.speakers ?? []).map {
+            ($0.id, $0.lastKnown(seenAt: $0.lastSeenAt ?? .distantPast))
+        })
         let initialRF = loaded.cache?.rf ?? .empty
         let initialSpeakers = Array(initialKnown.values)
         known = initialKnown
@@ -96,13 +98,18 @@ public struct SconeState: Equatable, Sendable {
         recomputeDerivedState()
     }
 
+    /// A live roster sharing no room with the saved one is another household (or this one rebuilt): start fresh.
+    private func isOtherHousehold(_ snapshot: HouseholdSnapshot) -> Bool {
+        !known.isEmpty && !snapshot.speakers.isEmpty && Set(known.keys).isDisjoint(with: snapshot.speakers.keys)
+    }
+
     public func needsFloorplanReinference(for snapshot: HouseholdSnapshot) -> (speakers: [Speaker], rf: RFPeerMatrix)? {
-        var nextKnown = known
+        let fresh = isOtherHousehold(snapshot)
+        var nextKnown = fresh ? [:] : known
         for speaker in snapshot.speakers.values {
-            nextKnown[speaker.id] = speaker.with(
-                reachability: .offline(lastKnownIP: speaker.reachability.ip, lastSeenAt: snapshot.observedAt))
+            nextKnown[speaker.id] = speaker.lastKnown(seenAt: snapshot.observedAt)
         }
-        let nextRF = snapshot.rf != .empty ? snapshot.rf : rf
+        let nextRF = snapshot.rf != .empty ? snapshot.rf : (fresh ? .empty : rf)
         if Set(nextKnown.keys) != Set(known.keys)
             || nextKnown.mapValues(\.roomName) != known.mapValues(\.roomName)
             || nextRF != rf {
@@ -136,9 +143,14 @@ public struct SconeState: Equatable, Sendable {
         let previousRooms = Set(known.keys)
         let previousNames = known.mapValues(\.roomName)
         let previousRF = rf
+        if isOtherHousehold(sanitizedSnapshot) {
+            known = [:]
+            rf = .empty
+            networkName = nil
+            presets = []
+        }
         for speaker in sanitizedSnapshot.speakers.values {
-            known[speaker.id] = speaker.with(
-                reachability: .offline(lastKnownIP: speaker.reachability.ip, lastSeenAt: sanitizedSnapshot.observedAt))
+            known[speaker.id] = speaker.lastKnown(seenAt: sanitizedSnapshot.observedAt)
         }
         live = sanitizedSnapshot
         if let sonosPresets = sanitizedSnapshot.presets {
@@ -297,7 +309,8 @@ public struct SconeState: Equatable, Sendable {
         }
         cachedProjected = projectedSnapshot
 
-        let mergedSpeakers = known
+        let roster = live?.speakers.isEmpty == true ? [:] : known
+        let mergedSpeakers = roster
             .merging(projectedSnapshot?.speakers ?? live?.speakers ?? [:]) { _, liveSpk in liveSpk }
             .values
             .sorted { $0.roomName < $1.roomName }
