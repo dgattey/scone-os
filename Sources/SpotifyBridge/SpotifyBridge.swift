@@ -44,6 +44,15 @@ public final class SpotifyBridge {
         return SpotifyBridge(redirectURI: redirectURI, vault: vault, snapshot: snapshot)
     }
 
+    /// Derives the vault key and decrypts the stored session off the main actor.
+    public static func restore(redirectURI: URL, service: String = "Sconeos.Spotify") async -> SpotifyBridge {
+        let (vault, snapshot) = await Task.detached(priority: .userInitiated) {
+            let vault = TokenVault(service: service)
+            return (vault, vault.loadSnapshot())
+        }.value
+        return SpotifyBridge(redirectURI: redirectURI, vault: vault, snapshot: snapshot)
+    }
+
     public init(
         clientID: String = "",
         redirectURI: URL,

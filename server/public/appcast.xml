@@ -3,15 +3,20 @@
     <channel>
         <title>Sconeos</title>
         <item>
-            <title>1.0.9</title>
-            <pubDate>Fri, 16 Oct 2026 22:42:54 +0000</pubDate>
+            <title>1.0.10</title>
+            <pubDate>Tue, 20 Oct 2026 02:28:47 +0000</pubDate>
             <link>https://sconeos.gattey.com</link>
             <sparkle:fullReleaseNotesLink>https://github.com/dgattey/scone-os/releases</sparkle:fullReleaseNotesLink>
-            <sparkle:version>24</sparkle:version>
-            <sparkle:shortVersionString>1.0.9</sparkle:shortVersionString>
+            <sparkle:version>27</sparkle:version>
+            <sparkle:shortVersionString>1.0.10</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
             <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
-            <description><![CDATA[<h3 style="margin: 0 0 6px 0; font-size: 13px;">1.0.9</h3>
+            <description><![CDATA[<h3 style="margin: 0 0 6px 0; font-size: 13px;">1.0.10</h3>
+<ul>
+  <li style="margin-bottom: 6px; line-height: 1.45;">Sconeos no longer stalls the window at launch while it restores the Spotify session and reads saved room positions.</li>
+  <li style="margin-bottom: 6px; line-height: 1.45;">Moving or resetting a room pin no longer blocks the map while the change is written to disk.</li>
+</ul>
+<h3 style="margin: 14px 0 6px 0; font-size: 13px; opacity: 0.75;">1.0.9</h3>
 <ul>
   <li style="margin-bottom: 6px; line-height: 1.45;"><strong>Catch up on skipped updates:</strong> If you skipped versions, the update dialog now lists what changed in each one since, newest first (up to the last 10 versions).</li>
   <li style="margin-bottom: 6px; line-height: 1.45;"><strong>Full version history link:</strong> The update dialog links to the complete release history on GitHub.</li>
@@ -50,7 +55,7 @@
   <li style="margin-bottom: 6px; line-height: 1.45;">Add the <code>xattr -cr /Applications/Sconeos.app</code> fallback snippet to the download page's first-run instructions for MDM-managed Macs where <code>com.apple.systempolicy.managed</code> sets <code>DisableOverride = true</code> (which blocks System Settings → "Open Anyway" with <code>Error -60005 creating authorization</code>).</li>
 </ul>
 ]]></description>
-            <enclosure url="https://sconeos.gattey.com/Sconeos-1.0.9.zip" length="9559195" type="application/octet-stream" sparkle:edSignature="G/x/D3wkDUa3ddomwZuAkHrL6FtpIuRM3WzNFdeUTcn0urGnjsCRYykLR4vF7cN5XQDyV+kfrVtBM0qVkHEPDw=="/>
+            <enclosure url="https://sconeos.gattey.com/Sconeos-1.0.10.zip" length="6677651" type="application/octet-stream" sparkle:edSignature="4vAejvwYGPXBS+4yFSRr6/9FD4jm0OIDkazvajlw2LfAlz6OveS9P96j+QzBTeACMsNGVAGtECqyOhPwgEVqAQ=="/>
         </item>
     </channel>
 </rss>

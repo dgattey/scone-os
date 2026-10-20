@@ -222,16 +222,6 @@ do {
         iconset: build.appending(path: "AppIcon.iconset", directoryHint: .isDirectory),
         output: build.appending(path: "AppIcon.icns")
     )
-    try buildIcns(
-        appearance: .light,
-        iconset: build.appending(path: "AppIcon-Light.iconset", directoryHint: .isDirectory),
-        output: build.appending(path: "AppIcon-Light.icns")
-    )
-    try buildIcns(
-        appearance: .dark,
-        iconset: build.appending(path: "AppIcon-Dark.iconset", directoryHint: .isDirectory),
-        output: build.appending(path: "AppIcon-Dark.icns")
-    )
     print(build.appending(path: "AppIcon.icns").path)
 }
 
