@@ -20,7 +20,7 @@ Sconeos is structured as a single Swift Package (`SconeKit`) with strict module 
 
 ## Building and running
 
-Sconeos builds with [DylKit](Packages/DylKit), Dylan's shared app framework. `DylApp.toml` configures the app, and the `./run` shim runs DylKit's `devkit` and `release-kit` tools. Run `mise install` once, then `./run dev relaunch` to build `build/Sconeos.app` and open it behind the current app. Setup, tests, screenshots and the iOS Simulator are in [`.cursor/skills/apple-dev-loop`](.cursor/skills/apple-dev-loop/SKILL.md). Releasing is in [`.cursor/skills/apple-release`](.cursor/skills/apple-release/SKILL.md).
+Sconeos builds with [DylKit](Packages/DylKit), Dylan's shared app framework. `DylApp.toml` configures the app, and the `./run` shim runs DylKit's `devkit` and `release-kit` tools. Setup, building, tests, background launches, screenshots and the iOS Simulator are in [`.cursor/skills/apple-dev-loop`](.cursor/skills/apple-dev-loop/SKILL.md). Releasing is in [`.cursor/skills/apple-release`](.cursor/skills/apple-release/SKILL.md).
 
 ## Code signing and Sparkle updates
 

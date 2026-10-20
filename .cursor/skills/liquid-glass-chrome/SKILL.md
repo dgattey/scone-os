@@ -26,4 +26,4 @@ description: Window, toolbar, sidebar and tint conventions for DylKit apps using
 - No all-caps headers, including `List` sections (add `.textCase(nil)`). Drop headers that only restate the content.
 - No nested bordered boxes. Reveal destructive actions on hover.
 
-Check both appearances with `./run dev capture --appearance light` and `--appearance dark`.
+Check both appearances as `ui-screenshot-tests` describes.

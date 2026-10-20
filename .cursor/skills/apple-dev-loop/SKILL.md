@@ -5,7 +5,7 @@ description: The one guide to setting up, building, testing, launching, screensh
 
 # Apple dev loop
 
-Every DylKit app builds the same way. READMEs link here instead of repeating it.
+Every DylKit app builds the same way. READMEs and other skills link here instead of repeating it. Releasing, in CI and by hand on the Mac, is in `apple-release`.
 
 ## Shape
 
