@@ -7,6 +7,7 @@ on:
       - 'Sources/**'
       - 'Packages/DylKit/Sources/DylCore/**'
       - 'Packages/DylKit/Sources/DylUpdates/**'
+      - 'Packages/DylKit/Sources/DylUI/**'
       - 'Packages/DylKit/Package.swift'
       - 'Package.swift'
       - 'Package.resolved'
