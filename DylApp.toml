@@ -1,0 +1,50 @@
+# Sconeos app manifest. devkit, release-kit, the CI wrappers and the download site all read this file.
+# Schema: Packages/DylKit/Sources/DylManifest/DylAppManifest.swift. Validate with `./run dev manifest check`.
+
+[app]
+name = "Sconeos"
+bundle-id = "com.sconeos.SconeOS"
+platforms = { macos = "14.0", ios = "17.0" }
+category = "public.app-category.music"
+
+[build]
+kind = "swiftpm"
+product = "Sconeos"
+entitlements = "Sconeos.local.entitlements"
+icon-generator = "scripts/generate-icon.swift"
+embed-frameworks = ["Sparkle"]
+
+[bundle]
+url-schemes = ["sconeos"]
+url-name = "com.sconeos.callback"
+bonjour-services = ["_sonos._tcp"]
+usage = { NSAppleEventsUsageDescription = "Sconeos reads the current Spotify track and pauses Spotify after a room starts playing it.", NSLocalNetworkUsageDescription = "Sconeos discovers and controls Sonos speakers on your local network." }
+
+[ios]
+bundle-id = "com.sconeos.Sconeos"
+simulator = "iPhone 17 Pro"
+
+[release]
+sparkle-public-key = "sparkle-public-key.txt"
+site-url = "https://sconeos.gattey.com"
+artifacts-dir = "server/public"
+check-interval = 3600
+notes-max-versions = 10
+inputs = [
+    "Sources/**",
+    "Packages/DylKit/Sources/**",
+    "Packages/DylKit/Package.swift",
+    "Package.swift",
+    "Package.resolved",
+    "DylApp.toml",
+    "Sconeos.local.entitlements",
+    "sparkle-public-key.txt",
+    "scripts/generate-icon.swift",
+]
+
+[launch]
+env-prefix = "SCONEOS"
+
+[site]
+tagline = "The spatial audio controller for Sonos households and Spotify."
+gatekeeper-note = true
