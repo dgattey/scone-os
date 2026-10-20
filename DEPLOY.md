@@ -19,13 +19,12 @@ macOS Sparkle files (`appcast.xml` and `Sconeos-<version>.zip`) in `server/publi
 - Sparkle 2 validates and installs updates via the EdDSA signature (`SUPublicEDKey` in `Info.plist` + `sparkle:edSignature` in `appcast.xml`; the key pair comes from `scripts/generate-sparkle-key.sh`).
 - The macOS app checks `https://sconeos.gattey.com/appcast.xml` (Sparkle 2, EdDSA signed).
 - Push/merge to **`main`** touching a release input (`[release] inputs` in `DylApp.toml`) runs `.github/workflows/release.yml`, one release at a time. Each step is one `./run release` command, so any CI can run the same release:
-  1. `version` reads the `# Release info` checkbox (`Major` / `Minor` / `Patch`) and notes from the merge commit message, the latest version from git tags and the appcasts, and raises the build number above the live feed's. No GitHub API calls.
+  1. `version` reads the `# Release info` checkbox (`Major` / `Minor` / `Patch`, exactly one) and notes from the merged PR's body, the latest version from git tags and the appcasts, and raises the build number above the live feed's. The body comes from `ci/github/pr-body.sh`, the one GitHub-specific step (a `curl` to the commit's pulls API with `GITHUB_TOKEN`); if that lookup fails, `version` reads the merge commit message, and it fails the release if neither checks exactly one box.
   2. `bundle` and `sign` build and ad-hoc sign `Sconeos.app` in `build/release/`.
   3. `appcast` writes cumulative notes, runs Sparkle's `generate_appcast`, verifies the new `sparkle:edSignature` against `SUPublicEDKey` in the built app (failing closed), and installs `server/public/appcast.xml` and `server/public/Sconeos-<version>.zip`.
   4. `check` runs the release checks, `publish` commits `server/public/`, tags `v<version>` and pushes both with plain git.
   5. An ubuntu job waits up to 15 minutes for `https://sconeos.gattey.com/appcast.xml` and the download page to show the new version. `./run release check --live` on a Mac also verifies the live zip's signature.
 - Sparkle only renders the winning appcast item's `<description>`, so `release-kit` bakes the new version's notes plus the previous 9 versions (from the committed and live appcasts) into it. Preview them with `./run release notes --body-file <pr-body.md>`.
-- Squash merges must carry the PR description in the commit message (repo setting: **Default commit message → Pull request title and description**), since that is where `release-kit` reads the release checkbox and notes. Without it, releases default to a patch bump with the PR title as the notes.
 - That release commit only touches `server/public/**`, so the workflow does **not** run again (no loop). Vercel's Git integration deploys the updated `server/public/` automatically.
 
 ## GitHub Actions secrets

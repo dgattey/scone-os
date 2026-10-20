@@ -7,7 +7,7 @@ description: Cut, check or debug a Sparkle release of a DylKit macOS app — ver
 
 The release is `release-kit`, run in steps by the CI wrapper or locally with `./run release <step>`:
 
-1. `version` reads the merge commit's `# Release info` checkbox, the tags and the live appcast, and writes `build/release/plan.json`.
+1. `version` reads the merged PR's `# Release info` checkbox (from `--pr-body-file`, which `ci/github/pr-body.sh` fetches; the merge commit message if that lookup fails), the tags and the live appcast, and writes `build/release/plan.json`.
 2. `bundle` builds the release app into `build/release/stage` with bundle-relative rpaths only.
 3. `sign` signs inside-out (frameworks, helpers, then the app), pins the designated requirement to the bundle ID, verifies, and zips.
 4. `appcast` writes cumulative notes and the appcast, signs the enclosure with `SPARKLE_ED_PRIVATE_KEY_BASE64`, and checks the signature against the key baked into the app.
@@ -18,7 +18,8 @@ The release is `release-kit`, run in steps by the CI wrapper or locally with `./
 
 ## Invariants
 
-- Version and notes come from git: the squash-merge message must carry the PR body (repo setting "Default to pull request title and description"). Without it the release falls back to a patch bump and warns.
+- The bump and notes come from the PR body, which needs exactly one checked box. No repo merge setting is involved. If neither the PR body nor the merge commit message checks exactly one box, `version` fails; rerun the workflow by hand with an explicit `release_type`.
+- Only `ci/github/` may call a forge API (`forge_neutral` enforces it). An Origin wrapper would sit next to it and hand release-kit the same file.
 - Build numbers only go up: the commit count, raised above every published `sparkle:version`.
 - The minimum OS in the appcast matches `[app] platforms` in `DylApp.toml`.
 - Nothing calls `gh`, `api.github.com` or GitHub Releases. Artifacts live in `server/public` and deploy with the site.
