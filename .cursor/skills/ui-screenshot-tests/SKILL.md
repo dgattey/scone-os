@@ -17,4 +17,6 @@ description: Verify UI changes with background screenshots of the real app in bo
 3. Open each PNG and check it against the request: layout, truncation, highlight color, empty states, and both appearances. A capture you didn't look at isn't verification.
 4. Copy the ones worth sharing to uniquely versioned filenames and put them in the PR description.
 
+Captures run in the background and never take focus. A screen that needs a click, keystroke or menu to reach (Settings, a sheet) gets an `--initial-view` value instead. Never script it with `osascript`.
+
 Captures run against real data. If a screen needs data the machine doesn't have, say so instead of mocking it into the app.
