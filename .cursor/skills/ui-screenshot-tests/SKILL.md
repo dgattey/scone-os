@@ -5,18 +5,18 @@ description: Verify UI changes with background screenshots of the real app in bo
 
 # UI screenshot tests
 
-1. Pick the screen and size through launch flags instead of clicking: `--initial-view <name> --window-size 1280x800`.
+1. Pick the screen and size through launch flags instead of clicking: `--initial-view group|living|guest` (omit it for the home screen) and `--window-size 1280x800`.
 2. Capture both appearances:
 
 ```bash
-./run dev capture --initial-view home --appearance light
-./run dev capture --initial-view home --appearance dark --no-build
+./run dev capture --appearance light
+./run dev capture --appearance dark --no-build
 ./run dev ios --run --capture --appearance dark
 ```
 
 3. Open each PNG and check it against the request: layout, truncation, highlight color, empty states, and both appearances. A capture you didn't look at isn't verification.
 4. Copy the ones worth sharing to uniquely versioned filenames and put them in the PR description.
 
-Captures run in the background and never take focus. A screen that needs a click, keystroke or menu to reach (Settings, a sheet) gets an `--initial-view` value instead. Never script it with `osascript`.
+Captures run in the background. A screen that needs a click, keystroke or menu to reach (Settings, a sheet) gets an `--initial-view` value instead.
 
 Captures run against real data. If a screen needs data the machine doesn't have, say so instead of mocking it into the app.

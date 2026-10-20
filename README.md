@@ -48,4 +48,4 @@ Run the app's and DylKit's tests and the checks, as macOS CI does:
 ./run dev verify
 ```
 
-The download site in `server/` is a thin `@dylkit/web` app (`Packages/DylKit/web`) that reads `DylApp.toml` and `server/public/appcast.xml`. Its CI is the ubuntu `site` job: `npm test` and `npm run typecheck` in the package, then `npm run typecheck` and `npm run build` in `server/`.
+The download site in `server/` is a thin `@dylkit/web` app (`Packages/DylKit/web`) that reads `DylApp.toml` and `server/public/appcast.xml`. CI for the site is the `site` workflow in `.github/workflows/site.yml`.

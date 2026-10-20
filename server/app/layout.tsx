@@ -1,8 +1,10 @@
 import { loadSite, SiteLayout, siteMetadata } from "@dylkit/web";
 import type { ReactNode } from "react";
 
-export const metadata = siteMetadata(loadSite());
+const site = loadSite();
+
+export const metadata = siteMetadata(site);
 
 export default function RootLayout({ children }: { children: ReactNode }) {
-  return <SiteLayout site={loadSite()}>{children}</SiteLayout>;
+  return <SiteLayout site={site}>{children}</SiteLayout>;
 }

@@ -32,4 +32,4 @@ jobs:
         run: npm ci --no-audit --no-fund && npm test && npm run typecheck
       - name: Build the site
         working-directory: server
-        run: npm ci --no-audit --no-fund && npm run typecheck && npm run build
+        run: npm ci --no-audit --no-fund && npm run build

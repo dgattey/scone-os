@@ -24,7 +24,6 @@ The release is `release-kit`, run in steps by the CI wrapper or locally with `./
 - Each version in the cumulative notes is a `<section data-sparkle-version="BUILD">`. Sparkle 2.5+ marks the section matching the running `CFBundleVersion`, and the notes' `<style>` hides it and everything older. So notes must stay HTML, and stamps must be the exact `CFBundleVersion` string.
 - The minimum OS in the appcast matches `[app] platforms` in `DylApp.toml`.
 - Nothing calls `gh`, `api.github.com` or GitHub Releases. Artifacts live in `server/public` and deploy with the site; the site's Vercel `ignoreCommand` must never skip them (`site_deploy`).
-- Never take focus on Dylan's Mac while testing a release: open the installed app with `open -g` only. No `osascript`, no foreground launch or relaunch, no captures that raise a window.
 - `version` fast-forwards to `origin/<branch>` before planning, so a release queued behind another plans from, and pushes onto, the newer commit.
 
 ## Symptoms
