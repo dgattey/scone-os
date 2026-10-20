@@ -23,7 +23,6 @@ Sconeos is structured as a single Swift Package (`SconeKit`) with strict module 
 Sconeos builds with [DylKit](Packages/DylKit), Dylan's shared app framework. `DylApp.toml` configures the app, and the `./run` shim runs DylKit's `devkit` and `release-kit` tools. Builds land in `build/`, never `/Applications`, and launch in the background without taking focus.
 
 ```bash
-./run dev bootstrap                         # resolve packages, generate icons, install the pre-push hook
 ./run dev relaunch                          # build build/Sconeos.app and open it behind the current app
 ./run dev capture --appearance dark         # relaunch and screenshot the window into build/captures/
 ./run dev ios --run                         # build for the iOS Simulator and launch it headless
