@@ -1,7 +1,7 @@
 import DylDesign
-import SwiftUI
 import SconeDomain
 import SconeStore
+import SwiftUI
 
 struct GroupDetailView: View {
     @Environment(SconeStore.self) private var store

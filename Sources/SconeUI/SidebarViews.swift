@@ -1,8 +1,8 @@
 import DylDesign
-import SwiftUI
 import SconeDomain
 import SconeStore
 import SpotifyBridge
+import SwiftUI
 
 @MainActor
 func joinedSpeaker(from items: [String], onto target: SpeakerUUID, store: SconeStore) -> Bool {
@@ -284,7 +284,9 @@ struct SidebarGroupRow: View {
         rowBody
             .dropDestination(for: String.self) { items, _ in
                 joinedSpeaker(from: items, onto: group.coordinator.id, store: store)
-            } isTargeted: { targeted = $0 }
+            } isTargeted: {
+                targeted = $0
+            }
             .draggable(group.coordinator.id.rawValue) { dragPreview(group.coordinator) }
             .overlay {
                 if targeted {

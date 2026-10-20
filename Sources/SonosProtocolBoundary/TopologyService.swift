@@ -21,7 +21,10 @@ enum TopologyService {
         let vanished: Set<SpeakerUUID>
         let vanishedNames: [SpeakerUUID: String]
 
-        init(topology: Topology, members: [SpeakerUUID: Member], vanished: Set<SpeakerUUID>, vanishedNames: [SpeakerUUID: String] = [:]) {
+        init(
+            topology: Topology, members: [SpeakerUUID: Member], vanished: Set<SpeakerUUID>,
+            vanishedNames: [SpeakerUUID: String] = [:]
+        ) {
             self.topology = topology
             self.members = members
             self.vanished = vanished
@@ -55,7 +58,8 @@ enum TopologyService {
             for node in group.children where node.name == "ZoneGroupMember" {
                 if node.attribute("Invisible") == "1" { continue }
                 guard let id = SpeakerUUID(rawValue: node.attribute("UUID") ?? ""),
-                      let endpoint = baseEndpoint(node.attribute("Location") ?? "") else { continue }
+                    let endpoint = baseEndpoint(node.attribute("Location") ?? "")
+                else { continue }
                 var combined = satellites(of: node, parentID: id)
                 for extra in invisibleByParent[id] ?? [] where !combined.contains(where: { $0.id == extra.id }) {
                     combined.append(extra)
@@ -64,10 +68,14 @@ enum TopologyService {
                     if lhs.role != rhs.role { return lhs.role.rawValue < rhs.role.rawValue }
                     return lhs.id < rhs.id
                 }
-                visible.append((id, Member(
-                    roomName: node.attribute("ZoneName") ?? "",
-                    endpoint: endpoint,
-                    satellites: combined)))
+                visible.append(
+                    (
+                        id,
+                        Member(
+                            roomName: node.attribute("ZoneName") ?? "",
+                            endpoint: endpoint,
+                            satellites: combined)
+                    ))
             }
             guard visible.contains(where: { $0.0 == coordinator }) else { continue }
             for (id, member) in visible {
@@ -80,27 +88,39 @@ enum TopologyService {
             throw ProtocolParseError(description: "ZoneGroupState is not a valid topology")
         }
         let vanishedInfo = vanishedDevices(in: root)
-        return Parsed(topology: topology, members: members, vanished: vanishedInfo.ids, vanishedNames: vanishedInfo.names)
+        return Parsed(
+            topology: topology, members: members, vanished: vanishedInfo.ids, vanishedNames: vanishedInfo.names)
     }
 
     static func request(for step: TopologyStep) -> (target: SpeakerUUID, request: SOAPRequest) {
         switch step {
         case .makeStandalone(let member):
-            (member, SOAPRequest(
-                service: .avTransport, action: "BecomeCoordinatorOfStandaloneGroup",
-                arguments: [("InstanceID", "0")]))
+            (
+                member,
+                SOAPRequest(
+                    service: .avTransport, action: "BecomeCoordinatorOfStandaloneGroup",
+                    arguments: [("InstanceID", "0")])
+            )
         case .delegateCoordination(let coordinator, let newCoordinator, let rejoinGroup):
-            (coordinator, SOAPRequest(
-                service: .avTransport, action: "DelegateGroupCoordinationTo",
-                arguments: [
-                    ("InstanceID", "0"),
-                    ("NewCoordinator", newCoordinator.rawValue),
-                    ("RejoinGroup", rejoinGroup ? "1" : "0"),
-                ]))
+            (
+                coordinator,
+                SOAPRequest(
+                    service: .avTransport, action: "DelegateGroupCoordinationTo",
+                    arguments: [
+                        ("InstanceID", "0"),
+                        ("NewCoordinator", newCoordinator.rawValue),
+                        ("RejoinGroup", rejoinGroup ? "1" : "0"),
+                    ])
+            )
         case .join(let member, let coordinator):
-            (member, SOAPRequest(
-                service: .avTransport, action: "SetAVTransportURI",
-                arguments: [("InstanceID", "0"), ("CurrentURI", "x-rincon:\(coordinator)"), ("CurrentURIMetaData", "")]))
+            (
+                member,
+                SOAPRequest(
+                    service: .avTransport, action: "SetAVTransportURI",
+                    arguments: [
+                        ("InstanceID", "0"), ("CurrentURI", "x-rincon:\(coordinator)"), ("CurrentURIMetaData", ""),
+                    ])
+            )
         }
     }
 
@@ -182,7 +202,8 @@ enum TopologyService {
             if node.name != "VanishedDevices", let raw = node.attribute("UUID"), let id = SpeakerUUID(rawValue: raw) {
                 ids.insert(id)
                 if let zoneName = node.attribute("ZoneName")?.trimmingCharacters(in: .whitespacesAndNewlines),
-                   !zoneName.isEmpty {
+                    !zoneName.isEmpty
+                {
                     names[id] = zoneName
                 }
             }

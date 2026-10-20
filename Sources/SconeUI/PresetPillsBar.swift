@@ -1,7 +1,7 @@
 import DylDesign
-import SwiftUI
 import SconeDomain
 import SconeStore
+import SwiftUI
 
 struct PresetPillsBar: View {
     var inToolbar: Bool = false
@@ -267,7 +267,8 @@ private struct PresetCreator: View {
                     .foregroundStyle(MidnightGlass.primaryText)
                     .background(
                         RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .fill(MidnightGlass.subtleFill))
+                            .fill(MidnightGlass.subtleFill)
+                    )
                     .overlay(
                         RoundedRectangle(cornerRadius: 10, style: .continuous)
                             .strokeBorder(MidnightGlass.cardBorder, lineWidth: 1))

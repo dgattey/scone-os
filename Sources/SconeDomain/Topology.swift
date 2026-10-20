@@ -19,9 +19,10 @@ public struct Topology: Hashable, Sendable {
             if speaker != coordinator { members.insert(speaker) }
             membersByCoordinator[coordinator] = members
         }
-        return Dictionary(uniqueKeysWithValues: membersByCoordinator.map { coordinator, members in
-            (GroupID(coordinator: coordinator), members)
-        })
+        return Dictionary(
+            uniqueKeysWithValues: membersByCoordinator.map { coordinator, members in
+                (GroupID(coordinator: coordinator), members)
+            })
     }
 
     public func group(of speaker: SpeakerUUID) -> GroupID? {
@@ -35,8 +36,9 @@ public struct Topology: Hashable, Sendable {
             return Topology(coordinatorOf: coordinatorMap(makingStandalone: speaker)) ?? self
         case .delegateCoordination(let oldCoordinator, let newCoordinator, let rejoinGroup):
             guard coordinatorOf[oldCoordinator] == oldCoordinator,
-                  coordinatorOf[newCoordinator] == oldCoordinator,
-                  oldCoordinator != newCoordinator else {
+                coordinatorOf[newCoordinator] == oldCoordinator,
+                oldCoordinator != newCoordinator
+            else {
                 return self
             }
             var map = coordinatorOf

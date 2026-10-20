@@ -76,8 +76,9 @@ public final class SconeStore {
         for await snapshot in sonos.snapshots() {
             let enriched = await enrichWithSpotifyIfNeeded(snapshot)
             if let currentLive = state.live,
-               currentLive.isSemanticallyEquivalent(to: enriched),
-               !state.hasExpiredVolumeOverrides() {
+                currentLive.isSemanticallyEquivalent(to: enriched),
+                !state.hasExpiredVolumeOverrides()
+            {
                 await persistChangedSlicesAsync()
                 continue
             }
@@ -97,7 +98,8 @@ public final class SconeStore {
     public func refreshSpotifyQueueIfNeeded() {
         let now = Date()
         guard inFlightSpotifyRefresh == nil,
-              now.timeIntervalSince(lastSpotifyEnrich) >= 3 else { return }
+            now.timeIntervalSince(lastSpotifyEnrich) >= 3
+        else { return }
         lastSpotifyEnrich = now
         inFlightSpotifyRefresh = Task { [weak self] in
             guard let self else { return }
@@ -145,10 +147,11 @@ public final class SconeStore {
     private func enrichWithSpotifyIfNeeded(_ rawSnapshot: HouseholdSnapshot) async -> HouseholdSnapshot {
         let snapshot = rawSnapshot.sanitizingPlaybackSessions(preferredGroupIDs: preferredActiveGroupIDs)
 
-        let activeGroupIDs = Set(snapshot.groups.compactMap { group -> GroupID? in
-            if case .stopped = group.playback { return nil }
-            return group.id
-        })
+        let activeGroupIDs = Set(
+            snapshot.groups.compactMap { group -> GroupID? in
+                if case .stopped = group.playback { return nil }
+                return group.id
+            })
         preferredActiveGroupIDs = activeGroupIDs
 
         for groupID in Array(lastKnownTracks.keys) where !activeGroupIDs.contains(groupID) {
@@ -184,11 +187,12 @@ public final class SconeStore {
         }
 
         let householdRoomNames = snapshot.speakers.values.map(\.roomName)
-        let isExternalSpotifySession: Bool = if let ctx = cachedSpotifyContext {
-            !SpotifyDeviceMatcher.matchesAny(deviceName: ctx.deviceName, roomNames: householdRoomNames)
-        } else {
-            false
-        }
+        let isExternalSpotifySession: Bool =
+            if let ctx = cachedSpotifyContext {
+                !SpotifyDeviceMatcher.matchesAny(deviceName: ctx.deviceName, roomNames: householdRoomNames)
+            } else {
+                false
+            }
 
         // Determine the single primary active group eligible to receive SpotifyTrackContext + upNext queue
         var primarySpotifyGroupID: GroupID?
@@ -196,18 +200,22 @@ public final class SconeStore {
             let matchingGroups = activeGroups.filter { group in
                 guard case .track(let track) = group.playback.nowPlaying else { return false }
                 let sameURI = (track.spotifyURI != nil && track.spotifyURI == ctx.uri)
-                let sameTitle = !track.title.isEmpty && track.title.caseInsensitiveCompare(ctx.metadata.title) == .orderedSame
-                let sameDevice = SpotifyDeviceMatcher.matches(deviceName: ctx.deviceName, roomName: group.coordinator.roomName)
-                    || SpotifyDeviceMatcher.matchesAny(deviceName: ctx.deviceName, roomNames: group.speakers.map(\.roomName))
+                let sameTitle =
+                    !track.title.isEmpty && track.title.caseInsensitiveCompare(ctx.metadata.title) == .orderedSame
+                let sameDevice =
+                    SpotifyDeviceMatcher.matches(deviceName: ctx.deviceName, roomName: group.coordinator.roomName)
+                    || SpotifyDeviceMatcher.matchesAny(
+                        deviceName: ctx.deviceName, roomNames: group.speakers.map(\.roomName))
                 return sameURI || sameTitle || sameDevice
             }
-            primarySpotifyGroupID = matchingGroups.max { lhs, rhs in
-                let lhsRank = groupRank(for: lhs)
-                let rhsRank = groupRank(for: rhs)
-                if lhsRank != rhsRank { return lhsRank < rhsRank }
-                if lhs.speakers.count != rhs.speakers.count { return lhs.speakers.count < rhs.speakers.count }
-                return lhs.id > rhs.id
-            }?.id
+            primarySpotifyGroupID =
+                matchingGroups.max { lhs, rhs in
+                    let lhsRank = groupRank(for: lhs)
+                    let rhsRank = groupRank(for: rhs)
+                    if lhsRank != rhsRank { return lhsRank < rhsRank }
+                    if lhs.speakers.count != rhs.speakers.count { return lhs.speakers.count < rhs.speakers.count }
+                    return lhs.id > rhs.id
+                }?.id
         }
 
         var updated = snapshot
@@ -217,10 +225,11 @@ public final class SconeStore {
             // When Spotify is actively playing on an external device (e.g. "This computer"),
             // any leftover paused Spotify session on a Sonos group is superseded and idle.
             if case .paused = group.playback,
-               let ctx = cachedSpotifyContext,
-               ctx.isPlaying,
-               isExternalSpotifySession,
-               track.isSpotifyStream {
+                let ctx = cachedSpotifyContext,
+                ctx.isPlaying,
+                isExternalSpotifySession,
+                track.isSpotifyStream
+            {
                 lastKnownTracks.removeValue(forKey: group.id)
                 updated = updated.replacing(
                     status: (group.id, GroupStatus(playback: .stopped, volume: group.volume))
@@ -231,11 +240,12 @@ public final class SconeStore {
             var enrichedTrack = track
 
             if let ctx = cachedSpotifyContext, group.id == primarySpotifyGroupID {
-                let mergedSource: PlaybackSource? = if let ctxTitle = ctx.contextTitle, !ctxTitle.isEmpty {
-                    .spotify(contextTitle: ctxTitle)
-                } else {
-                    track.source ?? .spotify(contextTitle: track.album)
-                }
+                let mergedSource: PlaybackSource? =
+                    if let ctxTitle = ctx.contextTitle, !ctxTitle.isEmpty {
+                        .spotify(contextTitle: ctxTitle)
+                    } else {
+                        track.source ?? .spotify(contextTitle: track.album)
+                    }
                 let mergedUpNext = track.upNext.isEmpty ? ctx.upNext : track.upNext
                 let mergedArt = track.artworkURL ?? ctx.metadata.artworkURL
                 enrichedTrack = track.merging(
@@ -247,8 +257,9 @@ public final class SconeStore {
             }
 
             if let cached = lastKnownTracks[group.id],
-               (enrichedTrack.spotifyURI != nil && enrichedTrack.spotifyURI == cached.spotifyURI)
-               || (!enrichedTrack.title.isEmpty && enrichedTrack.title == cached.title) {
+                (enrichedTrack.spotifyURI != nil && enrichedTrack.spotifyURI == cached.spotifyURI)
+                    || (!enrichedTrack.title.isEmpty && enrichedTrack.title == cached.title)
+            {
                 let allowCachedQueue = group.id == primarySpotifyGroupID || !enrichedTrack.isSpotifyStream
                 enrichedTrack = enrichedTrack.merging(
                     artworkURL: enrichedTrack.artworkURL ?? cached.artworkURL,
@@ -261,30 +272,34 @@ public final class SconeStore {
             lastKnownTracks[group.id] = enrichedTrack
 
             if enrichedTrack != track {
-                let newPlayback: PlaybackState = switch group.playback {
-                case .playing(_, let elapsed, let sampledAt):
-                    .playing(.track(enrichedTrack), elapsed: elapsed, sampledAt: sampledAt)
-                case .paused(_, let elapsed):
-                    .paused(.track(enrichedTrack), elapsed: elapsed)
-                case .stopped:
-                    .stopped
-                }
+                let newPlayback: PlaybackState =
+                    switch group.playback {
+                    case .playing(_, let elapsed, let sampledAt):
+                        .playing(.track(enrichedTrack), elapsed: elapsed, sampledAt: sampledAt)
+                    case .paused(_, let elapsed):
+                        .paused(.track(enrichedTrack), elapsed: elapsed)
+                    case .stopped:
+                        .stopped
+                    }
                 updated = updated.replacing(
                     status: (group.id, GroupStatus(playback: newPlayback, volume: group.volume))
                 )
             }
         }
 
-        let resolvedExternalSpotify: SpotifyTrackContext? = if let ctx = cachedSpotifyContext,
-            isExternalSpotifySession,
-            (ctx.isPlaying || updated.groups.allSatisfy {
-                if case .stopped = $0.playback { return true }
-                return false
-            }) {
-            ctx
-        } else {
-            nil
-        }
+        let resolvedExternalSpotify: SpotifyTrackContext? =
+            if let ctx = cachedSpotifyContext,
+                isExternalSpotifySession,
+                (ctx.isPlaying
+                    || updated.groups.allSatisfy {
+                        if case .stopped = $0.playback { return true }
+                        return false
+                    })
+            {
+                ctx
+            } else {
+                nil
+            }
         updated = updated.replacing(externalSpotify: .some(resolvedExternalSpotify))
 
         return updated.sanitizingPlaybackSessions(preferredGroupIDs: preferredActiveGroupIDs)
@@ -420,22 +435,26 @@ public final class SconeStore {
         } else if sourceGroup.speakers.count > 1 && targetGroup.speakers.count == 1 {
             if targetRank > sourceRank {
                 let allMembers = Set(sourceGroup.speakers.map(\.id)).subtracting([targetGroup.coordinator.id])
-                send(.applyPreset(PresetPill(
-                    name: targetGroup.displayName,
-                    coordinatorUUID: targetGroup.coordinator.id,
-                    memberUUIDs: allMembers
-                )))
+                send(
+                    .applyPreset(
+                        PresetPill(
+                            name: targetGroup.displayName,
+                            coordinatorUUID: targetGroup.coordinator.id,
+                            memberUUIDs: allMembers
+                        )))
             } else {
                 send(.group(member: targetSpeaker, intoCoordinator: sourceGroup.id))
             }
         } else if sourceGroup.speakers.count == 1 && targetGroup.speakers.count > 1 {
             if sourceRank > targetRank {
                 let allMembers = Set(targetGroup.speakers.map(\.id)).subtracting([sourceGroup.coordinator.id])
-                send(.applyPreset(PresetPill(
-                    name: sourceGroup.displayName,
-                    coordinatorUUID: sourceGroup.coordinator.id,
-                    memberUUIDs: allMembers
-                )))
+                send(
+                    .applyPreset(
+                        PresetPill(
+                            name: sourceGroup.displayName,
+                            coordinatorUUID: sourceGroup.coordinator.id,
+                            memberUUIDs: allMembers
+                        )))
             } else {
                 send(.group(member: member, intoCoordinator: targetGroup.id))
             }
@@ -444,20 +463,24 @@ public final class SconeStore {
             let unionIDs = Set(sourceGroup.speakers.map(\.id))
                 .union(targetGroup.speakers.map(\.id))
                 .subtracting([lead])
-            send(.applyPreset(PresetPill(
-                name: targetGroup.displayName,
-                coordinatorUUID: lead,
-                memberUUIDs: unionIDs
-            )))
+            send(
+                .applyPreset(
+                    PresetPill(
+                        name: targetGroup.displayName,
+                        coordinatorUUID: lead,
+                        memberUUIDs: unionIDs
+                    )))
         }
     }
 
     public func ungroupSpeaker(_ speaker: SpeakerUUID) {
         guard let group = state.groups.first(where: { $0.speakers.contains { $0.id == speaker } }),
-              group.speakers.count > 1 else { return }
+            group.speakers.count > 1
+        else { return }
         if speaker == group.coordinator.id,
-           let promoted = group.members.map(\.id).min(),
-           let cached = lastKnownTracks[group.id] {
+            let promoted = group.members.map(\.id).min(),
+            let cached = lastKnownTracks[group.id]
+        {
             lastKnownTracks[GroupID(coordinator: promoted)] = cached
         }
         send(.ungroup(member: speaker))
@@ -465,15 +488,18 @@ public final class SconeStore {
 
     public func dissolveGroup(_ groupID: GroupID) {
         guard let group = state.groups.first(where: { $0.id == groupID }),
-              group.speakers.count > 1 else { return }
+            group.speakers.count > 1
+        else { return }
         if group.members.count == 1, let follower = group.members.first?.id {
             send(.ungroup(member: follower))
         } else {
-            send(.applyPreset(PresetPill(
-                name: group.displayName,
-                coordinatorUUID: group.coordinator.id,
-                memberUUIDs: []
-            )))
+            send(
+                .applyPreset(
+                    PresetPill(
+                        name: group.displayName,
+                        coordinatorUUID: group.coordinator.id,
+                        memberUUIDs: []
+                    )))
         }
     }
 
@@ -493,20 +519,24 @@ public final class SconeStore {
         let candidateGroups = state.groups.filter { group in
             group.speakers.contains { allIDs.contains($0.id) }
         }
-        let defaultRank = state.groups
+        let defaultRank =
+            state.groups
             .first { $0.coordinator.id == preset.coordinatorUUID }
             .map { groupRank(for: $0) } ?? 0
         if let bestGroup = candidateGroups.max(by: { groupRank(for: $0) < groupRank(for: $1) }),
-           groupRank(for: bestGroup) > defaultRank,
-           allIDs.contains(bestGroup.coordinator.id) {
+            groupRank(for: bestGroup) > defaultRank,
+            allIDs.contains(bestGroup.coordinator.id)
+        {
             let lead = bestGroup.coordinator.id
             let members = allIDs.subtracting([lead])
-            send(.applyPreset(PresetPill(
-                id: preset.id,
-                name: preset.name,
-                coordinatorUUID: lead,
-                memberUUIDs: members
-            )))
+            send(
+                .applyPreset(
+                    PresetPill(
+                        id: preset.id,
+                        name: preset.name,
+                        coordinatorUUID: lead,
+                        memberUUIDs: members
+                    )))
         } else {
             send(.applyPreset(preset))
         }
@@ -736,9 +766,10 @@ public final class SconeStore {
         case .paused(let nowPlaying, _):
             if matchesSpotifyCoordinator { return 4 }
             if case .track(let track) = nowPlaying,
-               let ctx = cachedSpotifyContext,
-               track.spotifyURI != nil,
-               track.spotifyURI == ctx.uri {
+                let ctx = cachedSpotifyContext,
+                track.spotifyURI != nil,
+                track.spotifyURI == ctx.uri
+            {
                 return 3
             }
             if nowPlaying.isSpotifyOrStreaming { return 2 }
@@ -770,7 +801,8 @@ public final class SconeStore {
         if next.positions != written.positions, await saveAsync(next.positions, to: .floorplanPositions) {
             written = PersistedSlices(cache: written.cache, positions: next.positions)
         }
-        let rosterOrNameChanged = next.cache.speakers.map(\.id) != written.cache.speakers.map(\.id)
+        let rosterOrNameChanged =
+            next.cache.speakers.map(\.id) != written.cache.speakers.map(\.id)
             || next.cache.networkName != written.cache.networkName
         let cacheIsDue = rosterOrNameChanged || Date().timeIntervalSince(lastCacheWrite) >= 30
         if next.cache != written.cache, cacheIsDue, await saveAsync(next.cache, to: .cachedSpeakers) {

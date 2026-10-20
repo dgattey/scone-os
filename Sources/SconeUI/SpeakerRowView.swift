@@ -1,7 +1,7 @@
 import DylDesign
-import SwiftUI
 import SconeDomain
 import SconeStore
+import SwiftUI
 
 struct OfflineSpeakerDetail: View {
     @Environment(SconeStore.self) private var store

@@ -1,5 +1,6 @@
 import DylDesign
 import SwiftUI
+
 #if os(macOS)
 import AppKit
 #elseif os(iOS)
@@ -163,7 +164,8 @@ struct SconeBrandEmblem: View {
 
         return ZStack {
             // Outer and inner honey-glass sound arcs
-            ForEach([(432.0, colorScheme == .dark ? 0.62 : 0.82), (336.0, colorScheme == .dark ? 0.96 : 1.0)], id: \.0) { r, op in
+            ForEach([(432.0, colorScheme == .dark ? 0.62 : 0.82), (336.0, colorScheme == .dark ? 0.96 : 1.0)], id: \.0)
+            { r, op in
                 ZStack {
                     if colorScheme == .dark {
                         SconeConeSoundArcShape(radiusUnits: r)

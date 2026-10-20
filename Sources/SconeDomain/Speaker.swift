@@ -104,7 +104,7 @@ public enum SpeakerModel: Hashable, Sendable, Codable {
     public func isSemanticallyEquivalent(to other: SpeakerModel) -> Bool {
         switch (self, other) {
         case (.move(let lhs), .move(let rhs)),
-             (.roam(let lhs), .roam(let rhs)):
+            (.roam(let lhs), .roam(let rhs)):
             switch (lhs, rhs) {
             case (nil, nil): return true
             case (let l?, let r?): return l.isSemanticallyEquivalent(to: r)
@@ -198,19 +198,25 @@ public enum SpeakerModel: Hashable, Sendable, Codable {
         }
         if lowered.contains("move") { return .move(battery: battery) }
         if lowered.contains("roam") { return .roam(battery: battery) }
-        if lowered.contains("symfonisk") || lowered.contains("bookshelf") || lowered.contains("picture frame") || lowered.contains("table lamp") || lowered.contains("floor lamp") {
+        if lowered.contains("symfonisk") || lowered.contains("bookshelf") || lowered.contains("picture frame")
+            || lowered.contains("table lamp") || lowered.contains("floor lamp")
+        {
             if lowered.contains("lamp") { return .symfoniskLamp }
             if lowered.contains("frame") { return .symfoniskFrame }
             return .symfoniskBookshelf
         }
-        if lowered.contains("play:5") || lowered.contains("play 5") || lowered.contains("sonos five") || lowered == "five" {
+        if lowered.contains("play:5") || lowered.contains("play 5") || lowered.contains("sonos five")
+            || lowered == "five"
+        {
             return .five
         }
         if lowered.contains("play:3") || lowered.contains("play 3") { return .play3 }
         if lowered.contains("play:1") || lowered.contains("play 1") { return .play1 }
         if lowered.contains("sonos one") || lowered.contains("one sl") || lowered == "one" { return .one }
         if lowered.contains("connect:amp") || lowered.contains("sonos amp") || lowered == "amp" { return .amp }
-        if lowered.contains("sonos port") || lowered == "port" || lowered.contains("sonos connect") || lowered == "connect" {
+        if lowered.contains("sonos port") || lowered == "port" || lowered.contains("sonos connect")
+            || lowered == "connect"
+        {
             return .port
         }
         return .unrecognized(modelNumber: modelNumber, displayName: modelName)
@@ -315,7 +321,8 @@ public struct BondedSatellite: Identifiable, Hashable, Sendable, Codable {
 
     public var modelLabel: String {
         if case .unrecognized(_, let name) = speakerModel,
-           name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        {
             return role == .subwoofer ? "Sonos Sub" : "Sonos Surround"
         }
         return speakerModel.displayName
@@ -323,7 +330,8 @@ public struct BondedSatellite: Identifiable, Hashable, Sendable, Codable {
 
     public var shortModelLabel: String {
         if case .unrecognized(_, let name) = speakerModel,
-           name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        {
             return role == .subwoofer ? "Sub" : "Surround"
         }
         return speakerModel.shortName

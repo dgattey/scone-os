@@ -1,10 +1,11 @@
 import DylShell
 import DylUpdates
-import SwiftUI
 import SconeDomain
 import SconeStore
 import SconeUI
 import SpotifyBridge
+import SwiftUI
+
 #if os(macOS)
 import AppKit
 
@@ -26,7 +27,8 @@ final class SconeAppDelegate: NSObject, NSApplicationDelegate {
         let isDark = resolved.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
         let resourceName = isDark ? "AppIcon-Dark" : "AppIcon-Light"
         if let url = Bundle.main.url(forResource: resourceName, withExtension: "icns"),
-           let image = NSImage(contentsOf: url) {
+            let image = NSImage(contentsOf: url)
+        {
             NSApp.applicationIconImage = image
         }
     }
@@ -92,7 +94,8 @@ struct SconeosApp: App {
                 Button("Volume Up") {
                     if let target = primaryTargetGroup {
                         let next = target.volume.stepped(by: 1)
-                        let volumeTarget: VolumeTarget = target.speakers.count > 1
+                        let volumeTarget: VolumeTarget =
+                            target.speakers.count > 1
                             ? .group(target.id)
                             : .speaker(target.coordinator.id)
                         store?.send(.setVolume(next, for: volumeTarget))
@@ -103,7 +106,8 @@ struct SconeosApp: App {
                 Button("Volume Down") {
                     if let target = primaryTargetGroup {
                         let next = target.volume.stepped(by: -1)
-                        let volumeTarget: VolumeTarget = target.speakers.count > 1
+                        let volumeTarget: VolumeTarget =
+                            target.speakers.count > 1
                             ? .group(target.id)
                             : .speaker(target.coordinator.id)
                         store?.send(.setVolume(next, for: volumeTarget))
@@ -141,11 +145,13 @@ struct SconeosApp: App {
     private var root: some View {
         let requestedScheme = LaunchView.requestedColorScheme()
         let isIOSPreview = LaunchView.requestsIOS()
-        let view = sessionContent
+        let view =
+            sessionContent
             .preferredColorScheme(requestedScheme)
             .task { session = await LiveSession.shared.value }
         #if os(macOS)
-        return view
+        return
+            view
             .frame(
                 minWidth: isIOSPreview ? 402 : 980,
                 idealWidth: isIOSPreview ? 402 : 1280,

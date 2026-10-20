@@ -1,5 +1,5 @@
-import SwiftUI
 import SconeDomain
+import SwiftUI
 
 struct SpeakerSilhouetteView: View {
     var model: SpeakerModel

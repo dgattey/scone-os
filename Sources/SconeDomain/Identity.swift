@@ -8,7 +8,8 @@ public struct SpeakerUUID: Hashable, Comparable, Sendable, CustomStringConvertib
         guard rawValue.count == 24, rawValue.hasPrefix(prefix) else { return nil }
         let payload = rawValue.dropFirst(prefix.count)
         guard payload.prefix(12).allSatisfy(Self.isUppercaseHex),
-              payload.dropFirst(12).allSatisfy(Self.isASCIIDigit) else { return nil }
+            payload.dropFirst(12).allSatisfy(Self.isASCIIDigit)
+        else { return nil }
         self.rawValue = rawValue
     }
 

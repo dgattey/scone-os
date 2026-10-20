@@ -1,7 +1,7 @@
 import Darwin
 import Foundation
-import os
 import SconeDomain
+import os
 
 enum Discovery {
     struct SSDPSighting: Sendable {
@@ -35,7 +35,8 @@ enum Discovery {
             if !key.isEmpty { headers[key] = value }
         }
         guard let location = headers["LOCATION"], let speaker = rinconID(in: headers["USN"] ?? ""),
-              let base = baseURL(location: location) else { return nil }
+            let base = baseURL(location: location)
+        else { return nil }
         return SSDPSighting(
             speaker: speaker,
             location: base,
@@ -79,20 +80,24 @@ enum Discovery {
             defer { cursor = current.pointee.ifa_next }
             let flags = Int32(current.pointee.ifa_flags)
             guard (flags & IFF_UP) != 0, (flags & IFF_LOOPBACK) == 0,
-                  let addr = current.pointee.ifa_addr,
-                  addr.pointee.sa_family == sa_family_t(AF_INET) else { continue }
+                let addr = current.pointee.ifa_addr,
+                addr.pointee.sa_family == sa_family_t(AF_INET)
+            else { continue }
             var hostname = [CChar](repeating: 0, count: Int(NI_MAXHOST))
-            guard getnameinfo(
-                addr, socklen_t(MemoryLayout<sockaddr_in>.size),
-                &hostname, socklen_t(hostname.count),
-                nil, 0, NI_NUMERICHOST
-            ) == 0 else { continue }
+            guard
+                getnameinfo(
+                    addr, socklen_t(MemoryLayout<sockaddr_in>.size),
+                    &hostname, socklen_t(hostname.count),
+                    nil, 0, NI_NUMERICHOST
+                ) == 0
+            else { continue }
             let bytes = hostname.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }
             let ip = String(decoding: bytes, as: UTF8.self)
             let octets = ip.split(separator: ".")
             guard octets.count == 4,
-                  !ip.hasPrefix("169.254."),
-                  !ip.hasPrefix("127.") else { continue }
+                !ip.hasPrefix("169.254."),
+                !ip.hasPrefix("127.")
+            else { continue }
             let prefix = "\(octets[0]).\(octets[1]).\(octets[2])"
             if seen.insert(prefix).inserted {
                 prefixes.append(prefix)
@@ -122,7 +127,8 @@ enum Discovery {
                     let currentFlags = Darwin.fcntl(fd, F_GETFL, 0)
                     _ = Darwin.fcntl(fd, F_SETFL, currentFlags | O_NONBLOCK)
                     var noSigPipe: Int32 = 1
-                    Darwin.setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe, socklen_t(MemoryLayout.size(ofValue: noSigPipe)))
+                    Darwin.setsockopt(
+                        fd, SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe, socklen_t(MemoryLayout.size(ofValue: noSigPipe)))
                     let rc = withUnsafePointer(to: &address) { pointer in
                         pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { sock in
                             Darwin.connect(fd, sock, socklen_t(MemoryLayout<sockaddr_in>.size))
@@ -145,7 +151,8 @@ enum Discovery {
                             var socketError: Int32 = 0
                             var errorLen = socklen_t(MemoryLayout<Int32>.size)
                             if Darwin.getsockopt(pollFDs[index].fd, SOL_SOCKET, SO_ERROR, &socketError, &errorLen) == 0,
-                               socketError == 0 {
+                                socketError == 0
+                            {
                                 let host = fds[index].host
                                 if let url = URL(string: "http://\(host):1400") { yield(url) }
                             }
@@ -210,7 +217,8 @@ enum Discovery {
             _ = payload.withUnsafeBytes { buffer in
                 withUnsafePointer(to: &address) { pointer in
                     pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { sock in
-                        Darwin.sendto(fd, buffer.baseAddress, buffer.count, 0, sock, socklen_t(MemoryLayout<sockaddr_in>.size))
+                        Darwin.sendto(
+                            fd, buffer.baseAddress, buffer.count, 0, sock, socklen_t(MemoryLayout<sockaddr_in>.size))
                     }
                 }
             }

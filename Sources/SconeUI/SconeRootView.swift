@@ -1,10 +1,11 @@
 import AuthenticationServices
 import DylCore
 import DylDesign
-import SwiftUI
 import SconeDomain
 import SconeStore
 import SpotifyBridge
+import SwiftUI
+
 #if os(macOS)
 import AppKit
 #elseif os(iOS)
@@ -59,7 +60,8 @@ func isSuppressedPausedDuplicate(_ group: SonosGroup, in allGroups: [SonosGroup]
         }
     }
     if case .track(let pausedTrack) = pausedNP,
-       (pausedTrack.source?.isSpotify == true || pausedTrack.spotifyURI != nil) {
+        (pausedTrack.source?.isSpotify == true || pausedTrack.spotifyURI != nil)
+    {
         if playingGroups.contains(where: {
             if case .track(let activeTrack) = $0.playback.nowPlaying {
                 return activeTrack.source?.isSpotify == true || activeTrack.spotifyURI != nil
@@ -102,7 +104,8 @@ func deduplicatedActiveHubGroups(from groups: [SonosGroup]) -> [SonosGroup] {
             }
         }
         if case .track(let track) = group.playback.nowPlaying,
-           (track.source?.isSpotify == true || track.spotifyURI != nil) {
+            (track.source?.isSpotify == true || track.spotifyURI != nil)
+        {
             if seenSpotifyAccount && !playbackIsActive(group.playback) && group.speakers.count <= 1 {
                 continue
             }
@@ -165,11 +168,12 @@ public struct SconeRootView: View {
     @State private var dockSelectedGroupID: GroupID?
 
     public init() {
-        let initialTab: AppTab = switch LaunchView.requestedCompactTab() {
-        case "rooms": .rooms
-        case "settings", "spotify": .settings
-        default: .map
-        }
+        let initialTab: AppTab =
+            switch LaunchView.requestedCompactTab() {
+            case "rooms": .rooms
+            case "settings", "spotify": .settings
+            default: .map
+            }
         _activeTab = State(initialValue: initialTab)
     }
 
@@ -179,10 +183,12 @@ public struct SconeRootView: View {
 
     private var activeDockGroup: SonosGroup? {
         if case .group(let viewedID) = selection,
-           let viewedGroup = store.state.groups.first(where: { $0.id == viewedID }),
-           (playbackIsActive(viewedGroup.playback)
-            || (playbackHasSession(viewedGroup.playback) && !isSuppressedPausedDuplicate(viewedGroup, in: store.state.groups))
-            || viewedGroup.speakers.count > 1) {
+            let viewedGroup = store.state.groups.first(where: { $0.id == viewedID }),
+            (playbackIsActive(viewedGroup.playback)
+                || (playbackHasSession(viewedGroup.playback)
+                    && !isSuppressedPausedDuplicate(viewedGroup, in: store.state.groups))
+                || viewedGroup.speakers.count > 1)
+        {
             return viewedGroup
         }
         let eligible = dockEligibleGroups
@@ -199,7 +205,8 @@ public struct SconeRootView: View {
             return eligible.first
         }
         if isCompactLayout {
-            if let dockSelectedGroupID, let matched = store.state.groups.first(where: { $0.id == dockSelectedGroupID }) {
+            if let dockSelectedGroupID, let matched = store.state.groups.first(where: { $0.id == dockSelectedGroupID })
+            {
                 return matched
             }
             return store.state.groups.first(where: { $0.playback.nowPlaying != nil })
@@ -241,10 +248,11 @@ public struct SconeRootView: View {
                 AlertBanner(
                     message: alertMessage(alert),
                     actionTitle: isNotConnectedAlert(alert) ? "Connect Spotify" : nil,
-                    onAction: isNotConnectedAlert(alert) ? {
-                        store.dismissAlert()
-                        triggerSpotifyConnect()
-                    } : nil,
+                    onAction: isNotConnectedAlert(alert)
+                        ? {
+                            store.dismissAlert()
+                            triggerSpotifyConnect()
+                        } : nil,
                     dismiss: { store.dismissAlert() }
                 )
                 .padding(.top, 12)
@@ -536,14 +544,15 @@ public struct SconeRootView: View {
     }
 
     @ViewBuilder private var detail: some View {
-        let isShowingHome: Bool = switch selection {
-        case .home, nil:
-            true
-        case .group(let id):
-            !store.state.groups.contains(where: { $0.id == id })
-        case .speaker(let id):
-            !store.state.speakers.contains(where: { $0.id == id })
-        }
+        let isShowingHome: Bool =
+            switch selection {
+            case .home, nil:
+                true
+            case .group(let id):
+                !store.state.groups.contains(where: { $0.id == id })
+            case .speaker(let id):
+                !store.state.speakers.contains(where: { $0.id == id })
+            }
 
         ZStack {
             ThemedBackground()
@@ -651,7 +660,8 @@ public struct SconeRootView: View {
         }
         let multi = store.state.groups.filter { $0.speakers.count > 1 }
         if let count = multi.map(\.speakers.count).max(),
-           let group = multi.first(where: { $0.speakers.count == count }) {
+            let group = multi.first(where: { $0.speakers.count == count })
+        {
             selection = .group(group.id)
             if isCompactLayout { mapPath = [group.id] }
             appliedLaunch = true

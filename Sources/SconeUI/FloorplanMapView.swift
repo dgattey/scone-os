@@ -1,7 +1,7 @@
 import DylDesign
-import SwiftUI
 import SconeDomain
 import SconeStore
+import SwiftUI
 
 private struct SpeakerTether: Equatable {
     let speakerID: SpeakerUUID
@@ -70,7 +70,9 @@ struct FloorplanMapView: View {
     var body: some View {
         let nodes = store.state.floorplan
         let groups = store.state.groups
-        let topologyKey = groups.map { "\($0.id.coordinator.rawValue):\($0.speakers.map(\.id.rawValue).joined(separator: ","))" }.joined(separator: "|")
+        let topologyKey = groups.map {
+            "\($0.id.coordinator.rawValue):\($0.speakers.map(\.id.rawValue).joined(separator: ","))"
+        }.joined(separator: "|")
 
         GeometryReader { geo in
             let isCompact = geo.size.width < 520 || LaunchView.requestsIOS()
@@ -112,11 +114,12 @@ struct FloorplanMapView: View {
                         .allowsHitTesting(false)
 
                         if let currentPoint = dragPoint,
-                           let target = dropTarget,
-                           let targetPoint = targetPosition(
-                               target,
-                               geometry: geometry
-                           ) {
+                            let target = dropTarget,
+                            let targetPoint = targetPosition(
+                                target,
+                                geometry: geometry
+                            )
+                        {
                             DragPreviewTether(from: currentPoint, to: targetPoint)
                                 .allowsHitTesting(false)
                                 .zIndex(1)
@@ -147,8 +150,9 @@ struct FloorplanMapView: View {
                         .zIndex(3.8)
 
                         if let selectedID = selected,
-                           dragging == nil,
-                           let selectedNode = nodes.first(where: { $0.id == selectedID }) {
+                            dragging == nil,
+                            let selectedNode = nodes.first(where: { $0.id == selectedID })
+                        {
                             selectedNodeOverlay(
                                 selectedNode,
                                 groups: groups,
@@ -267,7 +271,8 @@ struct FloorplanMapView: View {
                 let hubRect = AcousticCurveRouter.musicHubRect(center: hubPoint)
                 tethersByGroup[group.id] = group.speakers.compactMap { speaker -> SpeakerTether? in
                     guard let node = nodes.first(where: { $0.id == speaker.id }),
-                          let speakerPoint = displayPoints[node.id] else { return nil }
+                        let speakerPoint = displayPoints[node.id]
+                    else { return nil }
                     let speakerRect = AcousticCurveRouter.nodeObstacleRect(
                         center: speakerPoint,
                         hasSatellites: !node.speaker.bondedSatellites.isEmpty
@@ -306,7 +311,8 @@ struct FloorplanMapView: View {
     ) -> [GroupID: CGPoint] {
         var result: [GroupID: CGPoint] = [:]
         var placedHubRects: [CGRect] = []
-        let basePoints = Dictionary(uniqueKeysWithValues: nodes.map { ($0.id, baseDisplayPoint($0, bands: bands, plot: plot)) })
+        let basePoints = Dictionary(
+            uniqueKeysWithValues: nodes.map { ($0.id, baseDisplayPoint($0, bands: bands, plot: plot)) })
         let roomObstacles = nodes.compactMap { node -> CGRect? in
             guard let pt = basePoints[node.id] else { return nil }
             return AcousticCurveRouter.nodeObstacleRect(
@@ -321,17 +327,19 @@ struct FloorplanMapView: View {
             guard !connectedPoints.isEmpty else { continue }
 
             let targetLevel = memberNodes.first?.level
-            let bounds: CGRect = if let level = targetLevel,
-                                    let band = bands.first(where: { $0.level == level }) {
-                CGRect(
-                    x: band.frame.minX + 16,
-                    y: band.frame.minY + FloorBandLayout.headerHeight + 8,
-                    width: max(80, band.frame.width - 32),
-                    height: max(60, band.frame.height - FloorBandLayout.headerHeight - 16)
-                )
-            } else {
-                plot
-            }
+            let bounds: CGRect =
+                if let level = targetLevel,
+                    let band = bands.first(where: { $0.level == level })
+                {
+                    CGRect(
+                        x: band.frame.minX + 16,
+                        y: band.frame.minY + FloorBandLayout.headerHeight + 8,
+                        width: max(80, band.frame.width - 32),
+                        height: max(60, band.frame.height - FloorBandLayout.headerHeight - 16)
+                    )
+                } else {
+                    plot
+                }
 
             let center = AcousticCurveRouter.placeMusicHub(
                 connectedPoints: connectedPoints,
@@ -509,7 +517,8 @@ struct FloorplanMapView: View {
                             store.group(member: node.id, onto: targetSpeakerID)
                         case .musicHub(let groupID):
                             if let group = store.state.groups.first(where: { $0.id == groupID }),
-                               group.coordinator.id != node.id {
+                                group.coordinator.id != node.id
+                            {
                                 store.group(member: node.id, onto: group.coordinator.id)
                             }
                         }
@@ -539,7 +548,8 @@ struct FloorplanMapView: View {
             )
         } else {
             TimelineView(.animation(minimumInterval: 1 / 30)) { timeline in
-                let phase = timeline.date.timeIntervalSinceReferenceDate
+                let phase =
+                    timeline.date.timeIntervalSinceReferenceDate
                     .truncatingRemainder(dividingBy: 2.6) / 2.6
                 linkLayer(
                     hubGroups: hubGroups,
@@ -615,7 +625,8 @@ struct FloorplanMapView: View {
     ) -> CGPoint {
         let base = baseDisplayPoint(node, bands: bands, plot: plot)
         guard let band = bands.first(where: { $0.level == node.level }),
-              !hubLocations.isEmpty else {
+            !hubLocations.isEmpty
+        else {
             return base
         }
         let nearestHub = hubLocations.values.min { lhs, rhs in
@@ -682,7 +693,9 @@ private struct RoomContainerNode: View {
         VStack(spacing: 6) {
             Text(name)
                 .font(.caption.weight(.semibold))
-                .foregroundStyle(connectedToHub || isSelected ? MidnightGlass.gold : MidnightGlass.primaryText.opacity(0.9))
+                .foregroundStyle(
+                    connectedToHub || isSelected ? MidnightGlass.gold : MidnightGlass.primaryText.opacity(0.9)
+                )
                 .lineLimit(1)
                 .minimumScaleFactor(0.85)
 

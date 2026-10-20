@@ -1,7 +1,7 @@
 import DylDesign
-import SwiftUI
 import SconeDomain
 import SconeStore
+import SwiftUI
 
 struct NowPlayingDock: View {
     @Environment(SconeStore.self) private var store
@@ -197,7 +197,8 @@ struct NowPlayingDock: View {
                 .buttonStyle(.plain)
             }
             DiscreteVolumeControl(volume: group.volume, compact: true) { volume in
-                let target: VolumeTarget = group.speakers.count > 1
+                let target: VolumeTarget =
+                    group.speakers.count > 1
                     ? .group(group.id)
                     : .speaker(group.coordinator.id)
                 store.send(.setVolume(volume, for: target))
@@ -242,7 +243,8 @@ struct NowPlayingDock: View {
             Spacer(minLength: 10)
             transportButtons
             DiscreteVolumeControl(volume: group.volume, compact: true) { volume in
-                let target: VolumeTarget = group.speakers.count > 1
+                let target: VolumeTarget =
+                    group.speakers.count > 1
                     ? .group(group.id)
                     : .speaker(group.coordinator.id)
                 store.send(.setVolume(volume, for: target))
@@ -262,7 +264,8 @@ struct NowPlayingDock: View {
                 transportButtons
             }
             DiscreteVolumeControl(volume: group.volume, compact: true) { volume in
-                let target: VolumeTarget = group.speakers.count > 1
+                let target: VolumeTarget =
+                    group.speakers.count > 1
                     ? .group(group.id)
                     : .speaker(group.coordinator.id)
                 store.send(.setVolume(volume, for: target))
@@ -506,7 +509,8 @@ struct NowPlayingDock: View {
 
     private var sourceLine: String? {
         if case .track(let track) = group.playback.nowPlaying,
-           let source = track.source {
+            let source = track.source
+        {
             return source.label
         }
         if let external = externalSpotify {
@@ -533,7 +537,11 @@ struct NowPlayingDock: View {
             Image(systemName: system)
                 .font(.system(size: prominent ? 13 : 11, weight: .bold))
                 .contentTransition(.symbolEffect(.replace))
-                .foregroundStyle(enabled ? (prominent ? MidnightGlass.ink : MidnightGlass.primaryText) : MidnightGlass.secondaryText.opacity(0.35))
+                .foregroundStyle(
+                    enabled
+                        ? (prominent ? MidnightGlass.ink : MidnightGlass.primaryText)
+                        : MidnightGlass.secondaryText.opacity(0.35)
+                )
                 .frame(width: prominent ? 34 : 28, height: prominent ? 34 : 28)
                 .background {
                     if prominent {

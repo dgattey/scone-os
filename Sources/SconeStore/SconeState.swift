@@ -105,7 +105,8 @@ public struct SconeState: Equatable, Sendable {
         let nextRF = snapshot.rf != .empty ? snapshot.rf : rf
         if Set(nextKnown.keys) != Set(known.keys)
             || nextKnown.mapValues(\.roomName) != known.mapValues(\.roomName)
-            || nextRF != rf {
+            || nextRF != rf
+        {
             return (Array(nextKnown.values), nextRF)
         }
         return nil
@@ -297,7 +298,8 @@ public struct SconeState: Equatable, Sendable {
         }
         cachedProjected = projectedSnapshot
 
-        let mergedSpeakers = known
+        let mergedSpeakers =
+            known
             .merging(projectedSnapshot?.speakers ?? live?.speakers ?? [:]) { _, liveSpk in liveSpk }
             .values
             .sorted { $0.roomName < $1.roomName }
