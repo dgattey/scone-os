@@ -45,3 +45,11 @@ inputs = [
 
 [launch]
 env-prefix = "SCONEOS"
+
+# Read by @dylkit/web for sconeos.gattey.com. Screenshot paths are under release.artifacts-dir.
+[site]
+tagline = "The spatial audio controller for Sonos households and Spotify: a floorplan room map, discrete volume steps and instant scene grouping."
+accent = { light = "#9a5f12", dark = "#e2a547" }
+screenshots = [
+    { src = "sconeos-preview.png", alt = "Sconeos floorplan map and multi-room speaker controls on macOS" },
+]

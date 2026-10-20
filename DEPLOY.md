@@ -8,7 +8,7 @@
 4. Framework preset detects **Next.js** automatically.
 5. Add custom domain **`sconeos.gattey.com`** (and redirect `scone-os.vercel.app` → `sconeos.gattey.com`).
 
-Vercel only deploys `server/` when root directory is set.
+Vercel only deploys `server/` when root directory is set. Leave **Include files outside the Root Directory in the Build Step** on (the default): the site installs `@dylkit/web` from `../Packages/DylKit/web` and reads `../DylApp.toml` at build time.
 
 macOS Sparkle files (`appcast.xml` and `Sconeos-<version>.zip`) in `server/public/` are committed by `.github/workflows/release.yml` when the app changes on `main`. Vercel’s normal Git Production deploy serves them at `https://sconeos.gattey.com/appcast.xml` and `https://sconeos.gattey.com/download/macos`.
 

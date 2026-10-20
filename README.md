@@ -42,8 +42,10 @@ To rotate or generate a Sparkle EdDSA keypair (storing the private key in the ma
 
 ## Testing
 
-Run the app's and DylKit's tests, the checks and the site's typecheck, as CI does:
+Run the app's and DylKit's tests and the checks, as macOS CI does:
 
 ```bash
 ./run dev verify
 ```
+
+The download site in `server/` is a thin `@dylkit/web` app (`Packages/DylKit/web`) that reads `DylApp.toml` and `server/public/appcast.xml`. Its CI is the ubuntu `site` job: `npm test` and `npm run typecheck` in the package, then `npm run typecheck` and `npm run build` in `server/`.

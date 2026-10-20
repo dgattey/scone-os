@@ -6,6 +6,7 @@ on:
       - '**.md'
       - 'docs/**'
       - 'server/**'
+      - 'Packages/DylKit/web/**'
       - '.cursor/**'
 
 concurrency:

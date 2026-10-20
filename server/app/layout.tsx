@@ -1,27 +1,8 @@
-import type { Metadata } from "next";
-import "./globals.css";
+import { loadSite, SiteLayout, siteMetadata } from "@dylkit/web";
+import type { ReactNode } from "react";
 
-export const metadata: Metadata = {
-  title: "Sconeos",
-  description:
-    "Download Sconeos for macOS — spatial audio controller for Sonos households and Spotify.",
-  icons: {
-    icon: "/app-icon.png",
-    apple: "/app-icon.png",
-  },
-};
+export const metadata = siteMetadata(loadSite());
 
-export default function RootLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
-  return (
-    <html lang="en">
-      <head>
-        <link rel="preload" href="/sconeos-preview.png" as="image" />
-      </head>
-      <body>{children}</body>
-    </html>
-  );
+export default function RootLayout({ children }: { children: ReactNode }) {
+  return <SiteLayout site={loadSite()}>{children}</SiteLayout>;
 }
