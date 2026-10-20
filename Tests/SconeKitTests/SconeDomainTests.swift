@@ -2113,22 +2113,18 @@ struct SconeFileTests {
 
         let vault = TokenVault(service: "Sconeos.UnitTest", directory: directory)
         let expiry = Date(timeIntervalSince1970: 2_000_000_000)
-        vault.storeAsync(
-            accessToken: "access-123",
-            expiry: expiry,
-            refreshToken: "refresh-456"
-        )
-        vault.storeDisplayNameAsync("Dylan")
-        try? await Task.sleep(for: .milliseconds(50))
-        #expect(vault.accessToken()?.token == "access-123")
-        #expect(vault.accessToken()?.expiry == expiry)
-        #expect(vault.refreshToken() == "refresh-456")
-        #expect(vault.displayName() == "Dylan")
-        vault.clearAsync()
-        try? await Task.sleep(for: .milliseconds(50))
-        #expect(vault.accessToken() == nil)
-        #expect(vault.refreshToken() == nil)
-        #expect(vault.displayName() == nil)
+        await vault.save(accessToken: "access-123", expiry: expiry, refreshToken: "refresh-456")
+        await vault.saveDisplayName("Dylan")
+        let saved = vault.loadSnapshot()
+        #expect(saved.accessToken?.token == "access-123")
+        #expect(saved.accessToken?.expiry == expiry)
+        #expect(saved.refreshToken == "refresh-456")
+        #expect(saved.displayName == "Dylan")
+        await vault.clear()
+        let cleared = vault.loadSnapshot()
+        #expect(cleared.accessToken == nil)
+        #expect(cleared.refreshToken == nil)
+        #expect(cleared.displayName == nil)
     }
 
     @Test @MainActor func dormantSpotifyConnectVLIAndExternalComputerPlaybackTransferToGroup() async throws {
