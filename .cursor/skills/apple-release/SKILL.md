@@ -21,6 +21,7 @@ The release is `release-kit`, run in steps by the CI wrapper or locally with `./
 - The bump and notes come from the PR body, which needs exactly one checked box. No repo merge setting is involved. If neither the PR body nor the merge commit message checks exactly one box, `version` fails; rerun the workflow by hand with an explicit `release_type`.
 - Only `ci/github/` may call a forge API (`forge_neutral` enforces it). An Origin wrapper would sit next to it and hand release-kit the same file.
 - Build numbers only go up: the commit count, raised above every published `sparkle:version`.
+- Each version in the cumulative notes is a `<section data-sparkle-version="BUILD">`. Sparkle 2.5+ marks the section matching the running `CFBundleVersion`, and the notes' `<style>` hides it and everything older. So notes must stay HTML, and stamps must be the exact `CFBundleVersion` string.
 - The minimum OS in the appcast matches `[app] platforms` in `DylApp.toml`.
 - Nothing calls `gh`, `api.github.com` or GitHub Releases. Artifacts live in `server/public` and deploy with the site.
 
