@@ -1,3 +1,4 @@
+import DylCore
 import Foundation
 import SconeDomain
 @testable import SonosProtocolBoundary
@@ -851,7 +852,7 @@ struct SpeakerModelClassificationTests {
 }
 
 struct TokenVaultSecurityTests {
-    @Test func tokenVaultEncryptsTokensOnDiskWithOwnerOnlyPermissions() throws {
+    @Test func tokenVaultEncryptsTokensOnDiskWithOwnerOnlyPermissions() async throws {
         let dir = try makeDirectory()
         defer { try? FileManager.default.removeItem(at: dir) }
         let service = "com.sconeos.tests.vault.\(UUID().uuidString)"
@@ -861,21 +862,21 @@ struct TokenVaultSecurityTests {
         let secretRefresh = "secret_refresh_token_\(UUID().uuidString)"
         let expiry = Date(timeIntervalSince1970: 1_900_000_000)
 
-        vault.store(refreshToken: secretRefresh)
-        vault.store(accessToken: secretAccess, expiry: expiry)
-        vault.storeDisplayName("Dylan Gattey")
+        await vault.save(accessToken: secretAccess, expiry: expiry, refreshToken: secretRefresh)
+        await vault.saveDisplayName("Dylan Gattey")
 
-        #expect(vault.refreshToken() == secretRefresh)
-        let loadedAccess = try #require(vault.accessToken())
+        let snapshot = vault.loadSnapshot()
+        #expect(snapshot.refreshToken == secretRefresh)
+        let loadedAccess = try #require(snapshot.accessToken)
         #expect(loadedAccess.token == secretAccess)
         #expect(loadedAccess.expiry == expiry)
-        #expect(vault.displayName() == "Dylan Gattey")
+        #expect(snapshot.displayName == "Dylan Gattey")
 
-        // Verify a second TokenVault instance pointing at the same directory restores tokens and displayName immediately
-        let reopenedVault = TokenVault(service: service, directory: dir)
-        #expect(reopenedVault.refreshToken() == secretRefresh)
-        #expect(reopenedVault.accessToken()?.token == secretAccess)
-        #expect(reopenedVault.displayName() == "Dylan Gattey")
+        // A second TokenVault on the same directory restores tokens and displayName immediately.
+        let reopened = TokenVault(service: service, directory: dir).loadSnapshot()
+        #expect(reopened.refreshToken == secretRefresh)
+        #expect(reopened.accessToken?.token == secretAccess)
+        #expect(reopened.displayName == "Dylan Gattey")
 
         let vaultFile = dir.appending(path: "spotify-vault.enc")
         let ciphertext = try Data(contentsOf: vaultFile)
@@ -887,9 +888,9 @@ struct TokenVaultSecurityTests {
         let posix = (attrs[.posixPermissions] as? NSNumber)?.intValue ?? 0
         #expect(posix == 0o600)
 
-        vault.clear()
-        #expect(vault.refreshToken() == nil)
-        #expect(vault.accessToken() == nil)
+        await vault.clear()
+        #expect(vault.loadSnapshot().refreshToken == nil)
+        #expect(vault.loadSnapshot().accessToken == nil)
         #expect(!FileManager.default.fileExists(atPath: vaultFile.path))
     }
 

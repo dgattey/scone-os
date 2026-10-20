@@ -1,3 +1,4 @@
+import DylCore
 import Foundation
 import Observation
 import SconeDomain
@@ -43,14 +44,11 @@ public final class SconeStore {
 
     public static func live(spotify: SpotifyBridge) async -> SconeStore {
         let (files, loaded) = await Task.detached(priority: .userInitiated) {
-            let targetDir = URL.applicationSupportDirectory.appending(path: "Sconeos")
-            #if targetEnvironment(simulator)
-            if let hostHome = ProcessInfo.processInfo.environment["SIMULATOR_HOST_HOME"], !hostHome.isEmpty {
-                let hostAppSupport = URL(fileURLWithPath: hostHome).appending(path: "Library/Application Support/Sconeos")
-                SconeFiles.migrateLegacyDirectoryIfNeeded(from: hostAppSupport, to: targetDir)
+            let directories = AppDirectories(folder: SconeFiles.folder)
+            if let host = AppDirectories.simulatorHostApplicationSupport(folder: SconeFiles.folder) {
+                directories.seed(from: host, fileNames: SconeFiles.fileNames)
             }
-            #endif
-            let files = SconeFiles(directory: targetDir)
+            let files = SconeFiles(directory: directories.applicationSupport)
             return (files, files.loadAll())
         }.value
         return SconeStore(

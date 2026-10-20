@@ -1,4 +1,6 @@
 import AuthenticationServices
+import DylCore
+import DylDesign
 import SwiftUI
 import SconeDomain
 import SconeStore
@@ -114,87 +116,26 @@ func deduplicatedActiveHubGroups(from groups: [SonosGroup]) -> [SonosGroup] {
 }
 
 public enum LaunchView {
-    public static func requestsGroup(
-        environment: [String: String] = ProcessInfo.processInfo.environment,
-        arguments: [String] = ProcessInfo.processInfo.arguments
-    ) -> Bool {
-        if environment["SCONEOS_INITIAL_VIEW"]?.lowercased() == "group" { return true }
-        if arguments.contains(where: { $0.lowercased() == "--initial-view=group" }) { return true }
-        guard let index = arguments.firstIndex(of: "--initial-view"),
-              arguments.indices.contains(index + 1) else { return false }
-        return arguments[index + 1].lowercased() == "group"
-    }
+    public static let overrides = LaunchOverrides(prefix: "SCONEOS")
 
-    public static func requestsLivingRoom(
-        environment: [String: String] = ProcessInfo.processInfo.environment,
-        arguments: [String] = ProcessInfo.processInfo.arguments
-    ) -> Bool {
-        if environment["SCONEOS_INITIAL_VIEW"]?.lowercased() == "living" { return true }
-        if arguments.contains(where: { $0.lowercased() == "--initial-view=living" }) { return true }
-        return false
-    }
+    public static func requestsGroup() -> Bool { overrides.initialView == "group" }
 
-    public static func requestsGuestRoom(
-        environment: [String: String] = ProcessInfo.processInfo.environment,
-        arguments: [String] = ProcessInfo.processInfo.arguments
-    ) -> Bool {
-        if environment["SCONEOS_INITIAL_VIEW"]?.lowercased() == "guest" { return true }
-        if arguments.contains(where: { $0.lowercased() == "--initial-view=guest" }) { return true }
-        return false
-    }
+    public static func requestsLivingRoom() -> Bool { overrides.initialView == "living" }
 
-    public static func requestsQueuePopover(
-        environment: [String: String] = ProcessInfo.processInfo.environment,
-        arguments: [String] = ProcessInfo.processInfo.arguments
-    ) -> Bool {
-        if environment["SCONEOS_SHOW_QUEUE"] == "1" { return true }
-        if arguments.contains(where: { $0.lowercased() == "--show-queue" }) { return true }
-        return false
-    }
+    public static func requestsGuestRoom() -> Bool { overrides.initialView == "guest" }
 
-    public static func requestsIOS(
-        environment: [String: String] = ProcessInfo.processInfo.environment,
-        arguments: [String] = ProcessInfo.processInfo.arguments
-    ) -> Bool {
-        if environment["SCONEOS_LAYOUT"]?.lowercased() == "ios" { return true }
-        if arguments.contains(where: { $0.lowercased() == "--layout=ios" }) { return true }
-        return false
-    }
+    public static func requestsQueuePopover() -> Bool { overrides.flag("show-queue") }
 
-    public static func requestedCompactTab(
-        environment: [String: String] = ProcessInfo.processInfo.environment,
-        arguments: [String] = ProcessInfo.processInfo.arguments
-    ) -> String? {
-        if let tab = environment["SCONEOS_COMPACT_TAB"]?.lowercased(), !tab.isEmpty {
-            return tab
+    public static func requestsIOS() -> Bool { overrides.value("layout") == "ios" }
+
+    public static func requestedCompactTab() -> String? { overrides.value("tab") }
+
+    public static func requestedColorScheme() -> ColorScheme? {
+        switch overrides.appearance {
+        case .light: .light
+        case .dark: .dark
+        case nil: nil
         }
-        for arg in arguments {
-            let lowered = arg.lowercased()
-            if lowered.hasPrefix("--tab=") {
-                return String(lowered.dropFirst("--tab=".count))
-            }
-        }
-        return nil
-    }
-
-    public static func requestedColorScheme(
-        environment: [String: String] = ProcessInfo.processInfo.environment,
-        arguments: [String] = ProcessInfo.processInfo.arguments
-    ) -> ColorScheme? {
-        let env = environment["SCONEOS_APPEARANCE"]?.lowercased()
-        if env == "light" { return .light }
-        if env == "dark" { return .dark }
-        for arg in arguments {
-            let lowered = arg.lowercased()
-            if lowered == "--appearance=light" { return .light }
-            if lowered == "--appearance=dark" { return .dark }
-        }
-        if let index = arguments.firstIndex(of: "--appearance"), arguments.indices.contains(index + 1) {
-            let next = arguments[index + 1].lowercased()
-            if next == "light" { return .light }
-            if next == "dark" { return .dark }
-        }
-        return nil
     }
 }
 
@@ -293,6 +234,7 @@ public struct SconeRootView: View {
             }
         }
         .tint(MidnightGlass.gold)
+        .themePalette(MidnightGlassPalette())
         .optionalPreferredColorScheme(LaunchView.requestedColorScheme())
         .overlay(alignment: .topTrailing) {
             if let alert = store.state.alert {
@@ -429,7 +371,7 @@ public struct SconeRootView: View {
                 compactTabBody(title: title, onOpenDockGroup: onOpenDockGroup, content: content)
                     .navigationDestination(for: GroupID.self) { groupID in
                         ZStack {
-                            MidnightBackground()
+                            ThemedBackground()
                             if let group = store.state.groups.first(where: { $0.id == groupID }) {
                                 GroupDetailView(group: group)
                             }
@@ -455,7 +397,7 @@ public struct SconeRootView: View {
         @ViewBuilder content: () -> Content
     ) -> some View {
         ZStack {
-            MidnightBackground()
+            ThemedBackground()
             content()
         }
         .navigationTitle(title)
@@ -604,7 +546,7 @@ public struct SconeRootView: View {
         }
 
         ZStack {
-            MidnightBackground()
+            ThemedBackground()
             Group {
                 switch selection {
                 case .home, nil:
@@ -881,6 +823,6 @@ private struct AlertBanner: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
-        .midnightGlass(glowing: true, radius: 16)
+        .glassCard(glowing: true, radius: 16)
     }
 }

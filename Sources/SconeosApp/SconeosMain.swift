@@ -1,3 +1,5 @@
+import DylShell
+import DylUpdates
 import SwiftUI
 import SconeDomain
 import SconeStore
@@ -31,7 +33,7 @@ final class SconeAppDelegate: NSObject, NSApplicationDelegate {
 
     /// Sparkle closes its alert when installing; without this, a single-window app can quit before download/install runs.
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
-        !SparkleUpdateSession.shared.blocksQuitOnLastWindowClosed
+        QuitBlockers.shared.shouldTerminateAfterLastWindowClosed
     }
 }
 #endif
@@ -40,19 +42,12 @@ final class SconeAppDelegate: NSObject, NSApplicationDelegate {
 struct SconeosApp: App {
     #if os(macOS)
     @NSApplicationDelegateAdaptor(SconeAppDelegate.self) private var appDelegate
-    @StateObject private var updater = AppUpdaterModel()
+    @StateObject private var updater = AppUpdater()
     #endif
     @State private var session: LiveSession?
 
     init() {
-        #if os(macOS)
-        UserDefaults.standard.set(false, forKey: "NSQuitAlwaysKeepsWindows")
-        if let scheme = LaunchView.requestedColorScheme() {
-            NSApplication.shared.appearance = NSAppearance(
-                named: scheme == .dark ? .darkAqua : .aqua
-            )
-        }
-        #endif
+        LaunchShell.configure(LaunchView.overrides)
     }
 
     var body: some Scene {
@@ -68,7 +63,7 @@ struct SconeosApp: App {
         .windowResizability(.contentMinSize)
         .commands {
             CommandGroup(after: .appInfo) {
-                CheckForUpdatesMenuItem(updater: updater)
+                CheckForUpdatesButton(updater: updater)
             }
             CommandMenu("Playback") {
                 Button("Play / Pause") {
@@ -160,22 +155,9 @@ struct SconeosApp: App {
             )
             .onAppear {
                 updater.mainWindowDidAppear()
-                if let scheme = requestedScheme {
-                    NSApp.appearance = NSAppearance(named: scheme == .dark ? .darkAqua : .aqua)
-                }
-                if let rawSize = ProcessInfo.processInfo.environment["SCONEOS_WINDOW_SIZE"] {
-                    let parts = rawSize.split(separator: "x").compactMap { Double($0) }
-                    if parts.count == 2 {
-                        let targetSize = NSSize(width: parts[0], height: parts[1])
-                        Task { @MainActor in
-                            try? await Task.sleep(for: .milliseconds(150))
-                            for window in NSApp.windows where window.frame.width > 300 {
-                                window.setContentSize(targetSize)
-                            }
-                        }
-                    }
-                }
+                LaunchShell.applyAppearance(LaunchView.overrides.appearance)
             }
+            .launchWindowSize(LaunchView.overrides)
         #else
         return view
         #endif

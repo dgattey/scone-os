@@ -1,4 +1,5 @@
 import CryptoKit
+import DylCore
 import Foundation
 import SconeDomain
 import Security
@@ -9,6 +10,8 @@ import SystemConfiguration
 
 @_silgen_name("gethostuuid")
 private func _scone_gethostuuid(_ uuid: UnsafeMutablePointer<UInt8>, _ wait: UnsafePointer<timespec>) -> Int32
+
+private let spotifySession = URLSession.bounded()
 
 enum PKCE {
     static func makeVerifier() -> String {
@@ -84,8 +87,9 @@ public struct TokenVault: Sendable {
     }
 
     public let service: String
-    public let vaultFileURL: URL
-    private let derivedKey: SymmetricKey
+    private let vault: SecureFileVault<VaultRecord>
+
+    public var vaultFileURL: URL { vault.fileURL }
 
     private static let stableMachineIdentity: String = {
         let user = resolvedHostUserName()
@@ -182,125 +186,71 @@ public struct TokenVault: Sendable {
 
     public init(
         service: String = "Sconeos.Spotify",
-        directory: URL = URL.applicationSupportDirectory.appending(path: "Sconeos")
+        directory: URL = AppDirectories(folder: "Sconeos").applicationSupport
     ) {
         self.service = service
-        self.vaultFileURL = directory.appending(path: "spotify-vault.enc")
-        #if targetEnvironment(simulator)
-        if !FileManager.default.fileExists(atPath: self.vaultFileURL.path),
-           let hostHome = ProcessInfo.processInfo.environment["SIMULATOR_HOST_HOME"],
-           !hostHome.isEmpty {
-            let hostVaults = [
-                URL(fileURLWithPath: hostHome).appending(path: "Library/Application Support/Sconeos/spotify-vault.enc"),
-                URL(fileURLWithPath: hostHome).appending(path: ".sconeos/spotify-vault.enc"),
-            ]
-            for hostVault in hostVaults where FileManager.default.fileExists(atPath: hostVault.path) {
-                try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-                try? FileManager.default.copyItem(at: hostVault, to: self.vaultFileURL)
-                break
-            }
+        let directories = AppDirectories(applicationSupport: directory)
+        if let host = AppDirectories.simulatorHostApplicationSupport(folder: "Sconeos") {
+            directories.seed(from: host, fileNames: [Self.fileName])
         }
-        #endif
-
-        let primaryMaterial = Data("Sconeos.TokenVault.\(service).\(Self.stableMachineIdentity)".utf8)
-        self.derivedKey = HKDF<SHA256>.deriveKey(
-            inputKeyMaterial: SymmetricKey(data: primaryMaterial),
-            salt: Data("Sconeos.AESGCM.Salt.v1".utf8),
-            info: Data(service.utf8),
-            outputByteCount: 32
+        vault = SecureFileVault(
+            fileURL: directory.appending(path: Self.fileName),
+            key: Self.key(service: service, hostUser: Self.stableMachineIdentity),
+            fallbackKeys: { Self.fallbackKeys(service: service) }
         )
     }
 
-    private func makeFallbackKeys() -> [SymmetricKey] {
-        var fallbacks: [SymmetricKey] = []
-        let candidateServices = Array(Set([service, "Sconeos.Spotify"]))
-        for svc in candidateServices {
-            for hostUser in Self.legacyHostCandidates() {
-                let mat = Data("Sconeos.TokenVault.\(svc).\(hostUser)".utf8)
-                fallbacks.append(
-                    HKDF<SHA256>.deriveKey(
-                        inputKeyMaterial: SymmetricKey(data: mat),
-                        salt: Data("Sconeos.AESGCM.Salt.v1".utf8),
-                        info: Data(svc.utf8),
-                        outputByteCount: 32
-                    )
-                )
-            }
-        }
-        return fallbacks
+    private static let fileName = "spotify-vault.enc"
+
+    private static func key(service: String, hostUser: String) -> SymmetricKey {
+        SecureFileVault<VaultRecord>.deriveKey(
+            material: "Sconeos.TokenVault.\(service).\(hostUser)",
+            salt: "Sconeos.AESGCM.Salt.v1",
+            info: service
+        )
     }
 
+    private static func fallbackKeys(service: String) -> [SymmetricKey] {
+        Set([service, "Sconeos.Spotify"]).flatMap { svc in
+            legacyHostCandidates().map { key(service: svc, hostUser: $0) }
+        }
+    }
+
+    /// - Blocking: reads the vault file.
     public func loadSnapshot() -> Snapshot {
-        guard let record = readEncryptedFile() else {
+        guard let record = vault.read() else {
             return Snapshot(refreshToken: nil, accessToken: nil, displayName: nil)
         }
         let access: (token: String, expiry: Date)?
-        if let token = record.accessToken,
-           let timestamp = record.accessExpiry,
-           timestamp > 0 {
+        if let token = record.accessToken, let timestamp = record.accessExpiry, timestamp > 0 {
             access = (token, Date(timeIntervalSince1970: timestamp))
         } else {
             access = nil
         }
-        return Snapshot(
-            refreshToken: record.refreshToken,
-            accessToken: access,
-            displayName: record.displayName
-        )
+        return Snapshot(refreshToken: record.refreshToken, accessToken: access, displayName: record.displayName)
     }
 
-    public func refreshToken() -> String? {
-        readEncryptedFile()?.refreshToken
-    }
-
-    public func accessToken() -> (token: String, expiry: Date)? {
-        loadSnapshot().accessToken
-    }
-
-    public func displayName() -> String? {
-        readEncryptedFile()?.displayName
-    }
-
-    public func store(refreshToken: String) {
-        var record = readEncryptedFile() ?? VaultRecord()
-        record.refreshToken = refreshToken
-        writeEncryptedFile(record)
-    }
-
-    public func store(accessToken: String, expiry: Date) {
-        var record = readEncryptedFile() ?? VaultRecord()
-        record.accessToken = accessToken
-        record.accessExpiry = expiry.timeIntervalSince1970
-        writeEncryptedFile(record)
-    }
-
-    public func store(
+    public func save(
         accessToken: String,
         expiry: Date,
         refreshToken: String?,
         displayName: String? = nil
-    ) {
-        var record = readEncryptedFile() ?? VaultRecord()
-        record.accessToken = accessToken
-        record.accessExpiry = expiry.timeIntervalSince1970
-        if let refreshToken {
-            record.refreshToken = refreshToken
+    ) async {
+        await update { record in
+            record.accessToken = accessToken
+            record.accessExpiry = expiry.timeIntervalSince1970
+            if let refreshToken { record.refreshToken = refreshToken }
+            if let displayName, !displayName.isEmpty { record.displayName = displayName }
         }
-        if let displayName, !displayName.isEmpty {
-            record.displayName = displayName
-        }
-        writeEncryptedFile(record)
     }
 
-    public func storeDisplayName(_ displayName: String) {
+    public func saveDisplayName(_ displayName: String) async {
         guard !displayName.isEmpty else { return }
-        var record = readEncryptedFile() ?? VaultRecord()
-        record.displayName = displayName
-        writeEncryptedFile(record)
+        await update { $0.displayName = displayName }
     }
 
-    public func clear() {
-        try? FileManager.default.removeItem(at: vaultFileURL)
+    public func clear() async {
+        await vault.clearAsync()
     }
 
     public nonisolated func storeAsync(
@@ -311,75 +261,26 @@ public struct TokenVault: Sendable {
     ) {
         let copy = self
         Task.detached(priority: .utility) {
-            await TokenVaultWriter.shared.perform {
-                copy.store(
-                    accessToken: accessToken,
-                    expiry: expiry,
-                    refreshToken: refreshToken,
-                    displayName: displayName
-                )
-            }
+            await copy.save(accessToken: accessToken, expiry: expiry, refreshToken: refreshToken, displayName: displayName)
         }
     }
 
     public nonisolated func storeDisplayNameAsync(_ displayName: String) {
         let copy = self
-        Task.detached(priority: .utility) {
-            await TokenVaultWriter.shared.perform {
-                copy.storeDisplayName(displayName)
-            }
-        }
+        Task.detached(priority: .utility) { await copy.saveDisplayName(displayName) }
     }
 
     public nonisolated func clearAsync() {
         let copy = self
-        Task.detached(priority: .utility) {
-            await TokenVaultWriter.shared.perform {
-                copy.clear()
-            }
-        }
+        Task.detached(priority: .utility) { await copy.clear() }
     }
 
-    private func readEncryptedFile() -> VaultRecord? {
-        guard let combined = try? Data(contentsOf: vaultFileURL),
-              let sealedBox = try? AES.GCM.SealedBox(combined: combined) else {
-            return nil
+    private func update(_ change: @escaping @Sendable (inout VaultRecord) -> Void) async {
+        try? await vault.updateAsync { record in
+            var next = record ?? VaultRecord()
+            change(&next)
+            record = next
         }
-        if let plaintext = try? AES.GCM.open(sealedBox, using: derivedKey),
-           let record = try? JSONDecoder().decode(VaultRecord.self, from: plaintext) {
-            return record
-        }
-        for fallbackKey in makeFallbackKeys() {
-            if let plaintext = try? AES.GCM.open(sealedBox, using: fallbackKey),
-               let record = try? JSONDecoder().decode(VaultRecord.self, from: plaintext) {
-                writeEncryptedFile(record)
-                return record
-            }
-        }
-        return nil
-    }
-
-    private func writeEncryptedFile(_ record: VaultRecord) {
-        let dir = vaultFileURL.deletingLastPathComponent()
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        guard let plaintext = try? JSONEncoder().encode(record),
-              let sealed = try? AES.GCM.seal(plaintext, using: derivedKey),
-              let combined = sealed.combined else {
-            return
-        }
-        try? combined.write(to: vaultFileURL, options: .atomic)
-        try? FileManager.default.setAttributes(
-            [.posixPermissions: NSNumber(value: Int16(0o600))],
-            ofItemAtPath: vaultFileURL.path
-        )
-    }
-}
-
-private actor TokenVaultWriter {
-    static let shared = TokenVaultWriter()
-
-    func perform(_ operation: @Sendable () -> Void) {
-        operation()
     }
 }
 
@@ -796,7 +697,7 @@ package enum WebAPI {
     }
 
     package static func parseDevicesData(_ data: Data) -> [SpotifyConnectDevice] {
-        guard let payload = try? JSONDecoder().decode(SpotifyDevicesPayload.self, from: data),
+        guard let payload = JSONDecoder().decodeOrLog(SpotifyDevicesPayload.self, from: data),
               let list = payload.devices else {
             return []
         }
@@ -828,7 +729,7 @@ package enum WebAPI {
         request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = body
-        guard let (_, response) = try? await URLSession.shared.data(for: request),
+        guard let (_, response) = try? await spotifySession.data(for: request),
               let http = response as? HTTPURLResponse else {
             return false
         }
@@ -836,7 +737,7 @@ package enum WebAPI {
     }
 
     package static func parseQueueData(_ data: Data) -> [QueueItem] {
-        guard let payload = try? JSONDecoder().decode(SpotifyQueuePayload.self, from: data),
+        guard let payload = JSONDecoder().decodeOrLog(SpotifyQueuePayload.self, from: data),
               let queueArray = payload.queue else {
             return []
         }
@@ -876,7 +777,7 @@ package enum WebAPI {
         request.httpMethod = "PUT"
         request.timeoutInterval = 15
         request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
-        _ = try? await URLSession.shared.data(for: request)
+        _ = try? await spotifySession.data(for: request)
     }
 
     package static func encodeResumePayload(
@@ -922,7 +823,7 @@ package enum WebAPI {
             request.httpBody = body
         }
 
-        guard let (_, response) = try? await URLSession.shared.data(for: request),
+        guard let (_, response) = try? await spotifySession.data(for: request),
               let http = response as? HTTPURLResponse else {
             return false
         }
@@ -972,7 +873,7 @@ package enum WebAPI {
     }
 
     package static func parseProfileName(from data: Data) -> String? {
-        guard let payload = try? JSONDecoder().decode(SpotifyUserProfilePayload.self, from: data) else {
+        guard let payload = JSONDecoder().decodeOrLog(SpotifyUserProfilePayload.self, from: data) else {
             return nil
         }
         let name = payload.displayName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -981,7 +882,7 @@ package enum WebAPI {
     }
 
     package static func parseContextName(from data: Data, kind: String) -> String? {
-        guard let payload = try? JSONDecoder().decode(SpotifyNamedResourcePayload.self, from: data),
+        guard let payload = JSONDecoder().decodeOrLog(SpotifyNamedResourcePayload.self, from: data),
               let name = payload.name?.trimmingCharacters(in: .whitespacesAndNewlines),
               !name.isEmpty else {
             return nil
@@ -990,7 +891,7 @@ package enum WebAPI {
     }
 
     package static func parseOEmbedTitle(from data: Data, kind: String) -> String? {
-        guard let payload = try? JSONDecoder().decode(SpotifyOEmbedPayload.self, from: data),
+        guard let payload = JSONDecoder().decodeOrLog(SpotifyOEmbedPayload.self, from: data),
               let name = payload.title?.trimmingCharacters(in: .whitespacesAndNewlines),
               !name.isEmpty else {
             return nil
@@ -1014,7 +915,7 @@ package enum WebAPI {
     }
 
     package static func parseTokenResponse(_ data: Data) -> SpotifyTokenSet? {
-        guard let payload = try? JSONDecoder().decode(SpotifyTokenPayload.self, from: data),
+        guard let payload = JSONDecoder().decodeOrLog(SpotifyTokenPayload.self, from: data),
               !payload.accessToken.isEmpty else {
             return nil
         }
@@ -1053,7 +954,7 @@ package enum WebAPI {
             request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         }
         do {
-            let (data, response) = try await URLSession.shared.data(for: request)
+            let (data, response) = try await spotifySession.data(for: request)
             let http = response as? HTTPURLResponse
             let retryAfter = http?.value(forHTTPHeaderField: "Retry-After").flatMap(TimeInterval.init)
             return (data, http?.statusCode ?? 0, retryAfter)
@@ -1063,7 +964,7 @@ package enum WebAPI {
     }
 
     package static func parseCurrentlyPlaying(_ data: Data) throws(SpotifyBridgeError) -> SpotifyTrackContext? {
-        guard let payload = try? JSONDecoder().decode(SpotifyCurrentlyPlayingPayload.self, from: data) else {
+        guard let payload = JSONDecoder().decodeOrLog(SpotifyCurrentlyPlayingPayload.self, from: data) else {
             throw .network("currently-playing")
         }
         guard let item = payload.item else { return nil }

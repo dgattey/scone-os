@@ -1,4 +1,5 @@
 import ImageIO
+import DylDesign
 import SwiftUI
 import SconeDomain
 import SconeStore
@@ -184,7 +185,7 @@ struct UpNextQueueCard: View {
         } else {
             content
                 .padding(16)
-                .midnightGlass(radius: 18)
+                .glassCard(radius: 18)
         }
     }
 

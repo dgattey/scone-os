@@ -1,3 +1,4 @@
+import DylDesign
 import SwiftUI
 import SconeDomain
 import SconeStore
@@ -121,6 +122,6 @@ struct GroupDetailView: View {
             }
         }
         .padding(16)
-        .midnightGlass(radius: 18)
+        .glassCard(radius: 18)
     }
 }

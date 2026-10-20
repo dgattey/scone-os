@@ -1,3 +1,4 @@
+import DylDesign
 import SwiftUI
 import SconeDomain
 import SconeStore
@@ -32,7 +33,7 @@ struct NowPlayingDock: View {
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 10)
-                .midnightGlass(glowing: true, radius: 18)
+                .glassCard(glowing: true, radius: 18)
             }
 
             if showingVolumePopover && isCompactFloatingPill {
@@ -54,7 +55,7 @@ struct NowPlayingDock: View {
                 )
                 .frame(maxWidth: isCompactFloatingPill ? .infinity : 390)
                 .padding(14)
-                .midnightGlass(glowing: true, radius: 18)
+                .glassCard(glowing: true, radius: 18)
                 .shadow(color: Color.black.opacity(0.55), radius: 24, y: 10)
                 .offset(y: isCompactFloatingPill ? -66 : -74)
                 .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .bottomTrailing)))
@@ -204,7 +205,7 @@ struct NowPlayingDock: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
-        .midnightGlass(glowing: true, radius: 16)
+        .glassCard(glowing: true, radius: 16)
         .shadow(color: Color.black.opacity(0.50), radius: 20, y: 8)
     }
 

@@ -1,3 +1,4 @@
+import DylDesign
 import SwiftUI
 import SconeDomain
 import SconeStore
@@ -463,7 +464,7 @@ struct FloorplanMapView: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
         .frame(width: 252)
-        .midnightGlass(glowing: true, radius: 16)
+        .glassCard(glowing: true, radius: 16)
         .position(x: clampedX, y: popoverY)
     }
 
@@ -703,7 +704,7 @@ private struct RoomContainerNode: View {
             } else if let battery = node.speaker.model.battery {
                 SpeakerBatteryBadge(battery: battery)
             } else if !node.speaker.reachability.isOnline {
-                OfflinePill()
+                StatusPill("Offline")
             } else {
                 Text("\(node.speaker.volume.percent)%")
                     .font(.caption2.monospacedDigit())

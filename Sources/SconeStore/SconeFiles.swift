@@ -1,10 +1,6 @@
+import DylCore
 import Foundation
 import SconeDomain
-
-public struct FileSlot<Content: Codable & Equatable & Sendable>: Sendable {
-    public let name: String
-    public let isDisposable: Bool
-}
 
 extension FileSlot where Content == CachedSpeakersFile {
     public static var cachedSpeakers: Self { Self(name: "cached-speakers.json", isDisposable: true) }
@@ -30,12 +26,6 @@ public struct FloorplanPositionsFile: Codable, Equatable, Sendable {
     public var pins: [SpeakerUUID: RoomCoordinate]
 }
 
-public enum LoadResult<Content: Sendable>: Sendable {
-    case missing
-    case loaded(Content)
-    case quarantined(fileName: String)
-}
-
 public struct LoadedFiles: Sendable {
     public let cache: CachedSpeakersFile?
     public let positions: FloorplanPositionsFile?
@@ -55,56 +45,28 @@ public struct LoadedFiles: Sendable {
 }
 
 public struct SconeFiles: Sendable {
-    public let directory: URL
+    public static let folder = "Sconeos"
+    public static let fileNames = ["cached-speakers.json", "floorplan-positions.json", "spotify-vault.enc"]
 
-    public init(directory: URL) { self.directory = directory }
+    private let store: CodableFileStore
 
-    public static func migrateLegacyDirectoryIfNeeded(from legacyDir: URL, to targetDir: URL) {
-        let fm = FileManager.default
-        guard fm.fileExists(atPath: legacyDir.path) else { return }
-        try? fm.createDirectory(at: targetDir, withIntermediateDirectories: true)
-        for fileName in ["cached-speakers.json", "floorplan-positions.json", "spotify-vault.enc"] {
-            let src = legacyDir.appending(path: fileName)
-            let dst = targetDir.appending(path: fileName)
-            guard fm.fileExists(atPath: src.path) else { continue }
-            if !fm.fileExists(atPath: dst.path) {
-                try? fm.copyItem(at: src, to: dst)
-            } else if let srcAttrs = try? fm.attributesOfItem(atPath: src.path),
-                      let dstAttrs = try? fm.attributesOfItem(atPath: dst.path),
-                      let srcDate = srcAttrs[.modificationDate] as? Date,
-                      let dstDate = dstAttrs[.modificationDate] as? Date,
-                      srcDate > dstDate {
-                try? fm.removeItem(at: dst)
-                try? fm.copyItem(at: src, to: dst)
-            }
-        }
+    public init(directory: URL) { store = CodableFileStore(directory: directory) }
+
+    public var directory: URL { store.directory }
+
+    /// - Blocking: reads files.
+    public func load<C>(_ slot: FileSlot<C>) -> LoadResult<C> { store.load(slot) }
+
+    /// - Blocking: writes a file.
+    public func save<C>(_ content: C, to slot: FileSlot<C>) throws { try store.save(content, to: slot) }
+
+    public func saveAsync<C>(_ content: C, to slot: FileSlot<C>) async throws {
+        try await store.saveAsync(content, to: slot)
     }
 
-    public func load<C>(_ slot: FileSlot<C>) -> LoadResult<C> {
-        let url = fileURL(slot.name)
-        guard FileManager.default.fileExists(atPath: url.path) else { return .missing }
-        do {
-            let data = try Data(contentsOf: url)
-            return .loaded(try JSONDecoder().decode(C.self, from: data))
-        } catch {
-            return quarantine(slot, at: url)
-        }
-    }
-
-    public func save<C>(_ content: C, to slot: FileSlot<C>) throws {
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let data = try JSONEncoder().encode(content)
-        try data.write(to: fileURL(slot.name), options: .atomic)
-    }
-
-    public nonisolated func saveAsync<C>(_ content: C, to slot: FileSlot<C>) async throws {
-        try await SconeFilesWriter.shared.write(content, to: slot, in: self)
-    }
-
+    /// - Blocking: reads every slot and deletes the retired presets file.
     public func loadAll() -> LoadedFiles {
-        try? FileManager.default.removeItem(at: fileURL("presets.json"))
-        let cache = load(FileSlot.cachedSpeakers)
-        let positions = load(FileSlot.floorplanPositions)
+        store.remove("presets.json")
         var quarantined: [String] = []
         func take<C>(_ result: LoadResult<C>) -> C? {
             switch result {
@@ -117,34 +79,8 @@ public struct SconeFiles: Sendable {
                 return nil
             }
         }
-        return LoadedFiles(
-            cache: take(cache),
-            positions: take(positions),
-            quarantined: quarantined)
-    }
-
-    private func fileURL(_ name: String) -> URL { directory.appending(path: name) }
-
-    private func quarantine<C>(_ slot: FileSlot<C>, at url: URL) -> LoadResult<C> {
-        if slot.isDisposable {
-            try? FileManager.default.removeItem(at: url)
-            return .missing
-        }
-        let fileName = "\(slot.name).corrupt-\(Int(Date().timeIntervalSince1970))"
-        let destination = fileURL(fileName)
-        do {
-            try FileManager.default.moveItem(at: url, to: destination)
-            return .quarantined(fileName: fileName)
-        } catch {
-            return .quarantined(fileName: slot.name)
-        }
-    }
-}
-
-private actor SconeFilesWriter {
-    static let shared = SconeFilesWriter()
-
-    func write<C>(_ content: C, to slot: FileSlot<C>, in files: SconeFiles) throws {
-        try files.save(content, to: slot)
+        let cache = take(load(FileSlot.cachedSpeakers))
+        let positions = take(load(FileSlot.floorplanPositions))
+        return LoadedFiles(cache: cache, positions: positions, quarantined: quarantined)
     }
 }
