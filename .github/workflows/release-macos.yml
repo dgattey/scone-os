@@ -13,17 +13,8 @@ on:
       - 'sparkle-public-key.txt'
       - 'scripts/build-macos.sh'
       - 'scripts/package-release.sh'
-      - 'scripts/format-release-notes.sh'
-      - 'scripts/cumulative-release-notes.sh'
-      - 'scripts/fetch-release-notes-history.sh'
-      - 'scripts/ci-build-macos-release.sh'
-      - 'scripts/export-ci-secrets.sh'
-      - 'scripts/fetch-live-macos-release.sh'
       - 'scripts/generate-icon.swift'
       - 'scripts/lib/signing.sh'
-      - 'scripts/next-release-version.sh'
-      - 'scripts/macos-release-inputs-changed.sh'
-      - '.github/workflows/release-macos.yml'
   workflow_dispatch:
     inputs:
       release_type:
@@ -47,6 +38,7 @@ concurrency:
 jobs:
   release:
     runs-on: macos-26
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
         with:
@@ -55,19 +47,7 @@ jobs:
       - name: Use Xcode 26.5
         run: sudo xcode-select -s /Applications/Xcode_26.5.app/Contents/Developer
 
-      - name: Decide whether to rebuild the macOS app
-        id: macos
-        env:
-          GITHUB_EVENT_BEFORE: ${{ github.event.before }}
-        run: |
-          if ./scripts/macos-release-inputs-changed.sh; then
-            echo "build=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "build=false" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: Resolve release type and notes from merged PR
-        if: steps.macos.outputs.build == 'true'
         id: pr_meta
         uses: actions/github-script@v7
         env:
@@ -158,7 +138,6 @@ jobs:
             core.setOutput('sparkle_notes', sparkleNotes);
 
       - name: Build and package macOS release
-        if: steps.macos.outputs.build == 'true'
         id: package
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -168,7 +147,6 @@ jobs:
         run: ./scripts/ci-build-macos-release.sh
 
       - name: Commit and push release artifacts
-        if: steps.macos.outputs.build == 'true'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -181,7 +159,6 @@ jobs:
           git push
 
       - name: Create GitHub Release
-        if: steps.macos.outputs.build == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ steps.package.outputs.version }}
