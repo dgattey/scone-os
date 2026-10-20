@@ -1,6 +1,6 @@
 #!/bin/sh
 # ./run dev <devkit args> | ./run release <release-kit args> | ./run lint [dyl-lint args]
-# Builds DylKit's tools once (cached in .build/release) and runs them directly, skipping the SwiftPM plugin sandbox.
+# Builds DylKit's tools once (cached in .build/release) and runs them directly.
 set -eu
 root=$(cd "$(dirname "$0")" && pwd)
 case "${1:-}" in
