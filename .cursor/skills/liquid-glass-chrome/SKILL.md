@@ -10,6 +10,9 @@ description: Window, toolbar, sidebar and tint conventions for DylKit apps using
 - macOS: `NavigationSplitView`, `.windowToolbarStyle(.unified(showsTitle: false))`, the native sidebar toggle, and real `.toolbar` items. No custom `HStack` splits, `.windowStyle(.hiddenTitleBar)`, `.ignoresSafeArea(.container, edges: .top)` on detail views, or manual traffic-light positioning.
 - iOS: `TabView`, `NavigationStack`, `List`, `.toolbar`. Share views across platforms; split only where the platform idiom differs.
 - Sidebar pages switch instantly, without fade transitions, and the sidebar collapses.
+- Float the window toolbar over content with `.toolbarBackgroundVisibility(.hidden, for: .windowToolbar)` on macOS.
+- Don't put `.backgroundExtensionEffect()` on a split view's detail column. On macOS 26 it clips the detail to the safe area, leaving a solid band under the toolbar, and mirrors the detail's content into the sidebar (Saga #43).
+- Settings is a single-instance `Window(id:)` with `.restorationBehavior(.disabled)`, opened with `openWindow(id:)`, which focuses it when it's already open. No window lookups by title (Saga #48).
 
 ## Material and color
 
