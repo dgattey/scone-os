@@ -3,15 +3,21 @@
     <channel>
         <title>Sconeos</title>
         <item>
-            <title>1.0.10</title>
-            <pubDate>Tue, 20 Oct 2026 02:28:47 +0000</pubDate>
+            <title>1.0.11</title>
+            <pubDate>Tue, 20 Oct 2026 00:29:12 -0700</pubDate>
             <link>https://sconeos.gattey.com</link>
             <sparkle:fullReleaseNotesLink>https://github.com/dgattey/scone-os/releases</sparkle:fullReleaseNotesLink>
-            <sparkle:version>27</sparkle:version>
-            <sparkle:shortVersionString>1.0.10</sparkle:shortVersionString>
+            <sparkle:version>29</sparkle:version>
+            <sparkle:shortVersionString>1.0.11</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
             <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
-            <description><![CDATA[<h3 style="margin: 0 0 6px 0; font-size: 13px;">1.0.10</h3>
+            <description><![CDATA[<h3 style="margin: 0 0 6px 0; font-size: 13px;">1.0.11</h3>
+<ul>
+  <li style="margin-bottom: 6px; line-height: 1.45;">When there's no Sonos system on the network you're on, Sconeos shows one "No Sonos system on this network" card. It no longer shows a wall of Offline rooms from home.</li>
+  <li style="margin-bottom: 6px; line-height: 1.45;">On a network with a different Sonos system, Sconeos connects to that system and shows its rooms. The rooms saved from the last network don't come along.</li>
+  <li style="margin-bottom: 6px; line-height: 1.45;">Battery speakers like Move and Roam show Offline on the map when they can't be reached. Before, they showed a battery badge and looked online.</li>
+</ul>
+<h3 style="margin: 14px 0 6px 0; font-size: 13px; opacity: 0.75;">1.0.10</h3>
 <ul>
   <li style="margin-bottom: 6px; line-height: 1.45;">Sconeos no longer stalls the window at launch while it restores the Spotify session and reads saved room positions.</li>
   <li style="margin-bottom: 6px; line-height: 1.45;">Moving or resetting a room pin no longer blocks the map while the change is written to disk.</li>
@@ -55,7 +61,7 @@
   <li style="margin-bottom: 6px; line-height: 1.45;">Add the <code>xattr -cr /Applications/Sconeos.app</code> fallback snippet to the download page's first-run instructions for MDM-managed Macs where <code>com.apple.systempolicy.managed</code> sets <code>DisableOverride = true</code> (which blocks System Settings → "Open Anyway" with <code>Error -60005 creating authorization</code>).</li>
 </ul>
 ]]></description>
-            <enclosure url="https://sconeos.gattey.com/Sconeos-1.0.10.zip" length="6677651" type="application/octet-stream" sparkle:edSignature="4vAejvwYGPXBS+4yFSRr6/9FD4jm0OIDkazvajlw2LfAlz6OveS9P96j+QzBTeACMsNGVAGtECqyOhPwgEVqAQ=="/>
+            <enclosure url="https://sconeos.gattey.com/Sconeos-1.0.11.zip" length="7035373" type="application/octet-stream" sparkle:edSignature="8TDgyyK6eeQTBUXHyDyDAxcsHz26fMQI4PIK7HnTyRuIeqwlMjoEqqCRItbE0wCGZlplU3jXL7AUEg+ZGwfsBw=="/>
         </item>
     </channel>
 </rss>
