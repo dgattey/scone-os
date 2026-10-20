@@ -3,7 +3,7 @@
 #
 # The PRIVATE key is stored in your login keychain (never leaves this machine, never committed).
 # The PUBLIC key is written to sparkle-public-key.txt, which IS committed and gets baked
-# into the app's Info.plist (SUPublicEDKey) by build-macos.sh so the updater can verify downloads.
+# into the app's Info.plist (SUPublicEDKey) by release-kit so the updater can verify downloads.
 #
 # Export/back up the private key with:  generate_keys -x sparkle_private.key  (keep it somewhere safe)
 set -euo pipefail
@@ -29,4 +29,4 @@ printf '%s\n' "$PUB" >"$OUT"
 echo "Wrote public key -> $OUT"
 echo "  $PUB"
 echo
-echo "Next: commit sparkle-public-key.txt, then package a release with scripts/build-macos.sh."
+echo "Next: commit sparkle-public-key.txt, then build with ./run dev build release."
