@@ -8,8 +8,6 @@ import IOKit
 import SystemConfiguration
 #endif
 
-private let spotifySession = URLSession.bounded()
-
 @_silgen_name("gethostuuid")
 private func _scone_gethostuuid(_ uuid: UnsafeMutablePointer<UInt8>, _ wait: UnsafePointer<timespec>) -> Int32
 
@@ -831,7 +829,7 @@ package enum WebAPI {
         request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = body
-        guard let (_, response) = try? await spotifySession.data(for: request),
+        guard let (_, response) = try? await URLSession.boundedShared.data(for: request),
               let http = response as? HTTPURLResponse else {
             return false
         }
@@ -879,7 +877,7 @@ package enum WebAPI {
         request.httpMethod = "PUT"
         request.timeoutInterval = 15
         request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
-        _ = try? await spotifySession.data(for: request)
+        _ = try? await URLSession.boundedShared.data(for: request)
     }
 
     package static func encodeResumePayload(
@@ -925,7 +923,7 @@ package enum WebAPI {
             request.httpBody = body
         }
 
-        guard let (_, response) = try? await spotifySession.data(for: request),
+        guard let (_, response) = try? await URLSession.boundedShared.data(for: request),
               let http = response as? HTTPURLResponse else {
             return false
         }
@@ -1056,7 +1054,7 @@ package enum WebAPI {
             request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         }
         do {
-            let (data, response) = try await spotifySession.data(for: request)
+            let (data, response) = try await URLSession.boundedShared.data(for: request)
             let http = response as? HTTPURLResponse
             let retryAfter = http?.value(forHTTPHeaderField: "Retry-After").flatMap(TimeInterval.init)
             return (data, http?.statusCode ?? 0, retryAfter)
