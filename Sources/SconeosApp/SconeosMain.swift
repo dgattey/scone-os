@@ -27,8 +27,7 @@ final class SconeAppDelegate: NSObject, NSApplicationDelegate {
         let isDark = resolved.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
         let resourceName = isDark ? "AppIcon-Dark" : "AppIcon-Light"
         if let url = Bundle.main.url(forResource: resourceName, withExtension: "icns"),
-            let image = NSImage(contentsOf: url)
-        {
+           let image = NSImage(contentsOf: url) {
             NSApp.applicationIconImage = image
         }
     }
