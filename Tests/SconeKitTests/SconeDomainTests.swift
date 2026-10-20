@@ -1360,7 +1360,7 @@ struct SconeStateTests {
 
         #expect(state.connection == .live)
         #expect(state.speakers.map(\.id) == [House.kitchen])
-        #expect(state.speakers.allSatisfy(\.reachability.isOnline))
+        #expect(state.speakers.allSatisfy { $0.reachability.isOnline })
         #expect(state.networkName == nil)
         #expect(state.presets.isEmpty)
         #expect(state.persisted.cache.speakers.map(\.id) == [House.kitchen])
