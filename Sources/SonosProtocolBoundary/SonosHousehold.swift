@@ -499,7 +499,11 @@ public actor SonosHousehold {
                 return parsed
             }
             if ContinuousClock.now >= deadline { throw .notConverged(after: configuration.convergenceTimeout) }
-            try? await Task.sleep(for: .milliseconds(200))
+            do {
+                try await Task.sleep(for: .milliseconds(200))
+            } catch {
+                throw .notConverged(after: configuration.convergenceTimeout)
+            }
         }
     }
 
