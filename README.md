@@ -16,19 +16,11 @@ Sconeos is structured as a single Swift Package (`SconeKit`) with strict module 
 ## Requirements
 
 - macOS 14.0+ or iOS 17.0+
-- Swift 6.0 / Xcode 16+
+- Swift 6 with the Xcode 26.5 toolchain. There's no Xcode project: Sconeos builds with SwiftPM.
 
 ## Building and running
 
-Sconeos builds with [DylKit](Packages/DylKit), Dylan's shared app framework. `DylApp.toml` configures the app, and the `./run` shim runs DylKit's `devkit` and `release-kit` tools. Builds land in `build/`, never `/Applications`, and launch in the background without taking focus.
-
-```bash
-./run dev relaunch                          # build build/Sconeos.app and open it behind the current app
-./run dev capture --appearance dark         # relaunch and screenshot the window into build/captures/
-./run dev ios --run                         # build for the iOS Simulator and launch it headless
-./run dev checks                            # SwiftLint, dyl-lint and the release checks
-./run dev --help
-```
+Sconeos builds with [DylKit](Packages/DylKit), Dylan's shared app framework. `DylApp.toml` configures the app, and the `./run` shim runs DylKit's `devkit` and `release-kit` tools. Run `mise install` once, then `./run dev relaunch` to build `build/Sconeos.app` and open it behind the current app. Setup, tests, screenshots and the iOS Simulator are in [`.cursor/skills/apple-dev-loop`](.cursor/skills/apple-dev-loop/SKILL.md). Releasing is in [`.cursor/skills/apple-release`](.cursor/skills/apple-release/SKILL.md).
 
 ## Code signing and Sparkle updates
 
@@ -38,14 +30,6 @@ To rotate or generate a Sparkle EdDSA keypair (storing the private key in the ma
 
 ```bash
 ./scripts/generate-sparkle-key.sh
-```
-
-## Testing
-
-Run the app's and DylKit's tests and the checks, as macOS CI does:
-
-```bash
-./run dev verify
 ```
 
 The download site in `server/` is a thin `@dylkit/web` app (`Packages/DylKit/web`) that reads `DylApp.toml` and `server/public/appcast.xml`. CI for the site is the `site` workflow in `.github/workflows/site.yml`.

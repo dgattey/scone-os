@@ -5,7 +5,7 @@ description: How to write observable state and view models in DylKit apps — @O
 
 # SwiftUI view models
 
-- `@Observable @MainActor final class`. No `ObservableObject`/`@Published` in new code (`observable_not_main_actor` and `published_write_off_main` cover the isolation mistakes).
+- `@Observable @MainActor final class`. Never `ObservableObject` or `@Published`.
 - The view model holds display state and calls into services through protocols or closures it receives, so tests can drive it without a network.
 - Loading is `async`: kick it off from `.task {}` so SwiftUI cancels it with the view. Heavy work runs off the main actor (see `swift-concurrency-io`).
 - When background refreshes race, guard with a generation counter or a semantic-equality check and drop stale results instead of flickering.

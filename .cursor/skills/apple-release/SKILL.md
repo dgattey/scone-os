@@ -12,9 +12,24 @@ The release is `release-kit`, run in steps by the CI wrapper or locally with `./
 3. `sign` signs inside-out (frameworks, helpers, then the app), pins the designated requirement to the bundle ID, verifies, and zips.
 4. `appcast` writes cumulative notes and the appcast, signs the enclosure with `SPARKLE_ED_PRIVATE_KEY_BASE64`, and checks the signature against the key baked into the app.
 5. `check` runs the release checks against the staged feed; `publish` commits `server/public/`, tags `v<version>` and pushes with plain git.
-6. CI then waits on ubuntu for the site to serve the new version. `check --live` checks the deployed feed, its signature and the download page.
+6. CI's `live-site` job then waits on ubuntu until the site serves the new version's appcast and download page.
 
 `./run release check` runs the same tier 3 checks on any branch. Its rule IDs explain themselves; read the finding instead of restating it here.
+
+## By hand on the Mac
+
+Use this when CI can't run, for example when Actions minutes run out. Run it on an up-to-date `main` with a clean tree, and never while the release workflow is running:
+
+```sh
+./run release version --type minor     # or --pr-body-file <merged-pr-body.md> to read its checkbox
+./run release bundle
+./run release sign
+./run release appcast                  # key: --ed-key-file, .cert/sparkle_ed.key, else the login Keychain
+./run release check
+./run release publish                  # --no-push commits and tags without pushing
+```
+
+`./run release notes --body-file <pr-body.md>` previews the cumulative notes without releasing.
 
 ## Invariants
 
@@ -30,6 +45,6 @@ The release is `release-kit`, run in steps by the CI wrapper or locally with `./
 
 - `-67050` or "the update is improperly signed": the new build's designated requirement doesn't match the installed one. Compare `codesign -d -r-` on both.
 - The update alert hides behind other windows after a launch check: Sparkle doesn't activate the app for background checks. Use `DylUpdates`' `AppUpdater`, which brings found updates forward in focus, instead of an app-local Sparkle controller. It activates only an installed release: release-configured, in an Applications folder, and not launched with `<PREFIX>_BACKGROUND`. Dev builds, tests and agent launches never take focus.
-- Sparkle says "up to date" after a release: the build number didn't increase, or the CDN still serves the old appcast; run `check --live`.
+- Sparkle says "up to date" after a release: the build number didn't increase, or the CDN still serves the old appcast. Compare `<sparkle:version>` in `curl -fsSL <site>/appcast.xml` with the committed one.
 - "Can't be opened" on first install: Gatekeeper quarantine on an ad-hoc build. System Settings → Privacy & Security → Open Anyway clears it once.
 - Open Anyway fails with `-60005` on an MDM-managed Mac: the profile sets `DisableOverride = true`, which removes the override, and IT won't unset it. Run `xattr -cr /Applications/<App>.app` once. Sparkle's updates aren't quarantined, so it stays fixed. The download page's Gatekeeper section says this.
