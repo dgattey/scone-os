@@ -86,7 +86,7 @@ jobs:
           for _ in $(seq 60); do
             feed="$(curl -fsSL "$SITE/appcast.xml" || true)"
             page="$(curl -fsSL "$SITE" || true)"
-            if grep -qF "<sparkle:shortVersionString>$VERSION<" <<<"$feed" && grep -qF "v$VERSION" <<<"$page"; then
+            if grep -qF "<sparkle:shortVersionString>$VERSION<" <<<"$feed" && grep -qF "Version $VERSION" <<<"$page"; then
               echo "$SITE serves $VERSION"
               exit 0
             fi
