@@ -1526,6 +1526,10 @@ struct SconeFileTests {
 
         let pin = RoomCoordinate(clampingX: 0.12, y: 0.88)
         store.moveRoom(House.kitchen, to: pin)
+        let deadline = ContinuousClock.now.advanced(by: .seconds(2))
+        while case .missing = files.load(FileSlot.floorplanPositions), ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
         guard case .loaded(let positions) = files.load(FileSlot.floorplanPositions) else {
             Issue.record("expected floorplan-positions.json")
             return
