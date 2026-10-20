@@ -1,3 +1,4 @@
+import DylUpdates
 import SwiftUI
 import SconeDomain
 import SconeStore
@@ -61,7 +62,7 @@ final class SconeAppDelegate: NSObject, NSApplicationDelegate {
 
     /// Sparkle closes its alert when installing; without this, a single-window app can quit before download/install runs.
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
-        !SparkleUpdateSession.shared.blocksQuitOnLastWindowClosed
+        !AppUpdater.shared.blocksQuitOnLastWindowClosed
     }
 }
 #endif
@@ -70,7 +71,6 @@ final class SconeAppDelegate: NSObject, NSApplicationDelegate {
 struct SconeosApp: App {
     #if os(macOS)
     @NSApplicationDelegateAdaptor(SconeAppDelegate.self) private var appDelegate
-    @StateObject private var updater = AppUpdaterModel()
     #endif
     @State private var session: LiveSession?
 
@@ -98,7 +98,7 @@ struct SconeosApp: App {
         .windowResizability(.contentMinSize)
         .commands {
             CommandGroup(after: .appInfo) {
-                CheckForUpdatesMenuItem(updater: updater)
+                CheckForUpdatesButton()
             }
             CommandMenu("Playback") {
                 Button("Play / Pause") {
@@ -189,7 +189,7 @@ struct SconeosApp: App {
                 idealHeight: isIOSPreview ? 874 : 840
             )
             .onAppear {
-                updater.mainWindowDidAppear()
+                AppUpdater.shared.mainWindowDidAppear()
                 if let scheme = requestedScheme {
                     NSApp.appearance = NSAppearance(named: scheme == .dark ? .darkAqua : .aqua)
                 }

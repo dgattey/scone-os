@@ -28,5 +28,6 @@ The release is `release-kit`, run in steps by the CI wrapper or locally with `./
 ## Symptoms
 
 - `-67050` or "the update is improperly signed": the new build's designated requirement doesn't match the installed one. Compare `codesign -d -r-` on both.
+- The update alert hides behind other windows after a launch check: Sparkle doesn't activate the app for background checks. Use `DylUpdates`' `AppUpdater`, which brings found updates forward in focus, instead of an app-local Sparkle controller.
 - Sparkle says "up to date" after a release: the build number didn't increase, or the CDN still serves the old appcast; run `check --live`.
 - "Damaged and can't be opened" on first install: quarantine on an ad-hoc build. The download page's Gatekeeper note (`xattr -cr`) covers it; MDM-managed Macs need `DisableOverride` unset.

@@ -33,6 +33,7 @@ notes-max-versions = 10
 inputs = [
     "Sources/**",
     "Packages/DylKit/Sources/DylCore/**",
+    "Packages/DylKit/Sources/DylUpdates/**",
     "Packages/DylKit/Package.swift",
     "Package.swift",
     "Package.resolved",
