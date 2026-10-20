@@ -10,6 +10,8 @@
 
 Vercel only deploys `server/` when root directory is set. Leave **Include files outside the Root Directory in the Build Step** on (the default): the site installs `@dylkit/web` from `../Packages/DylKit/web` and reads `../DylApp.toml` at build time.
 
+`server/vercel.json`'s `ignoreCommand` skips deploys for commits that touch none of `server/`, `Packages/DylKit/web` or `DylApp.toml`, so app-only merges don't spend the deploy quota. `release-kit check` (`site_deploy`) fails if it would ever skip a release commit.
+
 macOS Sparkle files (`appcast.xml` and `Sconeos-<version>.zip`) in `server/public/` are committed by `.github/workflows/release.yml` when the app changes on `main`. Vercel’s normal Git Production deploy serves them at `https://sconeos.gattey.com/appcast.xml` and `https://sconeos.gattey.com/download/macos`.
 
 ## How auto-updates & signing work
