@@ -17,6 +17,6 @@ description: Verify UI changes with background screenshots of the real app in bo
 3. Open each PNG and check it against the request: layout, truncation, highlight color, empty states, and both appearances. A capture you didn't look at isn't verification.
 4. Copy the ones worth sharing to uniquely versioned filenames and put them in the PR description.
 
-Captures run in the background. A screen that needs a click, keystroke or menu to reach (Settings, a sheet) gets an `--initial-view` value instead.
+Captures run in the background, but a macOS capture still launches `build/<App>.app` under the installed app's bundle ID. On a Mac where that app is installed, Dylan's included, capture only in the iOS Simulator and call the macOS screens unverified (see `apple-dev-loop`). A screen that needs a click, keystroke or menu to reach (Settings, a sheet) gets an `--initial-view` value instead.
 
 Captures run against real data. If a screen needs data the machine doesn't have, say so instead of mocking it into the app.

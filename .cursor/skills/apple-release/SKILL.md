@@ -29,7 +29,7 @@ Use this when CI can't run, for example when Actions minutes run out. Run it on 
 ./run release publish                  # --no-push commits and tags without pushing
 ```
 
-`./run release notes --body-file <pr-body.md>` previews the cumulative notes without releasing.
+`./run release notes --body-file <pr-body.md>` previews the cumulative notes without releasing. Don't open the staged app to check it: it has the installed app's bundle ID. Compare Info.plist, signatures and entitlements as in `apple-dev-loop` instead.
 
 ## Invariants
 

@@ -25,7 +25,7 @@ Run everything from the app repo through `./run dev …`, which builds `devkit` 
 | Task | Command |
 |---|---|
 | Build `build/<App>.app`, ad-hoc signed, with the commit count as its build number | `./run dev build` (or `./run dev build release`) |
-| Rebuild and reopen behind the frontmost app | `./run dev relaunch` (add `--configuration release` for a Release build) |
+| Rebuild and reopen behind the frontmost app (not on a Mac where the app is installed; see Hard rules) | `./run dev relaunch` (add `--configuration release` for a Release build) |
 | Screenshot the main window into `build/captures/` | `./run dev capture --appearance dark` |
 | iOS Simulator, headless, with a screenshot | `./run dev ios --run --capture` (add `--simulator "<iPad name>"` for an iPad) |
 | Unit tests | `swift test` for the app, `swift test --package-path Packages/DylKit` for the kit |
@@ -36,11 +36,26 @@ Run everything from the app repo through `./run dev …`, which builds `devkit` 
 ## Hard rules
 
 - Only `build/` is ours. Never copy into, launch, kill or overwrite `/Applications/<App>.app` unless Dylan asks for a one-time install. `relaunch` only stops the process whose path is under `build/`.
+- On Dylan's Mac, never launch a build that shares the bundle ID of an installed app, even with `open -g`. `build/<App>.app` is signed with the release `app.bundle-id`, so it shares the installed app's preferences (including Sparkle's update state), container, Keychain items and logs. A background launch of a Photos build wrote to the real app's Sparkle preferences and activity log. Before `relaunch` or `capture` there, check `mdfind "kMDItemCFBundleIdentifier == '<bundle-id>'"`. If that finds an installed copy, don't launch: use the iOS Simulator (`./run dev ios --run --capture`), a build under a separate test bundle ID (devkit can't make one yet), or say what's unverified.
 - Launch with `open -g` only, capture with `screencapture -l <window>`, and run the simulator headless with `simctl`. Never use `osascript` (AppleScript `activate`, System Events keystrokes or menu clicks), `open` without `-g`, the app binary run directly, `open -a Simulator`, or a capture that raises a window. A screen you can't reach by a launch flag isn't verified on his Mac. Add an `--initial-view` for it or say it's unverified.
 - devkit launches set `<PREFIX>_BACKGROUND=1`. The app reads it as `LaunchOverrides.staysInBackground` and must never activate or raise a window under it. `DylUpdates` activates only in an installed release.
 - Never change the system appearance. Pass `--appearance light|dark`. The app reads `<PREFIX>_APPEARANCE` and sets its own appearance, and leaves it `nil` on a normal run.
 - Pick the starting screen with `--initial-view <name>` and the size with `--window-size 1280x800` instead of clicking through the UI.
 - Captures go to `build/captures/`. When sharing one, copy it to a new, uniquely versioned filename so image caches never show a stale render.
+
+## Verify a release build without launching it
+
+Compare the staged release with the installed one instead of opening either. Reading `/Applications` is fine. Changing or launching anything in it is not.
+
+```sh
+new=build/release/stage/<App>.app; old=/Applications/<App>.app
+diff <(plutil -p "$old/Contents/Info.plist") <(plutil -p "$new/Contents/Info.plist")
+codesign --verify --deep --strict --verbose=2 "$new"
+diff <(codesign -d -r- "$old" 2>&1) <(codesign -d -r- "$new" 2>&1)        # designated requirement must match
+diff <(codesign -d --entitlements - "$old" 2>&1) <(codesign -d --entitlements - "$new" 2>&1)
+```
+
+Expect only the version, build number and code hashes to differ. `./run release check` covers the feed side.
 
 ## When a capture comes back wrong
 
