@@ -127,7 +127,9 @@ public actor SonosHousehold {
         guard generation == sweepGeneration else { return }
         guard let parsed = await fetchTopology() else {
             guard generation == sweepGeneration else { return }
-            NetworkDebugLog.write("sweepOnce gen=\(generation): fetchTopology returned nil (all seeds + discovery unreachable)")
+            if unreachableSince == nil {
+                NetworkDebugLog.write("sweepOnce gen=\(generation): no seed or discovered speaker answered")
+            }
             noteUnreachable()
             return
         }
@@ -159,7 +161,11 @@ public actor SonosHousehold {
         let now = Date()
         if unreachableSince == nil { unreachableSince = now }
         let elapsed = now.timeIntervalSince(unreachableSince ?? now)
-        guard elapsed >= seconds(configuration.offlineAfter), latest?.speakers.isEmpty != true else { return }
+        guard let latest else {
+            publish(HouseholdSnapshot(observedAt: now, speakers: [:], topology: .empty, groupStatus: [:], rf: .empty))
+            return
+        }
+        guard elapsed >= seconds(configuration.offlineAfter), !latest.speakers.isEmpty else { return }
         publish(HouseholdSnapshot(observedAt: now, speakers: [:], topology: .empty, groupStatus: [:], rf: .empty))
     }
 
@@ -210,7 +216,7 @@ public actor SonosHousehold {
 
     private func parseTopology(at endpoint: URL) async -> TopologyService.Parsed? {
         do {
-            let node = try await client.call(TopologyService.getZoneGroupState, at: endpoint)
+            let node = try await client.probe(TopologyService.getZoneGroupState, at: endpoint)
             let xml = node.value("ZoneGroupState")
             guard !xml.isEmpty else { return nil }
             return try TopologyService.parse(zoneGroupState: xml)
