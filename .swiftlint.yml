@@ -1,8 +1,5 @@
-parent_config: Packages/DylKit/lint/swiftlint.yml
+parent_config: .build/checkouts/dyl-kit/lint/swiftlint.yml
 included:
   - Sources
   - Tests
-  - Packages/DylKit/Sources
-  - Packages/DylKit/Tests
-  - Packages/DylKit/Plugins
   - scripts
