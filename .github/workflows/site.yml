@@ -4,7 +4,6 @@ on:
   pull_request:
     paths:
       - 'server/**'
-      - 'Packages/DylKit/web/**'
       - 'DylApp.toml'
 
 concurrency:
@@ -24,12 +23,7 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: |
-            server/package-lock.json
-            Packages/DylKit/web/package-lock.json
-      - name: Test @dylkit/web
-        working-directory: Packages/DylKit/web
-        run: npm ci --no-audit --no-fund && npm test
+          cache-dependency-path: server/package-lock.json
       - name: Build the site, which typechecks @dylkit/web
         working-directory: server
         run: npm ci --no-audit --no-fund && npm run build

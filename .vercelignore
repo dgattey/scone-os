@@ -5,11 +5,6 @@
 build
 dist
 Sources
-# The site installs Packages/DylKit/web, so keep it.
-Packages/DylKit/lint
-Packages/DylKit/Plugins
-Packages/DylKit/Sources
-Packages/DylKit/Tests
 Tests
 scripts
 *.xcodeproj

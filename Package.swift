@@ -1,8 +1,8 @@
 // swift-tools-version: 6.0
 import PackageDescription
 
-let dylCore: Target.Dependency = .product(name: "DylCore", package: "DylKit")
-let dylUI: Target.Dependency = .product(name: "DylUI", package: "DylKit")
+let dylCore: Target.Dependency = .product(name: "DylCore", package: "dyl-kit")
+let dylUI: Target.Dependency = .product(name: "DylUI", package: "dyl-kit")
 
 let package = Package(
     name: "SconeKit",
@@ -16,7 +16,7 @@ let package = Package(
         .executable(name: "Sconeos", targets: ["SconeosApp"]),
     ],
     dependencies: [
-        .package(path: "Packages/DylKit"),
+        .package(url: "https://github.com/dgattey/dyl-kit", from: "0.1.0"),
     ],
     targets: [
         .target(name: "SconeDomain"),
@@ -33,7 +33,7 @@ let package = Package(
                 "SconeDomain",
                 "SpotifyBridge",
                 dylUI,
-                .product(name: "DylUpdates", package: "DylKit"),
+                .product(name: "DylUpdates", package: "dyl-kit"),
             ]
         ),
         .testTarget(name: "SconeKitTests", dependencies: ["SconeDomain", "SonosProtocolBoundary", "SpotifyBridge", "SconeStore"]),

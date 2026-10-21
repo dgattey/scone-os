@@ -1,0 +1,8 @@
+---
+description: Sconeos specifics on top of the DylKit plugin's rule and skills
+alwaysApply: true
+---
+
+Sconeos is a DylKit app. Its workflow rule and skills (`apple-dev-loop`, `apple-release` and the rest) come from the DylKit Cursor plugin in `dgattey/dyl-kit`. If they aren't loaded, the plugin isn't installed: see that repo's README.
+
+A capture Dylan should see goes in the Project store under `/cursor/stores/bc-3533d1ec-a627-4ef9-891d-baeea91e0ebb/media/`. The store isn't mounted on his Mac, so an agent running there leaves the capture in `build/captures/` and says where it is.
