@@ -2,7 +2,7 @@
   "name": "sconeos-server",
   "private": true,
   "scripts": {
-    "kit": "rm -rf node_modules/@dylkit/web && npm install --no-audit --no-fund --prefer-offline",
+    "kit": "rm -rf node_modules/@dylkit/web && npm install --include=dev --no-audit --no-fund --prefer-offline",
     "predev": "npm run kit",
     "dev": "next dev --port 3000",
     "prebuild": "npm run kit",
