@@ -1,3 +1,4 @@
+import DylCore
 import ImageIO
 import SwiftUI
 import SconeDomain
@@ -10,6 +11,8 @@ private typealias PlatformImage = NSImage
 import UIKit
 private typealias PlatformImage = UIImage
 #endif
+
+private let artworkSession = URLSession.bounded(requestTimeout: 8, cache: .shared)
 
 @MainActor
 final class ArtworkImageCache {
@@ -37,7 +40,7 @@ final class ArtworkImageCache {
         let task = Task.detached(priority: .utility) { () -> PlatformImage? in
             var request = URLRequest(url: url, timeoutInterval: 8)
             request.cachePolicy = .returnCacheDataElseLoad
-            guard let (data, response) = try? await URLSession.shared.data(for: request),
+            guard let (data, response) = try? await artworkSession.data(for: request),
                   let http = response as? HTTPURLResponse,
                   (200..<300).contains(http.statusCode),
                   !data.isEmpty else {

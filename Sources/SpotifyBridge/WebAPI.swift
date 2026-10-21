@@ -1,3 +1,4 @@
+import DylCore
 import CryptoKit
 import Foundation
 import SconeDomain
@@ -346,12 +347,12 @@ public struct TokenVault: Sendable {
             return nil
         }
         if let plaintext = try? AES.GCM.open(sealedBox, using: derivedKey),
-           let record = try? JSONDecoder().decode(VaultRecord.self, from: plaintext) {
+           let record = JSONDecoder().decodeOrLog(VaultRecord.self, from: plaintext) {
             return record
         }
         for fallbackKey in makeFallbackKeys() {
             if let plaintext = try? AES.GCM.open(sealedBox, using: fallbackKey),
-               let record = try? JSONDecoder().decode(VaultRecord.self, from: plaintext) {
+               let record = JSONDecoder().decodeOrLog(VaultRecord.self, from: plaintext) {
                 writeEncryptedFile(record)
                 return record
             }
@@ -796,7 +797,7 @@ package enum WebAPI {
     }
 
     package static func parseDevicesData(_ data: Data) -> [SpotifyConnectDevice] {
-        guard let payload = try? JSONDecoder().decode(SpotifyDevicesPayload.self, from: data),
+        guard let payload = JSONDecoder().decodeOrLog(SpotifyDevicesPayload.self, from: data),
               let list = payload.devices else {
             return []
         }
@@ -828,7 +829,7 @@ package enum WebAPI {
         request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = body
-        guard let (_, response) = try? await URLSession.shared.data(for: request),
+        guard let (_, response) = try? await URLSession.boundedShared.data(for: request),
               let http = response as? HTTPURLResponse else {
             return false
         }
@@ -836,7 +837,7 @@ package enum WebAPI {
     }
 
     package static func parseQueueData(_ data: Data) -> [QueueItem] {
-        guard let payload = try? JSONDecoder().decode(SpotifyQueuePayload.self, from: data),
+        guard let payload = JSONDecoder().decodeOrLog(SpotifyQueuePayload.self, from: data),
               let queueArray = payload.queue else {
             return []
         }
@@ -876,7 +877,7 @@ package enum WebAPI {
         request.httpMethod = "PUT"
         request.timeoutInterval = 15
         request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
-        _ = try? await URLSession.shared.data(for: request)
+        _ = try? await URLSession.boundedShared.data(for: request)
     }
 
     package static func encodeResumePayload(
@@ -922,7 +923,7 @@ package enum WebAPI {
             request.httpBody = body
         }
 
-        guard let (_, response) = try? await URLSession.shared.data(for: request),
+        guard let (_, response) = try? await URLSession.boundedShared.data(for: request),
               let http = response as? HTTPURLResponse else {
             return false
         }
@@ -972,7 +973,7 @@ package enum WebAPI {
     }
 
     package static func parseProfileName(from data: Data) -> String? {
-        guard let payload = try? JSONDecoder().decode(SpotifyUserProfilePayload.self, from: data) else {
+        guard let payload = JSONDecoder().decodeOrLog(SpotifyUserProfilePayload.self, from: data) else {
             return nil
         }
         let name = payload.displayName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -981,7 +982,7 @@ package enum WebAPI {
     }
 
     package static func parseContextName(from data: Data, kind: String) -> String? {
-        guard let payload = try? JSONDecoder().decode(SpotifyNamedResourcePayload.self, from: data),
+        guard let payload = JSONDecoder().decodeOrLog(SpotifyNamedResourcePayload.self, from: data),
               let name = payload.name?.trimmingCharacters(in: .whitespacesAndNewlines),
               !name.isEmpty else {
             return nil
@@ -990,7 +991,7 @@ package enum WebAPI {
     }
 
     package static func parseOEmbedTitle(from data: Data, kind: String) -> String? {
-        guard let payload = try? JSONDecoder().decode(SpotifyOEmbedPayload.self, from: data),
+        guard let payload = JSONDecoder().decodeOrLog(SpotifyOEmbedPayload.self, from: data),
               let name = payload.title?.trimmingCharacters(in: .whitespacesAndNewlines),
               !name.isEmpty else {
             return nil
@@ -1014,7 +1015,7 @@ package enum WebAPI {
     }
 
     package static func parseTokenResponse(_ data: Data) -> SpotifyTokenSet? {
-        guard let payload = try? JSONDecoder().decode(SpotifyTokenPayload.self, from: data),
+        guard let payload = JSONDecoder().decodeOrLog(SpotifyTokenPayload.self, from: data),
               !payload.accessToken.isEmpty else {
             return nil
         }
@@ -1053,7 +1054,7 @@ package enum WebAPI {
             request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         }
         do {
-            let (data, response) = try await URLSession.shared.data(for: request)
+            let (data, response) = try await URLSession.boundedShared.data(for: request)
             let http = response as? HTTPURLResponse
             let retryAfter = http?.value(forHTTPHeaderField: "Retry-After").flatMap(TimeInterval.init)
             return (data, http?.statusCode ?? 0, retryAfter)
@@ -1063,7 +1064,7 @@ package enum WebAPI {
     }
 
     package static func parseCurrentlyPlaying(_ data: Data) throws(SpotifyBridgeError) -> SpotifyTrackContext? {
-        guard let payload = try? JSONDecoder().decode(SpotifyCurrentlyPlayingPayload.self, from: data) else {
+        guard let payload = JSONDecoder().decodeOrLog(SpotifyCurrentlyPlayingPayload.self, from: data) else {
             throw .network("currently-playing")
         }
         guard let item = payload.item else { return nil }

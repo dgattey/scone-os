@@ -1,3 +1,4 @@
+import DylUI
 import SwiftUI
 import SconeDomain
 import SconeStore
@@ -315,7 +316,7 @@ private struct PresetCreator: View {
                     .lineLimit(1)
                 Spacer(minLength: 6)
                 if !speaker.reachability.isOnline {
-                    OfflinePill()
+                    StatusPill("Offline")
                 }
             }
             .padding(.vertical, 4)

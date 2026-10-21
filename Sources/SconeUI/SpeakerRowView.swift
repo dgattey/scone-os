@@ -1,3 +1,4 @@
+import DylUI
 import SwiftUI
 import SconeDomain
 import SconeStore
@@ -13,7 +14,7 @@ struct OfflineSpeakerDetail: View {
                     Text(RoomNaming.shortName(speaker.roomName, merged: false))
                         .font(.system(.largeTitle, design: .serif, weight: .semibold))
                         .foregroundStyle(MidnightGlass.primaryText)
-                    OfflinePill()
+                    StatusPill("Offline")
                 }
                 SpeakerRowView(
                     speaker: speaker,
@@ -73,7 +74,7 @@ struct SpeakerRowView: View {
                             SpeakerBatteryBadge(battery: battery)
                         }
                         if !speaker.reachability.isOnline {
-                            OfflinePill()
+                            StatusPill("Offline")
                         }
                         Spacer(minLength: 4)
                         if canRemove && isHovered {
@@ -152,7 +153,7 @@ struct BondedSatelliteRow: View {
             }
             Spacer(minLength: 8)
             if !satellite.isOnline {
-                OfflinePill()
+                StatusPill("Offline")
             }
         }
         .padding(.vertical, 2)

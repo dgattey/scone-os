@@ -1,3 +1,4 @@
+import DylUI
 import SwiftUI
 import SconeDomain
 import SconeStore
@@ -10,14 +11,14 @@ struct NowPlayingDock: View {
     var onSelectDockGroup: (GroupID) -> Void
     var onOpen: () -> Void
 
-    @State private var showingQueuePopover = LaunchView.requestsQueuePopover()
+    @State private var showingQueuePopover = LaunchView.showsQueue
     @State private var showingVolumePopover = false
 
     private var isCompactFloatingPill: Bool {
         #if os(iOS)
-        return horizontalSizeClass == .compact || LaunchView.requestsIOS()
+        return horizontalSizeClass == .compact || LaunchView.isIOSLayout
         #else
-        return LaunchView.requestsIOS()
+        return LaunchView.isIOSLayout
         #endif
     }
 

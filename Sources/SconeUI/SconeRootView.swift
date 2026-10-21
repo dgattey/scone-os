@@ -1,4 +1,5 @@
 import AuthenticationServices
+import DylCore
 import SwiftUI
 import SconeDomain
 import SconeStore
@@ -113,89 +114,26 @@ func deduplicatedActiveHubGroups(from groups: [SonosGroup]) -> [SonosGroup] {
     return groups.filter { keptIDs.contains($0.id) }
 }
 
+/// Sconeos's launch flags for screenshots and agent runs, read through DylKit's `LaunchOverrides`.
 public enum LaunchView {
-    public static func requestsGroup(
-        environment: [String: String] = ProcessInfo.processInfo.environment,
-        arguments: [String] = ProcessInfo.processInfo.arguments
-    ) -> Bool {
-        if environment["SCONEOS_INITIAL_VIEW"]?.lowercased() == "group" { return true }
-        if arguments.contains(where: { $0.lowercased() == "--initial-view=group" }) { return true }
-        guard let index = arguments.firstIndex(of: "--initial-view"),
-              arguments.indices.contains(index + 1) else { return false }
-        return arguments[index + 1].lowercased() == "group"
+    /// `--initial-view`. Nil when the flag is unset or not one of these screens.
+    fileprivate enum Screen: String {
+        case group, living, guest
     }
 
-    public static func requestsLivingRoom(
-        environment: [String: String] = ProcessInfo.processInfo.environment,
-        arguments: [String] = ProcessInfo.processInfo.arguments
-    ) -> Bool {
-        if environment["SCONEOS_INITIAL_VIEW"]?.lowercased() == "living" { return true }
-        if arguments.contains(where: { $0.lowercased() == "--initial-view=living" }) { return true }
-        return false
-    }
-
-    public static func requestsGuestRoom(
-        environment: [String: String] = ProcessInfo.processInfo.environment,
-        arguments: [String] = ProcessInfo.processInfo.arguments
-    ) -> Bool {
-        if environment["SCONEOS_INITIAL_VIEW"]?.lowercased() == "guest" { return true }
-        if arguments.contains(where: { $0.lowercased() == "--initial-view=guest" }) { return true }
-        return false
-    }
-
-    public static func requestsQueuePopover(
-        environment: [String: String] = ProcessInfo.processInfo.environment,
-        arguments: [String] = ProcessInfo.processInfo.arguments
-    ) -> Bool {
-        if environment["SCONEOS_SHOW_QUEUE"] == "1" { return true }
-        if arguments.contains(where: { $0.lowercased() == "--show-queue" }) { return true }
-        return false
-    }
-
-    public static func requestsIOS(
-        environment: [String: String] = ProcessInfo.processInfo.environment,
-        arguments: [String] = ProcessInfo.processInfo.arguments
-    ) -> Bool {
-        if environment["SCONEOS_LAYOUT"]?.lowercased() == "ios" { return true }
-        if arguments.contains(where: { $0.lowercased() == "--layout=ios" }) { return true }
-        return false
-    }
-
-    public static func requestedCompactTab(
-        environment: [String: String] = ProcessInfo.processInfo.environment,
-        arguments: [String] = ProcessInfo.processInfo.arguments
-    ) -> String? {
-        if let tab = environment["SCONEOS_COMPACT_TAB"]?.lowercased(), !tab.isEmpty {
-            return tab
+    public static let overrides = LaunchOverrides(prefix: "SCONEOS")
+    fileprivate static let screen = overrides.initialView.flatMap(Screen.init(rawValue:))
+    public static let isIOSLayout = overrides.value("layout") == "ios"
+    public static let showsQueue = overrides.flag("show-queue")
+    /// `--tab`. `spotify` opens Settings. Nil when the flag is unset, so a later apply does not reset the tab.
+    fileprivate static let compactTab: AppTab? = {
+        switch overrides.value("tab") {
+        case nil: nil
+        case "rooms": .rooms
+        case "settings", "spotify": .settings
+        default: .map
         }
-        for arg in arguments {
-            let lowered = arg.lowercased()
-            if lowered.hasPrefix("--tab=") {
-                return String(lowered.dropFirst("--tab=".count))
-            }
-        }
-        return nil
-    }
-
-    public static func requestedColorScheme(
-        environment: [String: String] = ProcessInfo.processInfo.environment,
-        arguments: [String] = ProcessInfo.processInfo.arguments
-    ) -> ColorScheme? {
-        let env = environment["SCONEOS_APPEARANCE"]?.lowercased()
-        if env == "light" { return .light }
-        if env == "dark" { return .dark }
-        for arg in arguments {
-            let lowered = arg.lowercased()
-            if lowered == "--appearance=light" { return .light }
-            if lowered == "--appearance=dark" { return .dark }
-        }
-        if let index = arguments.firstIndex(of: "--appearance"), arguments.indices.contains(index + 1) {
-            let next = arguments[index + 1].lowercased()
-            if next == "light" { return .light }
-            if next == "dark" { return .dark }
-        }
-        return nil
-    }
+    }()
 }
 
 enum SidebarDestination: Hashable {
@@ -204,7 +142,7 @@ enum SidebarDestination: Hashable {
     case speaker(SpeakerUUID)
 }
 
-private enum AppTab: Hashable {
+fileprivate enum AppTab: Hashable {
     case map
     case rooms
     case settings
@@ -224,12 +162,7 @@ public struct SconeRootView: View {
     @State private var dockSelectedGroupID: GroupID?
 
     public init() {
-        let initialTab: AppTab = switch LaunchView.requestedCompactTab() {
-        case "rooms": .rooms
-        case "settings", "spotify": .settings
-        default: .map
-        }
-        _activeTab = State(initialValue: initialTab)
+        _activeTab = State(initialValue: LaunchView.compactTab ?? .map)
     }
 
     private var dockEligibleGroups: [SonosGroup] {
@@ -271,9 +204,9 @@ public struct SconeRootView: View {
 
     private var isCompactLayout: Bool {
         #if os(iOS)
-        return horizontalSizeClass == .compact || LaunchView.requestsIOS()
+        return horizontalSizeClass == .compact || LaunchView.isIOSLayout
         #else
-        return LaunchView.requestsIOS()
+        return LaunchView.isIOSLayout
         #endif
     }
 
@@ -292,8 +225,6 @@ public struct SconeRootView: View {
                 .hideWindowToolbarBackground()
             }
         }
-        .tint(MidnightGlass.gold)
-        .optionalPreferredColorScheme(LaunchView.requestedColorScheme())
         .overlay(alignment: .topTrailing) {
             if let alert = store.state.alert {
                 AlertBanner(
@@ -674,18 +605,12 @@ public struct SconeRootView: View {
     }
 
     private func applyLaunchSelection() {
-        if !appliedLaunch, let tab = LaunchView.requestedCompactTab() {
-            switch tab {
-            case "rooms":
-                activeTab = .rooms
-            case "settings", "spotify":
-                activeTab = .settings
-            default:
-                activeTab = .map
-            }
+        if !appliedLaunch, let tab = LaunchView.compactTab {
+            activeTab = tab
         }
         guard !appliedLaunch else { return }
-        if LaunchView.requestsGuestRoom() {
+        switch LaunchView.screen {
+        case .guest:
             if let guestGroup = store.state.groups.first(where: {
                 $0.speakers.contains { $0.roomName.lowercased().contains("guest") }
             }) ?? store.state.groups.first(where: { $0.playback.nowPlaying != nil }) {
@@ -693,9 +618,7 @@ public struct SconeRootView: View {
                 if isCompactLayout { mapPath = [guestGroup.id] }
                 appliedLaunch = true
             }
-            return
-        }
-        if LaunchView.requestsLivingRoom() {
+        case .living:
             if let livingGroup = store.state.groups.first(where: {
                 $0.speakers.contains { $0.roomName.lowercased().contains("living") || !$0.bondedSatellites.isEmpty }
             }) {
@@ -703,27 +626,28 @@ public struct SconeRootView: View {
                 if isCompactLayout { mapPath = [livingGroup.id] }
                 appliedLaunch = true
             }
-            return
-        }
-        guard LaunchView.requestsGroup() else { return }
-        if let bondedGroup = store.state.groups.first(where: {
-            $0.speakers.contains { !$0.bondedSatellites.isEmpty }
-        }) {
-            selection = .group(bondedGroup.id)
-            if isCompactLayout { mapPath = [bondedGroup.id] }
-            appliedLaunch = true
-            return
-        }
-        let multi = store.state.groups.filter { $0.speakers.count > 1 }
-        if let count = multi.map(\.speakers.count).max(),
-           let group = multi.first(where: { $0.speakers.count == count }) {
-            selection = .group(group.id)
-            if isCompactLayout { mapPath = [group.id] }
-            appliedLaunch = true
-        } else if let first = store.state.groups.first {
-            selection = .group(first.id)
-            if isCompactLayout { mapPath = [first.id] }
-            appliedLaunch = true
+        case .group:
+            if let bondedGroup = store.state.groups.first(where: {
+                $0.speakers.contains { !$0.bondedSatellites.isEmpty }
+            }) {
+                selection = .group(bondedGroup.id)
+                if isCompactLayout { mapPath = [bondedGroup.id] }
+                appliedLaunch = true
+                return
+            }
+            let multi = store.state.groups.filter { $0.speakers.count > 1 }
+            if let count = multi.map(\.speakers.count).max(),
+               let group = multi.first(where: { $0.speakers.count == count }) {
+                selection = .group(group.id)
+                if isCompactLayout { mapPath = [group.id] }
+                appliedLaunch = true
+            } else if let first = store.state.groups.first {
+                selection = .group(first.id)
+                if isCompactLayout { mapPath = [first.id] }
+                appliedLaunch = true
+            }
+        case nil:
+            break
         }
     }
 
@@ -766,15 +690,6 @@ public struct SconeRootView: View {
 }
 
 private extension View {
-    @ViewBuilder
-    func optionalPreferredColorScheme(_ scheme: ColorScheme?) -> some View {
-        if let scheme {
-            self.preferredColorScheme(scheme)
-        } else {
-            self
-        }
-    }
-
     @ViewBuilder
     func hideWindowToolbarBackground() -> some View {
         #if os(macOS)

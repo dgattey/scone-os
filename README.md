@@ -16,37 +16,15 @@ Sconeos is structured as a single Swift Package (`SconeKit`) with strict module 
 ## Requirements
 
 - macOS 14.0+ or iOS 17.0+
-- Swift 6.0 / Xcode 16+
+- Swift 6 with the Xcode 26.5 toolchain. There's no Xcode project: Sconeos builds with SwiftPM.
 
-## Building and Running on macOS
+## Building and running
 
-Build, sign, and launch `Sconeos.app` in release configuration:
+Sconeos builds with [DylKit](Packages/DylKit), Dylan's shared app framework. `DylApp.toml` configures the app, and the `./run` shim runs DylKit's `devkit` and `release-kit` tools. Setup, building, tests, background launches, screenshots and the iOS Simulator are in [`.cursor/skills/apple-dev-loop`](.cursor/skills/apple-dev-loop/SKILL.md). Releasing is in [`.cursor/skills/apple-release`](.cursor/skills/apple-release/SKILL.md).
 
-```bash
-./scripts/run-macos.sh
-```
+## Code signing and Sparkle updates
 
-To package `build/Sconeos.app` without launching:
-
-```bash
-./scripts/build-macos.sh release
-```
-
-## Building for iOS Simulator
-
-Compile the shared `SconeUI` and `SconeosApp` targets for iOS Simulator:
-
-```bash
-xcodebuild -scheme Sconeos \
-  -destination 'platform=iOS Simulator,name=iPhone 17 Pro' \
-  build
-```
-
-## Code Signing and Sparkle Updates
-
-`scripts/build-macos.sh` embeds `Sparkle.framework` and signs all nested XPC services (`Installer.xpc`, `Downloader.xpc`, `Autoupdate`, `Updater.app`) inside-out before signing `Sconeos.app` with `Sconeos.local.entitlements`.
-
-`scripts/lib/signing.sh` signs ad-hoc (`-`) unless `SCONEOS_SIGN_IDENTITY` names a real identity. Untrusted self-signed certificates get killed by `syspolicyd`/`amfid` on quarantined launches, so releases stay ad-hoc.
+`release-kit` bundles the app, strips build-machine rpaths, embeds `Sparkle.framework`, and signs everything inside-out (`Installer.xpc`, `Downloader.xpc` with its entitlements preserved, `Autoupdate`, `Updater.app`, then `Sconeos.app` with `Sconeos.local.entitlements`). Releases are signed ad-hoc with the designated requirement pinned to the bundle identifier, so Sparkle accepts each build as the same app. Untrusted self-signed certificates get killed by `syspolicyd`/`amfid` on quarantined launches.
 
 To rotate or generate a Sparkle EdDSA keypair (storing the private key in the macOS login Keychain and writing the public key to `sparkle-public-key.txt`):
 
@@ -54,10 +32,4 @@ To rotate or generate a Sparkle EdDSA keypair (storing the private key in the ma
 ./scripts/generate-sparkle-key.sh
 ```
 
-## Testing
-
-Run the full unit test suite:
-
-```bash
-swift test
-```
+The download site in `server/` is a thin `@dylkit/web` app (`Packages/DylKit/web`) that reads `DylApp.toml` and `server/public/appcast.xml`. CI for the site is the `site` workflow in `.github/workflows/site.yml`.

@@ -1,6 +1,9 @@
 // swift-tools-version: 6.0
 import PackageDescription
 
+let dylCore: Target.Dependency = .product(name: "DylCore", package: "DylKit")
+let dylUI: Target.Dependency = .product(name: "DylUI", package: "DylKit")
+
 let package = Package(
     name: "SconeKit",
     platforms: [.macOS(.v14), .iOS(.v17)],
@@ -13,15 +16,15 @@ let package = Package(
         .executable(name: "Sconeos", targets: ["SconeosApp"]),
     ],
     dependencies: [
-        // macOS auto-update (canonical for non-App-Store apps). Linked only into the macOS shell.
-        .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.9.0"),
+        .package(path: "Packages/DylKit"),
     ],
     targets: [
         .target(name: "SconeDomain"),
-        .target(name: "SonosProtocolBoundary", dependencies: ["SconeDomain"]),
-        .target(name: "SpotifyBridge", dependencies: ["SconeDomain"]),
+        .target(name: "SonosProtocolBoundary", dependencies: ["SconeDomain", dylCore]),
+        .target(name: "SpotifyBridge", dependencies: ["SconeDomain", dylCore]),
         .target(name: "SconeStore", dependencies: ["SconeDomain", "SonosProtocolBoundary", "SpotifyBridge"]),
-        .target(name: "SconeUI", dependencies: ["SconeStore", "SconeDomain", "SpotifyBridge"]),
+        .target(name: "SconeUI", dependencies: ["SconeStore", "SconeDomain", "SpotifyBridge", dylCore, dylUI]),
+        // release-kit's bundler adds the @executable_path/../Frameworks rpath for the embedded Sparkle.framework.
         .executableTarget(
             name: "SconeosApp",
             dependencies: [
@@ -29,14 +32,8 @@ let package = Package(
                 "SconeStore",
                 "SconeDomain",
                 "SpotifyBridge",
-                .product(name: "Sparkle", package: "Sparkle", condition: .when(platforms: [.macOS])),
-            ],
-            linkerSettings: [
-                // build-macos.sh embeds Sparkle.framework under Contents/Frameworks.
-                .unsafeFlags(
-                    ["-Xlinker", "-rpath", "-Xlinker", "@executable_path/../Frameworks"],
-                    .when(platforms: [.macOS])
-                ),
+                dylUI,
+                .product(name: "DylUpdates", package: "DylKit"),
             ]
         ),
         .testTarget(name: "SconeKitTests", dependencies: ["SconeDomain", "SonosProtocolBoundary", "SpotifyBridge", "SconeStore"]),

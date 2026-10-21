@@ -1,3 +1,4 @@
+import DylUI
 import SwiftUI
 import SconeDomain
 import SconeStore
@@ -72,7 +73,7 @@ struct FloorplanMapView: View {
         let topologyKey = groups.map { "\($0.id.coordinator.rawValue):\($0.speakers.map(\.id.rawValue).joined(separator: ","))" }.joined(separator: "|")
 
         GeometryReader { geo in
-            let isCompact = geo.size.width < 520 || LaunchView.requestsIOS()
+            let isCompact = geo.size.width < 520 || LaunchView.isIOSLayout
             if isCompact {
                 CompactFloorplanMapView(
                     nodes: nodes,
@@ -476,7 +477,7 @@ struct FloorplanMapView: View {
         return DragGesture(minimumDistance: 4, coordinateSpace: .named("house"))
             .onChanged { value in
                 if selected != nil { selected = nil }
-                dragging = node.id
+                if dragging != node.id { dragging = node.id }
                 let next = nearestTarget(
                     to: value.location,
                     excluding: node.id,
@@ -489,10 +490,10 @@ struct FloorplanMapView: View {
                 } else {
                     dragPoint = value.location
                 }
-                if next != dropTarget, next != nil {
-                    acousticTick()
+                if next != dropTarget {
+                    if next != nil { acousticTick() }
+                    dropTarget = next
                 }
-                dropTarget = next
             }
             .onEnded { value in
                 let moved = hypot(value.translation.width, value.translation.height)
@@ -701,7 +702,7 @@ private struct RoomContainerNode: View {
                     .padding(.vertical, 2)
                     .background(Capsule().fill(MidnightGlass.gold))
             } else if !node.speaker.reachability.isOnline {
-                OfflinePill()
+                StatusPill("Offline")
             } else if let battery = node.speaker.model.battery {
                 SpeakerBatteryBadge(battery: battery)
             } else {

@@ -133,7 +133,7 @@ for await snapshot in sonos.snapshots() {
 
 ```
 scone-os/
-  Sconeos.xcodeproj               multiplatform app target: SwiftUI views only
+  Package.swift                   SwiftPM only, no Xcode project; SconeosApp is the executable target
   Packages/SconeKit/Package.swift
     SconeDomain                   pure value types and pure algorithms. Depends on Foundation only.
       Identity.swift              SpeakerUUID, GroupID

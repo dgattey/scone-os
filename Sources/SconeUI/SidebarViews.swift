@@ -1,3 +1,4 @@
+import DylUI
 import SwiftUI
 import SconeDomain
 import SconeStore
@@ -391,7 +392,7 @@ struct SidebarMemberRow: View {
                 SpeakerBatteryBadge(battery: battery)
             }
             if !speaker.reachability.isOnline {
-                OfflinePill()
+                StatusPill("Offline")
             }
             if isHovered {
                 Button(action: onRemove) {
@@ -431,7 +432,7 @@ struct SidebarOfflineRow: View {
                 .foregroundStyle(MidnightGlass.secondaryText)
                 .lineLimit(1)
             Spacer(minLength: 4)
-            OfflinePill()
+            StatusPill("Offline")
         }
         .padding(.vertical, 3)
         .opacity(0.65)
