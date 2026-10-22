@@ -1,13 +1,13 @@
 {
-  "originHash" : "14d85e5cc4d0e1d5d83d1524105d1db3324ead7db8a60c9c5ae0e6d10f2117ad",
+  "originHash" : "f2d070b8261f1c0d0ca1f8acf95bf73078724f84be83152e1fc7b1d7cd525bb3",
   "pins" : [
     {
       "identity" : "dyl-kit",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/dgattey/dyl-kit",
       "state" : {
-        "revision" : "af8714b6b5913f82b3de3ac138b2416be62910fd",
-        "version" : "0.1.0"
+        "revision" : "91cfb1bd746703090d23e57bd27800f1f55f9154",
+        "version" : "0.2.1"
       }
     },
     {
@@ -35,6 +35,15 @@
       "state" : {
         "revision" : "4799286537280063c85a32f09884cfbca301b1a1",
         "version" : "602.0.0"
+      }
+    },
+    {
+      "identity" : "viewinspector",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/nalexn/ViewInspector",
+      "state" : {
+        "revision" : "2dacb6e514be19379c605a5a11564d0f3fea89d9",
+        "version" : "0.10.5"
       }
     }
   ],

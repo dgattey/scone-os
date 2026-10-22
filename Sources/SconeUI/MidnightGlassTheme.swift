@@ -16,9 +16,6 @@ private extension Color {
 public struct MidnightGlassPalette: ThemePalette {
     public init() {}
     public var accent: Color { MidnightGlass.gold }
-    public var secondaryText: Color { MidnightGlass.secondaryText }
-    public var subtleFill: Color { MidnightGlass.subtleFill }
-    public var border: Color { MidnightGlass.cardBorder }
 }
 
 enum MidnightGlass {
@@ -419,6 +416,23 @@ struct SconeBrandEmblem: View {
         colorScheme == .dark
             ? Color.black.opacity(0.50)
             : Color(red: 0.353, green: 0.196, blue: 0.063).opacity(0.28)
+    }
+}
+
+/// A small capsule for a status such as "Offline".
+struct StatusPill: View {
+    private let text: LocalizedStringKey
+
+    init(_ text: LocalizedStringKey) { self.text = text }
+
+    var body: some View {
+        Text(text)
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(MidnightGlass.secondaryText)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 3)
+            .background(Capsule().fill(MidnightGlass.subtleFill))
+            .overlay(Capsule().strokeBorder(MidnightGlass.cardBorder, lineWidth: 1))
     }
 }
 
