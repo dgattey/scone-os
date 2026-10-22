@@ -50,6 +50,40 @@ extension SpeakerUUID: CodingKeyRepresentable {
     public init?<T: CodingKey>(codingKey: T) { self.init(rawValue: codingKey.stringValue) }
 }
 
+/// A Sonos household (`Sonos_…`): the system a speaker belongs to, as each speaker reports it.
+public struct HouseholdID: Hashable, Comparable, Sendable, CustomStringConvertible {
+    public let rawValue: String
+
+    public init?(rawValue: String) {
+        guard rawValue.hasPrefix("Sonos_"), rawValue.count > "Sonos_".count else { return nil }
+        self.rawValue = rawValue
+    }
+
+    public var description: String { rawValue }
+    public static func < (lhs: Self, rhs: Self) -> Bool { lhs.rawValue < rhs.rawValue }
+}
+
+extension HouseholdID: Codable {
+    public init(from decoder: any Decoder) throws {
+        let raw = try decoder.singleValueContainer().decode(String.self)
+        guard let id = HouseholdID(rawValue: raw) else {
+            throw DecodingError.dataCorrupted(
+                .init(codingPath: decoder.codingPath, debugDescription: "Not a Sonos household id: \(raw)"))
+        }
+        self = id
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
+}
+
+extension HouseholdID: CodingKeyRepresentable {
+    public var codingKey: any CodingKey { StringKey(stringValue: rawValue) }
+    public init?<T: CodingKey>(codingKey: T) { self.init(rawValue: codingKey.stringValue) }
+}
+
 private struct StringKey: CodingKey {
     let stringValue: String
     init(stringValue: String) { self.stringValue = stringValue }

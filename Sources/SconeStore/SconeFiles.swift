@@ -14,7 +14,8 @@ extension FileSlot where Content == FloorplanPositionsFile {
     public static var floorplanPositions: Self { Self(name: "floorplan-positions.json", isDisposable: false) }
 }
 
-public struct CachedSpeakersFile: Codable, Equatable, Sendable {
+/// One household's last-seen rooms, kept while Sconeos is on another network.
+public struct HouseholdRoster: Codable, Equatable, Sendable {
     public var speakers: [Speaker]
     public var rf: RFPeerMatrix
     public var networkName: String?
@@ -23,6 +24,17 @@ public struct CachedSpeakersFile: Codable, Equatable, Sendable {
         self.speakers = speakers
         self.rf = rf
         self.networkName = networkName
+    }
+}
+
+public struct CachedSpeakersFile: Codable, Equatable, Sendable {
+    /// The household that last answered. Its roster shows until a household answers on this network.
+    public var current: HouseholdID?
+    public var households: [HouseholdID: HouseholdRoster]
+
+    public init(current: HouseholdID?, households: [HouseholdID: HouseholdRoster]) {
+        self.current = current
+        self.households = households
     }
 }
 
@@ -51,7 +63,13 @@ public struct LoadedFiles: Sendable {
         self.quarantined = quarantined
     }
 
-    public var seedIPs: [String] { cache?.speakers.map(\.reachability.ip) ?? [] }
+    /// The current household's addresses first, then every other household's, so either network reconnects fast.
+    public var seedIPs: [String] {
+        guard let cache else { return [] }
+        let current = cache.current.flatMap { cache.households[$0] }.map { [$0] } ?? []
+        let others = cache.households.filter { $0.key != cache.current }.sorted { $0.key < $1.key }.map(\.value)
+        return (current + others).flatMap { $0.speakers.map(\.reachability.ip) }
+    }
 }
 
 public struct SconeFiles: Sendable {

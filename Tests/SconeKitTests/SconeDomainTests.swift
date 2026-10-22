@@ -12,6 +12,12 @@ private enum House {
     static let bedroom = SpeakerUUID(rawValue: "RINCON_542A1B5F088401400")!
     static let guest = SpeakerUUID(rawValue: "RINCON_542A1B5F08A001400")!
     static let basement = SpeakerUUID(rawValue: "RINCON_C4387523117601400")!
+    static let household = HouseholdID(rawValue: "Sonos_HomeHouseholdA1B2C3D4E5")!
+}
+
+private enum Office {
+    static let speaker = SpeakerUUID(rawValue: "RINCON_38420B1F2E3D01400")!
+    static let household = HouseholdID(rawValue: "Sonos_OfficeHouseholdF6E5D4C3")!
 }
 
 struct VolumeTests {
@@ -754,7 +760,7 @@ struct BondedSatelliteAndTelemetryTests {
           </ZoneGroups>
         </ZoneGroupState>
         """
-        let parsedTopology = try TopologyService.parse(zoneGroupState: zgsXML)
+        let parsedTopology = try TopologyService.parse(zoneGroupState: zgsXML, household: House.household)
         #expect(parsedTopology.members.count == 1)
         let beamMember = try #require(parsedTopology.members[House.living])
         #expect(beamMember.satellites.count == 2)
@@ -1177,6 +1183,7 @@ struct HouseholdTests {
         // 2. When NO group is .playing and multiple ungrouped rooms report the same .paused track,
         // only ONE group (preferring the larger group or preferred coordinator) retains the .paused session!
         let allPaused = HouseholdSnapshot(
+            household: House.household,
             observedAt: now,
             speakers: Dictionary(uniqueKeysWithValues: [
                 speaker(House.living, room: "Living Room"),
@@ -1310,6 +1317,7 @@ struct SconeStateTests {
 
         let custom = PresetPill(name: "Movie", coordinatorUUID: House.living, memberUUIDs: [])
         let snapWithPresets = HouseholdSnapshot(
+            household: nil,
             observedAt: Date(timeIntervalSinceReferenceDate: 100),
             speakers: [:],
             topology: .empty,
@@ -1332,48 +1340,76 @@ struct SconeStateTests {
         let lastSeen = Date(timeIntervalSinceReferenceDate: 500)
         let soundbar = soundbarWithRearSatellite(reachability: .offline(lastKnownIP: "192.168.68.92", lastSeenAt: lastSeen))
         var state = SconeState(loaded: LoadedFiles(
-            cache: CachedSpeakersFile(speakers: [soundbar], rf: .empty, networkName: "Feeling 22"),
+            cache: homeCache([soundbar], networkName: "Feeling 22"),
             positions: nil, quarantined: []))
         #expect(state.connection == .searching)
         #expect(state.speakers.map(\.id) == [House.living])
         #expect(state.speakers.flatMap(\.bondedSatellites).map(\.isOnline) == [false])
 
         state.absorb(HouseholdSnapshot(
-            observedAt: Date(timeIntervalSinceReferenceDate: 600), speakers: [:], topology: .empty, groupStatus: [:], rf: .empty))
+            household: nil, observedAt: Date(timeIntervalSinceReferenceDate: 600), speakers: [:], topology: .empty, groupStatus: [:], rf: .empty))
         #expect(state.connection == .away(lastSeenAt: lastSeen))
         #expect(state.speakers.isEmpty)
         #expect(state.floorplan.isEmpty)
-        #expect(state.persisted.cache.speakers.map(\.id) == [House.living])
+        #expect(state.persisted.cache.households[House.household]?.speakers.map(\.id) == [House.living])
     }
 
-    @Test func aDifferentHouseholdReplacesTheStaleRoster() {
+    @Test func anotherHouseholdShowsOnlyItsRoomsAndKeepsThisOneForLater() {
         let stale = soundbarWithRearSatellite(
             reachability: .offline(lastKnownIP: "192.168.68.92", lastSeenAt: Date(timeIntervalSinceReferenceDate: 500)))
         var state = SconeState(
-            loaded: LoadedFiles(
-                cache: CachedSpeakersFile(speakers: [stale], rf: .empty, networkName: "Feeling 22"),
-                positions: nil, quarantined: []),
+            loaded: LoadedFiles(cache: homeCache([stale], networkName: "Feeling 22"), positions: nil, quarantined: []),
             initialPresets: [PresetPill(name: "Movie", coordinatorUUID: House.living, memberUUIDs: [])])
-        state.absorb(snapshot(
-            [speaker(House.kitchen, room: "Kitchen Speaker", ip: "10.0.0.8")],
-            coordinatorOf: alone([House.kitchen])))
 
+        state.absorb(snapshot(
+            [speaker(Office.speaker, room: "315 4th floor", ip: "10.20.0.8")],
+            coordinatorOf: alone([Office.speaker]),
+            household: Office.household))
         #expect(state.connection == .live)
-        #expect(state.speakers.map(\.id) == [House.kitchen])
-        #expect(state.speakers.allSatisfy { $0.reachability.isOnline })
+        #expect(state.speakers.map(\.id) == [Office.speaker])
+        #expect(state.floorplan.map(\.id) == [Office.speaker])
         #expect(state.networkName == nil)
         #expect(state.presets.isEmpty)
-        #expect(state.persisted.cache.speakers.map(\.id) == [House.kitchen])
+        #expect(state.persisted.cache.current == Office.household)
+        #expect(state.persisted.cache.households[House.household]?.speakers.map(\.id) == [House.living])
+        #expect(state.persisted.cache.households[House.household]?.networkName == "Feeling 22")
+
+        state.absorb(snapshot(
+            [speaker(House.kitchen, room: "Kitchen Speaker", ip: "192.168.68.58")],
+            coordinatorOf: alone([House.kitchen]),
+            at: Date(timeIntervalSinceReferenceDate: 2_000)))
+        #expect(state.speakers.map(\.id) == [House.kitchen, House.living])
+        #expect(state.floorplan.map(\.id).sorted() == [House.living, House.kitchen].sorted())
+        #expect(state.networkName == "Feeling 22")
+        #expect(state.persisted.cache.current == House.household)
+        #expect(state.persisted.cache.households[Office.household]?.speakers.map(\.id) == [Office.speaker])
+    }
+
+    @Test func launchShowsOnlyTheLastHouseholdsRoster() {
+        let office = speaker(Office.speaker, room: "315 4th floor", ip: "10.20.0.8")
+            .lastKnown(seenAt: Date(timeIntervalSinceReferenceDate: 400))
+        let home = speaker(House.kitchen, room: "Kitchen Speaker", ip: "192.168.68.58")
+            .lastKnown(seenAt: Date(timeIntervalSinceReferenceDate: 500))
+        let loaded = LoadedFiles(
+            cache: CachedSpeakersFile(current: House.household, households: [
+                House.household: HouseholdRoster(speakers: [home], rf: .empty),
+                Office.household: HouseholdRoster(speakers: [office], rf: .empty),
+            ]),
+            positions: nil, quarantined: [])
+        let state = SconeState(loaded: loaded)
+        #expect(state.connection == .searching)
+        #expect(state.speakers.map(\.id) == [House.kitchen])
+        #expect(loaded.seedIPs == ["192.168.68.58", "10.20.0.8"])
     }
 
     @Test func liveSatellitesAreSavedOffline() {
         var state = SconeState(loaded: LoadedFiles(cache: nil, positions: nil, quarantined: []))
         let soundbar = soundbarWithRearSatellite(reachability: .online(ip: "192.168.68.92", rssi: -40, noiseFloor: -98))
         state.absorb(HouseholdSnapshot(
-            observedAt: Date(timeIntervalSinceReferenceDate: 1_000), speakers: [House.living: soundbar],
+            household: House.household, observedAt: Date(timeIntervalSinceReferenceDate: 1_000), speakers: [House.living: soundbar],
             topology: topology(alone([House.living])), groupStatus: [:], rf: .empty))
         #expect(state.speakers.flatMap(\.bondedSatellites).map(\.isOnline) == [true])
-        #expect(state.persisted.cache.speakers.flatMap(\.bondedSatellites).map(\.isOnline) == [false])
+        #expect(state.persisted.cache.households[House.household]?.speakers.flatMap(\.bondedSatellites).map(\.isOnline) == [false])
     }
 
     @Test func renameAndUpdateTrimAndLeaveBlankOrUnknownIdsAlone() {
@@ -1399,7 +1435,7 @@ struct SconeStateTests {
             id: House.kitchen, roomName: "Kitchen Speaker", model: .era100,
             reachability: .offline(lastKnownIP: "192.168.68.58", lastSeenAt: old), volume: .v20)
         var state = SconeState(loaded: LoadedFiles(
-            cache: CachedSpeakersFile(speakers: [basement, cachedKitchenBefore], rf: .empty),
+            cache: homeCache([basement, cachedKitchenBefore]),
             positions: nil,
             quarantined: []))
         let seen = Date(timeIntervalSinceReferenceDate: 80)
@@ -1417,7 +1453,7 @@ struct SconeStateTests {
         #expect(state.floorplan[1].placement == .inferred)
         #expect(state.floorplan[1].group == GroupID(coordinator: House.kitchen))
         #expect(state.floorplan[1].speaker.reachability.isOnline)
-        let cachedKitchen = state.persisted.cache.speakers.first { $0.id == House.kitchen }
+        let cachedKitchen = state.persisted.cache.households[House.household]?.speakers.first { $0.id == House.kitchen }
         #expect(cachedKitchen?.reachability == .offline(lastKnownIP: "192.168.68.58", lastSeenAt: seen))
 
         let pin = RoomCoordinate(clampingX: 0.10, y: 0.90)
@@ -1610,11 +1646,14 @@ struct SconeFileTests {
             Issue.record("expected cached-speakers.json")
             return
         }
-        #expect(cache.speakers.first?.volume == .v20)
-        #expect(cache.speakers.first?.reachability == .offline(lastKnownIP: "192.168.68.58", lastSeenAt: firstDate))
-        #expect(cache.rf.band(House.bedroom, House.guest) == nil)
-        #expect(sweeping.state.persisted.cache.speakers.first?.volume == .v40)
-        #expect(sweeping.state.persisted.cache.rf.band(House.bedroom, House.guest) == .strong)
+        let home = try #require(cache.households[House.household])
+        #expect(cache.current == House.household)
+        #expect(home.speakers.first?.volume == .v20)
+        #expect(home.speakers.first?.reachability == .offline(lastKnownIP: "192.168.68.58", lastSeenAt: firstDate))
+        #expect(home.rf.band(House.bedroom, House.guest) == nil)
+        let persisted = try #require(sweeping.state.persisted.cache.households[House.household])
+        #expect(persisted.speakers.first?.volume == .v40)
+        #expect(persisted.rf.band(House.bedroom, House.guest) == .strong)
     }
 
     @Test func discoverySeedsDeduplicateCachedAddressesWithoutHardcodedFallbacks() {
@@ -1781,6 +1820,7 @@ struct SconeFileTests {
 
         let makePoll = { (time: Date, elapsedSec: Int) -> HouseholdSnapshot in
             HouseholdSnapshot(
+                household: House.household,
                 observedAt: time,
                 speakers: Dictionary(uniqueKeysWithValues: [
                     speaker(House.living, room: "Living Room"),
@@ -2384,14 +2424,22 @@ private func soundbarWithRearSatellite(reachability: ReachabilityState) -> Speak
             modelNumber: "S39", displayName: "Sonos Era 100", isOnline: true, linkQuality: 63)])
 }
 
+private func homeCache(_ speakers: [Speaker], networkName: String? = nil) -> CachedSpeakersFile {
+    CachedSpeakersFile(
+        current: House.household,
+        households: [House.household: HouseholdRoster(speakers: speakers, rf: .empty, networkName: networkName)])
+}
+
 private func snapshot(
     _ speakers: [Speaker],
     coordinatorOf: [SpeakerUUID: SpeakerUUID],
     status: [GroupID: GroupStatus] = [:],
     rf: RFPeerMatrix = .empty,
-    at date: Date = Date(timeIntervalSinceReferenceDate: 1_000)
+    at date: Date = Date(timeIntervalSinceReferenceDate: 1_000),
+    household: HouseholdID = House.household
 ) -> HouseholdSnapshot {
     HouseholdSnapshot(
+        household: household,
         observedAt: date,
         speakers: Dictionary(uniqueKeysWithValues: speakers.map { ($0.id, $0) }),
         topology: topology(coordinatorOf),
