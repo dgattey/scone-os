@@ -772,8 +772,9 @@ public final class SconeStore {
         if next.positions != written.positions, await saveAsync(next.positions, to: .floorplanPositions) {
             written = PersistedSlices(cache: written.cache, positions: next.positions)
         }
-        let rosterOrNameChanged = next.cache.speakers.map(\.id) != written.cache.speakers.map(\.id)
-            || next.cache.networkName != written.cache.networkName
+        let rosterOrNameChanged = next.cache.current != written.cache.current
+            || next.cache.households.mapValues { $0.speakers.map(\.id) } != written.cache.households.mapValues { $0.speakers.map(\.id) }
+            || next.cache.households.mapValues(\.networkName) != written.cache.households.mapValues(\.networkName)
         let cacheIsDue = rosterOrNameChanged || Date().timeIntervalSince(lastCacheWrite) >= 30
         if next.cache != written.cache, cacheIsDue, await saveAsync(next.cache, to: .cachedSpeakers) {
             written = PersistedSlices(cache: next.cache, positions: written.positions)

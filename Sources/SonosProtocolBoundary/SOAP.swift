@@ -48,7 +48,7 @@ private struct NetworkDebugLogWriter {
 }
 
 enum UPnPService: CaseIterable {
-    case zoneGroupTopology, avTransport, renderingControl, groupRenderingControl, contentDirectory, queue, systemProperties
+    case zoneGroupTopology, avTransport, renderingControl, groupRenderingControl, contentDirectory, queue, systemProperties, deviceProperties
 
     var urn: String {
         switch self {
@@ -59,6 +59,7 @@ enum UPnPService: CaseIterable {
         case .contentDirectory: "urn:schemas-upnp-org:service:ContentDirectory:1"
         case .queue: "urn:schemas-sonos-com:service:Queue:1"
         case .systemProperties: "urn:schemas-upnp-org:service:SystemProperties:1"
+        case .deviceProperties: "urn:schemas-upnp-org:service:DeviceProperties:1"
         }
     }
 
@@ -71,6 +72,7 @@ enum UPnPService: CaseIterable {
         case .contentDirectory: "/MediaServer/ContentDirectory/Control"
         case .queue: "/MediaRenderer/Queue/Control"
         case .systemProperties: "/SystemProperties/Control"
+        case .deviceProperties: "/DeviceProperties/Control"
         }
     }
 }

@@ -16,12 +16,17 @@ enum TopologyService {
     }
 
     struct Parsed: Sendable {
+        let household: HouseholdID
         let topology: Topology
         let members: [SpeakerUUID: Member]
         let vanished: Set<SpeakerUUID>
         let vanishedNames: [SpeakerUUID: String]
 
-        init(topology: Topology, members: [SpeakerUUID: Member], vanished: Set<SpeakerUUID>, vanishedNames: [SpeakerUUID: String] = [:]) {
+        init(
+            household: HouseholdID, topology: Topology, members: [SpeakerUUID: Member], vanished: Set<SpeakerUUID>,
+            vanishedNames: [SpeakerUUID: String] = [:]
+        ) {
+            self.household = household
             self.topology = topology
             self.members = members
             self.vanished = vanished
@@ -30,8 +35,9 @@ enum TopologyService {
     }
 
     static let getZoneGroupState = SOAPRequest(service: .zoneGroupTopology, action: "GetZoneGroupState", arguments: [])
+    static let getHouseholdID = SOAPRequest(service: .deviceProperties, action: "GetHouseholdID", arguments: [])
 
-    static func parse(zoneGroupState: String) throws -> Parsed {
+    static func parse(zoneGroupState: String, household: HouseholdID) throws -> Parsed {
         let root = try XMLNode.parse(Data(zoneGroupState.utf8))
         var members: [SpeakerUUID: Member] = [:]
         var coordinatorOf: [SpeakerUUID: SpeakerUUID] = [:]
@@ -80,7 +86,9 @@ enum TopologyService {
             throw ProtocolParseError(description: "ZoneGroupState is not a valid topology")
         }
         let vanishedInfo = vanishedDevices(in: root)
-        return Parsed(topology: topology, members: members, vanished: vanishedInfo.ids, vanishedNames: vanishedInfo.names)
+        return Parsed(
+            household: household, topology: topology, members: members, vanished: vanishedInfo.ids,
+            vanishedNames: vanishedInfo.names)
     }
 
     static func request(for step: TopologyStep) -> (target: SpeakerUUID, request: SOAPRequest) {

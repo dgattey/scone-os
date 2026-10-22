@@ -1,6 +1,8 @@
 import Foundation
 
 public struct HouseholdSnapshot: Hashable, Sendable {
+    /// The household that answered, or nil when none did.
+    public let household: HouseholdID?
     public let observedAt: Date
     public let speakers: [SpeakerUUID: Speaker]
     public let topology: Topology
@@ -12,13 +14,14 @@ public struct HouseholdSnapshot: Hashable, Sendable {
     public let groups: [SonosGroup]
 
     package init(
-        observedAt: Date, speakers: [SpeakerUUID: Speaker], topology: Topology,
+        household: HouseholdID?, observedAt: Date, speakers: [SpeakerUUID: Speaker], topology: Topology,
         groupStatus: [GroupID: GroupStatus], rf: RFPeerMatrix,
         presets: [PresetPill]? = nil,
         networkName: String? = nil,
         externalSpotify: SpotifyTrackContext? = nil,
         preferredGroupIDs: Set<GroupID> = []
     ) {
+        self.household = household
         self.observedAt = observedAt
         self.speakers = speakers
         self.topology = topology
@@ -42,7 +45,8 @@ public struct HouseholdSnapshot: Hashable, Sendable {
     }
 
     public func isSemanticallyEquivalent(to other: HouseholdSnapshot) -> Bool {
-        guard topology == other.topology,
+        guard household == other.household,
+              topology == other.topology,
               rf == other.rf,
               presets == other.presets,
               networkName == other.networkName,
@@ -77,6 +81,7 @@ public struct HouseholdSnapshot: Hashable, Sendable {
         )
         guard sanitized != groupStatus else { return self }
         return HouseholdSnapshot(
+            household: household,
             observedAt: observedAt,
             speakers: speakers,
             topology: topology,
@@ -251,6 +256,7 @@ public struct HouseholdSnapshot: Hashable, Sendable {
         if let status { statuses[status.0] = status.1 }
         let resolvedExternal = externalSpotify ?? self.externalSpotify
         return HouseholdSnapshot(
+            household: household,
             observedAt: observedAt,
             speakers: speakers ?? self.speakers,
             topology: topology ?? self.topology,

@@ -140,8 +140,7 @@ public actor SonosHousehold {
             NetworkDebugLog.write("sweepOnce gen=\(generation): topology ONLINE with \(parsed.members.count) speakers: [\(rooms)]")
         }
         unreachableSince = nil
-        addressBook.absorb(parsed)
-        lastParsed = parsed
+        adopt(parsed)
         await refreshTransport(parsed)
         let due = telemetryDue || parsed.members.count != lastTelemetryMemberCount
         await refreshDescriptions(parsed, force: due)
@@ -163,11 +162,11 @@ public actor SonosHousehold {
         if unreachableSince == nil { unreachableSince = now }
         let elapsed = now.timeIntervalSince(unreachableSince ?? now)
         guard let latest else {
-            publish(HouseholdSnapshot(observedAt: now, speakers: [:], topology: .empty, groupStatus: [:], rf: .empty))
+            publish(HouseholdSnapshot(household: nil, observedAt: now, speakers: [:], topology: .empty, groupStatus: [:], rf: .empty))
             return
         }
         guard elapsed >= seconds(configuration.offlineAfter), !latest.speakers.isEmpty else { return }
-        publish(HouseholdSnapshot(observedAt: now, speakers: [:], topology: .empty, groupStatus: [:], rf: .empty))
+        publish(HouseholdSnapshot(household: nil, observedAt: now, speakers: [:], topology: .empty, groupStatus: [:], rf: .empty))
     }
 
     private var telemetryDue: Bool {
@@ -216,14 +215,42 @@ public actor SonosHousehold {
     }
 
     private func parseTopology(at endpoint: URL) async -> TopologyService.Parsed? {
+        async let householdNode = try? client.probe(TopologyService.getHouseholdID, at: endpoint)
         do {
             let node = try await client.probe(TopologyService.getZoneGroupState, at: endpoint)
             let xml = node.value("ZoneGroupState")
-            guard !xml.isEmpty else { return nil }
-            return try TopologyService.parse(zoneGroupState: xml)
+            guard !xml.isEmpty,
+                  let household = await HouseholdID(rawValue: householdNode?.value("CurrentHouseholdID") ?? "")
+            else { return nil }
+            return try TopologyService.parse(zoneGroupState: xml, household: household)
         } catch {
             return nil
         }
+    }
+
+    /// Everything kept between sweeps belongs to one household, so another household answering starts from nothing.
+    private func adopt(_ parsed: TopologyService.Parsed) {
+        if let previous = lastParsed?.household, previous != parsed.household {
+            NetworkDebugLog.write("household changed from \(previous) to \(parsed.household)")
+            cachedSpeakers = [:]
+            missingSince = [:]
+            modelsByHost = [:]
+            radios = [:]
+            batteries = [:]
+            volumes = [:]
+            groupVolumes = [:]
+            playback = [:]
+            lastActiveGroupIDs = []
+            lastTelemetry = nil
+            householdPresets = nil
+            householdNetworkName = nil
+            spotifyAccount = nil
+            cachedQueueKey = [:]
+            cachedQueueAt = [:]
+            cachedQueueItems = [:]
+        }
+        addressBook.absorb(parsed)
+        lastParsed = parsed
     }
 
     private func refreshTransport(_ parsed: TopologyService.Parsed) async {
@@ -410,6 +437,7 @@ public actor SonosHousehold {
             }
         }
         let snapshot = HouseholdSnapshot(
+            household: parsed.household,
             observedAt: now,
             speakers: speakers,
             topology: parsed.topology,
@@ -480,16 +508,14 @@ public actor SonosHousehold {
                 }
             }
             if let parsed = try? await waitForTopology(target, ignoring: skipped) {
-                addressBook.absorb(parsed)
-                lastParsed = parsed
+                adopt(parsed)
                 await refreshTransport(parsed)
                 publishAssembled()
                 return skipped.isEmpty ? .applied : .partiallyApplied(unreachable: skipped)
             }
             if stepFailures != skipped,
                let parsed = try? await waitForTopology(target, ignoring: stepFailures) {
-                addressBook.absorb(parsed)
-                lastParsed = parsed
+                adopt(parsed)
                 await refreshTransport(parsed)
                 publishAssembled()
                 return .partiallyApplied(unreachable: stepFailures)
@@ -950,8 +976,7 @@ public actor SonosHousehold {
 
     private func refreshBook(anchor: SpeakerUUID) async throws(SonosCommandError) {
         guard let parsed = await fetchTopology() else { throw .speakerUnreachable(anchor) }
-        addressBook.absorb(parsed)
-        lastParsed = parsed
+        adopt(parsed)
     }
 
     private func rereadMemberVolumes(of coordinator: SpeakerUUID) async {
