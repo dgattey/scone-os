@@ -1,7 +1,7 @@
-import { DownloadPage, loadSite } from "@dylkit/web";
+import { DownloadPage, latestRelease, loadSite } from "@dylkit/web";
 
-export const dynamic = "force-static";
+const site = loadSite();
 
-export default function HomePage() {
-  return <DownloadPage site={loadSite()} />;
+export default async function HomePage() {
+  return <DownloadPage site={site} release={await latestRelease(site)} />;
 }

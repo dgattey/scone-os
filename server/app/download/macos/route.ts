@@ -1,8 +1,7 @@
 import { downloadResponse, loadSite } from "@dylkit/web";
 
-// Runs during `next build`, while the zip is on disk; Vercel leaves large `public/` files out of function bundles.
-export const dynamic = "force-static";
+const site = loadSite();
 
 export function GET() {
-  return downloadResponse(loadSite());
+  return downloadResponse(site);
 }
