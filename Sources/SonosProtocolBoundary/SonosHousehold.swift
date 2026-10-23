@@ -549,6 +549,12 @@ public actor SonosHousehold {
             return try await skipNext(group)
         case .previousTrack(let group):
             return try await skipPrevious(group)
+        case .resumeSpotifyConnect(let group):
+            let media = try await callWithEndpointRefresh(TransportService.getMediaInfo, on: group.coordinator)
+            guard TransportService.isSpotifyConnect(media.value("CurrentURI")) else {
+                throw .unsupportedForCurrentSource
+            }
+            return try await setTransport(.play, group: group)
         case .enqueueAndPlaySpotify(let uri, let metadata, let group, let startingAt, let contextURI, let upNext):
             return try await enqueueSpotify(
                 uri,
@@ -1019,7 +1025,8 @@ public actor SonosHousehold {
         switch command {
         case .setVolume(_, .speaker(let speaker)): speaker
         case .setVolume(_, .group(let group)): group.coordinator
-        case .playPause(_, let group), .nextTrack(let group), .previousTrack(let group): group.coordinator
+        case .playPause(_, let group), .nextTrack(let group), .previousTrack(let group),
+             .resumeSpotifyConnect(let group): group.coordinator
         case .enqueueAndPlaySpotify(_, _, let group, _, _, _): group.coordinator
         case .group(let member, _), .ungroup(let member): member
         case .applyPreset(let preset): preset.coordinatorUUID

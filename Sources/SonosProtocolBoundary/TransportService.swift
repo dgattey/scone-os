@@ -73,7 +73,7 @@ enum TransportService {
                 spotifyURI: spotify,
                 source: source,
                 canSkip: queued || isSpotifyOrigin,
-                isSpotifyConnect: isSpotifyOrigin && currentURI.lowercased().hasPrefix("x-sonos-vli:")
+                isSpotifyConnect: isSpotifyConnect(currentURI)
             ))
         } else {
             now = .stream(title: facts.title.nilIfEmpty ?? facts.streamContent.nilIfEmpty)
@@ -196,6 +196,11 @@ enum TransportService {
             return candidate
         }
         return nil
+    }
+
+    static func isSpotifyConnect(_ currentURI: String) -> Bool {
+        let lowered = currentURI.lowercased()
+        return lowered.hasPrefix("x-sonos-vli:") && lowered.contains("spotify")
     }
 
     private static func isSpotifyURI(_ raw: String) -> Bool {

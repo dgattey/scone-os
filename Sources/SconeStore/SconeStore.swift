@@ -561,6 +561,16 @@ public final class SconeStore {
             }
         case .stopped:
             Task {
+                // A dormant Spotify Connect transport parses as stopped, and UPnP Play revives it in this room.
+                switch await perform(.resumeSpotifyConnect(group: group.id)) {
+                case .success:
+                    schedulePostTransportSpotifyRefresh()
+                    return
+                case .failure(.unsupportedForCurrentSource):
+                    mutateState { $0.dismissAlert() }
+                case .failure:
+                    return
+                }
                 await startOrResumeSpotifyPlayback(
                     on: group,
                     fallbackNowPlaying: lastKnownTracks[group.id].map(NowPlaying.track),

@@ -1973,6 +1973,40 @@ struct SconeFileTests {
         #expect(spotify.callCount == callsBeforePlay)
     }
 
+    @Test @MainActor func playOnDormantSpotifyConnectRoomRevivesItWithoutEnqueueing() async throws {
+        let directory = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let guestGroup = GroupID(coordinator: House.living)
+        let sonos = RecordingSonos(
+            yielded: [snapshot(
+                [speaker(House.living, room: "Guest Room Speaker")],
+                coordinatorOf: [House.living: House.living],
+                status: [guestGroup: GroupStatus(playback: .stopped, volume: .v25)]
+            )],
+            spotifyConnectGroups: [guestGroup]
+        )
+        let spotify = CountingSpotify(response: .failure(.nothingPlaying))
+        let store = SconeStore(
+            loaded: LoadedFiles(cache: nil, positions: nil, quarantined: []),
+            files: SconeFiles(directory: directory),
+            sonos: sonos,
+            spotify: spotify
+        )
+        await store.run()
+        let callsBeforePlay = spotify.callCount
+
+        let group = try #require(store.state.groups.first { $0.id == guestGroup })
+        store.togglePlayOrHandOffSpotify(for: group)
+        for _ in 0..<50 where sonos.commands.isEmpty {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+
+        #expect(sonos.commands == [.resumeSpotifyConnect(group: guestGroup)])
+        #expect(spotify.transferredRooms.isEmpty)
+        #expect(spotify.callCount == callsBeforePlay)
+        #expect(store.state.alert == nil)
+    }
+
     @Test func spotifyPlayerStateCarriesShuffleState() throws {
         let data = Data("""
         {"is_playing": true, "shuffle_state": true, "progress_ms": 1000,
@@ -2343,9 +2377,10 @@ struct SconeFileTests {
 
         let group2 = try #require(store2.state.groups.first)
         store2.togglePlayOrHandOffSpotify(for: group2)
-        for _ in 0..<20 where sonosRecorder2.commands.isEmpty {
+        for _ in 0..<20 where sonosRecorder2.commands.count < 2 {
             try? await Task.sleep(for: .milliseconds(10))
         }
+        #expect(sonosRecorder2.commands.first == .resumeSpotifyConnect(group: group2.id))
         let wakeCmd = try #require(sonosRecorder2.commands.last)
         if case .enqueueAndPlaySpotify(let uri, let meta, let coord, let pos, let ctxURI, let upNext) = wakeCmd {
             #expect(uri == trackURI)
@@ -2409,10 +2444,12 @@ private final class CountingSpotify: SpotifySource {
 @MainActor
 private final class RecordingSonos: SonosControl {
     let yielded: [HouseholdSnapshot]
+    let spotifyConnectGroups: Set<GroupID>
     var commands: [SonosCommand] = []
 
-    init(yielded: [HouseholdSnapshot]) {
+    init(yielded: [HouseholdSnapshot], spotifyConnectGroups: Set<GroupID> = []) {
         self.yielded = yielded
+        self.spotifyConnectGroups = spotifyConnectGroups
     }
 
     nonisolated func snapshots() -> AsyncStream<HouseholdSnapshot> {
@@ -2425,6 +2462,9 @@ private final class RecordingSonos: SonosControl {
 
     func send(_ command: SonosCommand) async throws(SonosCommandError) -> CommandOutcome {
         commands.append(command)
+        if case .resumeSpotifyConnect(let group) = command, !spotifyConnectGroups.contains(group) {
+            throw .unsupportedForCurrentSource
+        }
         return .applied
     }
 }
