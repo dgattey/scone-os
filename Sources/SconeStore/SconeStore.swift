@@ -264,8 +264,7 @@ public final class SconeStore {
                     artworkURL: mergedArt,
                     source: mergedSource,
                     upNext: ctx.upNext,
-                    canSkip: true,
-                    isShuffling: ctx.isShuffling
+                    canSkip: true
                 )
             }
 
@@ -682,8 +681,7 @@ public final class SconeStore {
             spotifyURI: context.uri,
             source: .spotify(contextTitle: context.contextTitle ?? context.metadata.album),
             upNext: context.upNext,
-            canSkip: true,
-            isShuffling: context.isShuffling
+            canSkip: true
         )
         lastKnownTracks[group.id] = track
         preferredActiveGroupIDs.insert(group.id)

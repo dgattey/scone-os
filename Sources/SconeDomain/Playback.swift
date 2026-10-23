@@ -175,8 +175,6 @@ public struct NowPlayingTrack: Hashable, Sendable {
     public let source: PlaybackSource?
     public let upNext: [QueueItem]
     public let canSkip: Bool
-    /// Spotify's live shuffle state for this session, or nil when Spotify isn't driving it.
-    public let isShuffling: Bool?
     /// The room's transport is a Spotify Connect session (`x-sonos-vli:`), not a Sonos queue.
     public let isSpotifyConnect: Bool
 
@@ -191,7 +189,6 @@ public struct NowPlayingTrack: Hashable, Sendable {
         source: PlaybackSource? = nil,
         upNext: [QueueItem] = [],
         canSkip: Bool? = nil,
-        isShuffling: Bool? = nil,
         isSpotifyConnect: Bool = false
     ) {
         self.title = title
@@ -204,7 +201,6 @@ public struct NowPlayingTrack: Hashable, Sendable {
         self.source = source ?? (spotifyURI != nil ? .spotify() : (queuePosition != nil ? .sonosQueue : nil))
         self.upNext = upNext
         self.canSkip = canSkip ?? (queuePosition != nil || spotifyURI != nil)
-        self.isShuffling = isShuffling
         self.isSpotifyConnect = isSpotifyConnect
     }
 
@@ -212,8 +208,7 @@ public struct NowPlayingTrack: Hashable, Sendable {
         artworkURL: URL? = nil,
         source: PlaybackSource? = nil,
         upNext: [QueueItem]? = nil,
-        canSkip: Bool? = nil,
-        isShuffling: Bool? = nil
+        canSkip: Bool? = nil
     ) -> NowPlayingTrack {
         NowPlayingTrack(
             title: title,
@@ -226,7 +221,6 @@ public struct NowPlayingTrack: Hashable, Sendable {
             source: source ?? self.source,
             upNext: upNext ?? self.upNext,
             canSkip: canSkip ?? self.canSkip,
-            isShuffling: isShuffling ?? self.isShuffling,
             isSpotifyConnect: isSpotifyConnect
         )
     }

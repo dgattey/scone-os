@@ -1910,7 +1910,6 @@ struct SconeFileTests {
         }
         #expect(enrichedLiving.source == .spotify(contextTitle: "Playlist \"Collect\""))
         #expect(enrichedLiving.upNext.map(\.title) == ["Next Track"])
-        #expect(enrichedLiving.isShuffling == true)
 
         // 3. Even when Spotify throws .nothingPlaying, SconeStore respects the 30s TTL
         // and does NOT hammer Spotify on every 2s poll tick.
