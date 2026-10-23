@@ -255,6 +255,7 @@ public struct SconeRootView: View {
             }
         }
         .task { await store.run() }
+        .groupingOutcomeHaptics(store.state.lastGroupingOutcome)
     }
 
     private var tabRoot: some View {

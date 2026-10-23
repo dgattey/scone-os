@@ -6,6 +6,7 @@ import SpotifyBridge
 
 @MainActor
 func joinedSpeaker(from items: [String], onto target: SpeakerUUID, store: SconeStore) -> Bool {
+    SpeakerDragSource.dropped()
     guard let raw = items.first, let member = SpeakerUUID(rawValue: raw), member != target else { return false }
     store.group(member: member, onto: target)
     return true
@@ -279,13 +280,17 @@ struct SidebarGroupRow: View {
     private var hasSession: Bool {
         playbackHasSession(group.playback) && !isSuppressedPausedDuplicate(group, in: store.state.groups)
     }
+    private var isValidDropTarget: Bool {
+        targeted && store.state.wouldRegroup(SpeakerDragSource.current, onto: group.coordinator.id)
+    }
 
     var body: some View {
         rowBody
             .dropDestination(for: String.self) { items, _ in
                 joinedSpeaker(from: items, onto: group.coordinator.id, store: store)
             } isTargeted: { targeted = $0 }
-            .draggable(group.coordinator.id.rawValue) { dragPreview(group.coordinator) }
+            .draggable(SpeakerDragSource.payload(group.coordinator.id)) { dragPreview(group.coordinator) }
+            .groupTargetHaptic(isValidDropTarget ? group.id : nil)
             .overlay {
                 if targeted {
                     RoundedRectangle(cornerRadius: 10, style: .continuous)
@@ -417,7 +422,7 @@ struct SidebarMemberRow: View {
                 isHovered = hovering
             }
         }
-        .draggable(speaker.id.rawValue) { dragPreview(speaker) }
+        .draggable(SpeakerDragSource.payload(speaker.id)) { dragPreview(speaker) }
     }
 }
 
