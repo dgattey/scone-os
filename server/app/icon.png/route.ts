@@ -1,7 +1,1 @@
-import { iconResponse, loadSite } from "@dylkit/web";
-
-const site = loadSite();
-
-export function GET(request: Request) {
-  return iconResponse(site, request);
-}
+export { icon as GET } from "@dylkit/web/routes";

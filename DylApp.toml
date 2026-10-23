@@ -1,5 +1,5 @@
 # Sconeos app manifest, read by devkit and release-kit.
-# Schema: DylKit's Sources/DylManifest/DylAppManifest.swift. `./run dev checks` validates it.
+# Schema: DylKit's Sources/DylManifest/DylAppManifest.swift. `swift run devkit checks` validates it.
 
 [app]
 name = "Sconeos"

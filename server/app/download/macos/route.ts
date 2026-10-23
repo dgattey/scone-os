@@ -1,7 +1,1 @@
-import { downloadResponse, loadSite } from "@dylkit/web";
-
-const site = loadSite();
-
-export function GET() {
-  return downloadResponse(site);
-}
+export { download as GET } from "@dylkit/web/routes";

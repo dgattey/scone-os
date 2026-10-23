@@ -29,4 +29,4 @@ printf '%s\n' "$PUB" >"$OUT"
 echo "Wrote public key -> $OUT"
 echo "  $PUB"
 echo
-echo "Next: commit sparkle-public-key.txt, then build with ./run dev build release."
+echo "Next: commit sparkle-public-key.txt, then build with swift run devkit build release."
