@@ -3,17 +3,24 @@
     <channel>
         <title>Sconeos</title>
         <item>
-            <title>1.1.2</title>
-            <pubDate>Thu, 22 Oct 2026 19:16:26 +0000</pubDate>
+            <title>1.1.3</title>
+            <pubDate>Fri, 23 Oct 2026 06:51:14 +0000</pubDate>
             <link>https://sconeos.gattey.com</link>
             <sparkle:fullReleaseNotesLink>https://sconeos.gattey.com/#release-notes</sparkle:fullReleaseNotesLink>
-            <sparkle:version>37</sparkle:version>
-            <sparkle:shortVersionString>1.1.2</sparkle:shortVersionString>
+            <sparkle:version>39</sparkle:version>
+            <sparkle:shortVersionString>1.1.3</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
             <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
             <description><![CDATA[<style>.sparkle-installed-version, .sparkle-installed-version ~ section { display: none; }</style>
+<section data-sparkle-version="39">
+<h3 style="margin: 0 0 6px 0; font-size: 13px;">1.1.3</h3>
+<ul>
+  <li style="margin-bottom: 6px; line-height: 1.45;">Dragging a speaker onto a room or group it can join gives a light tick on the trackpad or iPhone.</li>
+  <li style="margin-bottom: 6px; line-height: 1.45;">Grouping and ungrouping speakers now confirm with a haptic once Sonos finishes the change. On iPhone, a failed regroup plays an error haptic.</li>
+</ul>
+</section>
 <section data-sparkle-version="37">
-<h3 style="margin: 0 0 6px 0; font-size: 13px;">1.1.2</h3>
+<h3 style="margin: 14px 0 6px 0; font-size: 13px; opacity: 0.75;">1.1.2</h3>
 <ul>
   <li style="margin-bottom: 6px; line-height: 1.45;">Speakers from another Sonos system (say, the office) no longer show up as offline rooms at home. Each network keeps its own rooms, and they come back when you return to that network.</li>
 </ul>
@@ -76,15 +83,8 @@
   <li style="margin-bottom: 6px; line-height: 1.45;"><strong>Hourly background update checks:</strong> Sconeos now checks for updates every hour in addition to checking immediately on launch.</li>
 </ul>
 </section>
-<section data-sparkle-version="15">
-<h3 style="margin: 14px 0 6px 0; font-size: 13px; opacity: 0.75;">1.0.5</h3>
-<ul>
-  <li style="margin-bottom: 6px; line-height: 1.45;"><strong>Switch launch update check to <code>checkForUpdatesInBackground()</code></strong></li>
-  <li style="margin-bottom: 6px; line-height: 1.45;"><strong>Align local <code>scripts/build-macos.sh</code> version defaults with <code>appcast.xml</code></strong></li>
-</ul>
-</section>
 ]]></description>
-            <enclosure url="https://sconeos.gattey.com/Sconeos-1.1.2.zip" length="6747119" type="application/octet-stream" sparkle:edSignature="l5DQmMJQ8iM3sUvBDAt5z6+xlAT92/Nf6kkD1eflRJNEPkceN/e3iOO/f6q0GB4bsJhWfm7Nd4v6MCWyuE8gAw=="/>
+            <enclosure url="https://sconeos.gattey.com/Sconeos-1.1.3.zip" length="6759574" type="application/octet-stream" sparkle:edSignature="ofHyoC6IAPHbXkJwEdmnIS5UM8/rwBaygT2MksmZGa12NUdhb6S9/SGoPnfbcQ3yBVdRE0Rn5h8pS8t1moiBAw=="/>
         </item>
     </channel>
 </rss>

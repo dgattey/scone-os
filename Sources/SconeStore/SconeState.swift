@@ -6,6 +6,37 @@ public struct CommandTicket: Hashable, Sendable {
     fileprivate let value: Int
 }
 
+/// A regroup this app sent that Sonos has finished. Each one carries its own ticket, so two
+/// identical outcomes in a row still compare unequal.
+public struct GroupingOutcome: Hashable, Sendable {
+    public enum Kind: Hashable, Sendable {
+        case grouped
+        case ungrouped
+        case failed
+    }
+
+    public let kind: Kind
+    let ticket: CommandTicket
+
+    init?(_ command: SonosCommand, _ result: Result<CommandOutcome, SonosCommandError>, ticket: CommandTicket) {
+        let changed: Kind
+        switch command {
+        case .group: changed = .grouped
+        case .ungroup: changed = .ungrouped
+        case .applyPreset(let preset): changed = preset.memberUUIDs.isEmpty ? .ungrouped : .grouped
+        case .setVolume, .playPause, .nextTrack, .previousTrack, .seekToQueueTrack, .enqueueAndPlaySpotify,
+             .savePresets, .setSystemName:
+            return nil
+        }
+        switch result {
+        case .success(.applied): kind = changed
+        case .success(.alreadySatisfied): return nil
+        case .success(.partiallyApplied), .failure: kind = .failed
+        }
+        self.ticket = ticket
+    }
+}
+
 public enum SconeAlert: Hashable, Sendable {
     case commandFailed(SonosCommand, SonosCommandError)
     case partiallyApplied(SonosCommand, unreachable: Set<SpeakerUUID>)
@@ -51,6 +82,7 @@ public struct SconeState: Equatable, Sendable {
     public private(set) var networkName: String?
     public private(set) var pins: [SpeakerUUID: RoomCoordinate]
     public private(set) var alert: SconeAlert?
+    public private(set) var lastGroupingOutcome: GroupingOutcome?
     private var inFlight: [InFlight] = []
     private var volumeOverrides: [VolumeTarget: VolumeOverride] = [:]
     private var nextTicket = 0
@@ -208,6 +240,9 @@ public struct SconeState: Equatable, Sendable {
         case .success(.applied), .success(.alreadySatisfied): break
         case .success(.partiallyApplied(let unreachable)): alert = .partiallyApplied(command, unreachable: unreachable)
         case .failure(let error): alert = .commandFailed(command, error)
+        }
+        if let outcome = GroupingOutcome(command, result, ticket: ticket) {
+            lastGroupingOutcome = outcome
         }
         recomputeDerivedState()
     }

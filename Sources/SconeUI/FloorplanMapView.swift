@@ -163,6 +163,7 @@ struct FloorplanMapView: View {
                     .frame(width: geometry.canvasSize.width, height: geometry.canvasSize.height)
                     .coordinateSpace(.named("house"))
                     .animation(.spring(response: 0.38, dampingFraction: 0.84), value: topologyKey)
+                    .groupTargetHaptic(groupingDropTarget)
                 }
                 .scrollBounceBehavior(.basedOnSize)
             }
@@ -491,7 +492,6 @@ struct FloorplanMapView: View {
                     dragPoint = value.location
                 }
                 if next != dropTarget {
-                    if next != nil { acousticTick() }
                     dropTarget = next
                 }
             }
@@ -503,7 +503,6 @@ struct FloorplanMapView: View {
                         excluding: node.id,
                         geometry: geometry
                     ) {
-                        acousticTick()
                         switch target {
                         case .speaker(let targetSpeakerID):
                             store.group(member: node.id, onto: targetSpeakerID)
@@ -582,7 +581,6 @@ struct FloorplanMapView: View {
                             tether: tether,
                             isRoomHovered: hovered == tether.speakerID,
                             onSever: {
-                                acousticTick()
                                 store.ungroupSpeaker(tether.speakerID)
                             }
                         )
@@ -644,6 +642,16 @@ struct FloorplanMapView: View {
         case .musicHub(let groupID):
             return geometry.hubLocations[groupID]
         }
+    }
+
+    private var groupingDropTarget: MapDropTarget? {
+        let targetSpeaker: SpeakerUUID? = switch dropTarget {
+        case .speaker(let id): id
+        case .musicHub(let group): group.coordinator
+        case nil: nil
+        }
+        guard let targetSpeaker, store.state.wouldRegroup(dragging, onto: targetSpeaker) else { return nil }
+        return dropTarget
     }
 
     private func nearestTarget(
@@ -1004,6 +1012,7 @@ private struct CompactFloorplanMapView: View {
     var groups: [SonosGroup]
     @Binding var selected: SpeakerUUID?
     var onSelectGroup: ((GroupID) -> Void)?
+    @State private var targetedNode: SpeakerUUID?
 
     private var distinctLevels: [FloorLevel] {
         let levels = Array(Set(nodes.map(\.level))).sorted(by: >)
@@ -1084,6 +1093,7 @@ private struct CompactFloorplanMapView: View {
             .padding(.horizontal, 4)
             .padding(.vertical, 6)
         }
+        .groupTargetHaptic(targetedNode.flatMap { store.state.wouldRegroup(SpeakerDragSource.current, onto: $0) ? $0 : nil })
     }
 
     private func sharedFloorRoomNode(_ node: FloorplanNode) -> some View {
@@ -1111,9 +1121,15 @@ private struct CompactFloorplanMapView: View {
         .contextMenu {
             SpeakerGroupContextMenu(group: group, speaker: node.speaker, onOpenGroup: onSelectGroup)
         }
-        .draggable(node.id.rawValue)
+        .draggable(SpeakerDragSource.payload(node.id))
         .dropDestination(for: String.self) { items, _ in
             joinedSpeaker(from: items, onto: node.id, store: store)
+        } isTargeted: { inside in
+            if inside {
+                targetedNode = node.id
+            } else if targetedNode == node.id {
+                targetedNode = nil
+            }
         }
     }
 }
