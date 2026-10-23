@@ -3,17 +3,30 @@
     <channel>
         <title>Sconeos</title>
         <item>
-            <title>1.1.3</title>
-            <pubDate>Fri, 23 Oct 2026 06:51:14 +0000</pubDate>
+            <title>1.2.0</title>
+            <pubDate>Fri, 23 Oct 2026 07:18:02 +0000</pubDate>
             <link>https://sconeos.gattey.com</link>
             <sparkle:fullReleaseNotesLink>https://sconeos.gattey.com/#release-notes</sparkle:fullReleaseNotesLink>
-            <sparkle:version>39</sparkle:version>
-            <sparkle:shortVersionString>1.1.3</sparkle:shortVersionString>
+            <sparkle:version>41</sparkle:version>
+            <sparkle:shortVersionString>1.2.0</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
             <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
             <description><![CDATA[<style>.sparkle-installed-version, .sparkle-installed-version ~ section { display: none; }</style>
+<section data-sparkle-version="41">
+<h3 style="margin: 0 0 6px 0; font-size: 13px;">1.2.0</h3>
+<ul>
+  <li style="margin-bottom: 6px; line-height: 1.45;">The battery pill on a speaker row stays on one line; long room names truncate instead.</li>
+  <li style="margin-bottom: 6px; line-height: 1.45;">Opening Up Next no longer shrinks or clips the Home map.</li>
+  <li style="margin-bottom: 6px; line-height: 1.45;">Up Next always shows Spotify's live queue.</li>
+  <li style="margin-bottom: 6px; line-height: 1.45;">Pressing Play on a Spotify Connect room resumes it in place instead of rebuilding a Sonos queue, including a room whose Connect session has gone dormant.</li>
+  <li style="margin-bottom: 6px; line-height: 1.45;">Tapping a song in Up Next on a Spotify Connect room skips forward to it and keeps the room on Spotify Connect.</li>
+  <li style="margin-bottom: 6px; line-height: 1.45;">Preset pills sit in the toolbar on every page.</li>
+  <li style="margin-bottom: 6px; line-height: 1.45;">The Now Playing bar lines up with the map's floor plates and page content.</li>
+  <li style="margin-bottom: 6px; line-height: 1.45;">Turn shuffle on and off from the Now Playing bar when Spotify is playing on a Sonos room over Spotify Connect, or on another device such as a phone or computer.</li>
+</ul>
+</section>
 <section data-sparkle-version="39">
-<h3 style="margin: 0 0 6px 0; font-size: 13px;">1.1.3</h3>
+<h3 style="margin: 14px 0 6px 0; font-size: 13px; opacity: 0.75;">1.1.3</h3>
 <ul>
   <li style="margin-bottom: 6px; line-height: 1.45;">Dragging a speaker onto a room or group it can join gives a light tick on the trackpad or iPhone.</li>
   <li style="margin-bottom: 6px; line-height: 1.45;">Grouping and ungrouping speakers now confirm with a haptic once Sonos finishes the change. On iPhone, a failed regroup plays an error haptic.</li>
@@ -76,15 +89,8 @@
   <li style="margin-bottom: 6px; line-height: 1.45;"><strong>Verify update signatures at release time:</strong> Require <code>sparkle:edSignature</code> and cryptographically verify it against <code>SUPublicEDKey</code> in <code>Info.plist</code> during release packaging.</li>
 </ul>
 </section>
-<section data-sparkle-version="18">
-<h3 style="margin: 14px 0 6px 0; font-size: 13px; opacity: 0.75;">1.0.6</h3>
-<ul>
-  <li style="margin-bottom: 6px; line-height: 1.45;"><strong>Readable in-app update notes:</strong> Sparkle update dialogs now render concise, scannable HTML bullet points instead of raw PR markdown or blank descriptions.</li>
-  <li style="margin-bottom: 6px; line-height: 1.45;"><strong>Hourly background update checks:</strong> Sconeos now checks for updates every hour in addition to checking immediately on launch.</li>
-</ul>
-</section>
 ]]></description>
-            <enclosure url="https://sconeos.gattey.com/Sconeos-1.1.3.zip" length="6759574" type="application/octet-stream" sparkle:edSignature="ofHyoC6IAPHbXkJwEdmnIS5UM8/rwBaygT2MksmZGa12NUdhb6S9/SGoPnfbcQ3yBVdRE0Rn5h8pS8t1moiBAw=="/>
+            <enclosure url="https://sconeos.gattey.com/Sconeos-1.2.0.zip" length="6774017" type="application/octet-stream" sparkle:edSignature="Yrzs5s3FlrEiceWDPQk4iN3/agqggJICt3bKOQGxP0DgOyxHaPAGzhYrWAll8u6z3VwQjlsXT/EXXfSN5LfGDA=="/>
         </item>
     </channel>
 </rss>
