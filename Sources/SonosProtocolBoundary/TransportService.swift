@@ -11,38 +11,10 @@ enum TransportService {
     static let next = SOAPRequest(service: .avTransport, action: "Next", arguments: [("InstanceID", "0")])
     static let previous = SOAPRequest(service: .avTransport, action: "Previous", arguments: [("InstanceID", "0")])
 
-    static func browseQueue(startingAt start: Int = 0, count: Int = 25) -> SOAPRequest {
-        SOAPRequest(
-            service: .queue,
-            action: "Browse",
-            arguments: [
-                ("QueueID", "0"),
-                ("StartingIndex", String(max(0, start))),
-                ("RequestedCount", String(max(1, count))),
-            ]
-        )
-    }
-
-    static func browseContentDirectoryQueue(startingAt start: Int = 0, count: Int = 25) -> SOAPRequest {
-        SOAPRequest(
-            service: .contentDirectory,
-            action: "Browse",
-            arguments: [
-                ("ObjectID", "Q:0"),
-                ("BrowseFlag", "BrowseDirectChildren"),
-                ("Filter", "*"),
-                ("StartingIndex", String(max(0, start))),
-                ("RequestedCount", String(max(1, count))),
-                ("SortCriteria", ""),
-            ]
-        )
-    }
-
     static func parsePlayback(
         transportInfo: XMLNode,
         positionInfo: XMLNode,
         mediaInfo: XMLNode,
-        queueItems: [QueueItem] = [],
         coordinatorEndpoint: URL,
         sampledAt: Date
     ) -> PlaybackState {
@@ -91,12 +63,6 @@ enum TransportService {
             }
 
             let resolvedQueuePosition = queued && trackNumber > 0 ? trackNumber : nil
-            let filteredUpNext: [QueueItem] = if let pos = resolvedQueuePosition {
-                queueItems.filter { ($0.queueNumber ?? 0) > pos }
-            } else {
-                queueItems
-            }
-
             now = .track(NowPlayingTrack(
                 title: facts.title,
                 artist: artist,
@@ -106,7 +72,6 @@ enum TransportService {
                 queuePosition: resolvedQueuePosition,
                 spotifyURI: spotify,
                 source: source,
-                upNext: filteredUpNext,
                 canSkip: queued || isSpotifyOrigin
             ))
         } else {
@@ -116,46 +81,6 @@ enum TransportService {
         case .playing: return .playing(now, elapsed: elapsed, sampledAt: sampledAt)
         case .paused: return .paused(now, elapsed: elapsed)
         case .stopped: return .stopped
-        }
-    }
-
-    static func parseQueueBrowseResponse(
-        _ response: XMLNode,
-        startingIndex: Int = 0,
-        coordinatorEndpoint: URL
-    ) -> [QueueItem] {
-        guard let root = parseDIDLRoot(response.value("Result")) else {
-            return []
-        }
-        let items = root.descendants("item")
-        return items.enumerated().compactMap { offset, itemNode -> QueueItem? in
-            let title = itemNode.firstDescendant("title")?.text.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            guard !title.isEmpty else { return nil }
-            let creator = itemNode.firstDescendant("creator")?.text.trimmingCharacters(in: .whitespacesAndNewlines)
-            let album = itemNode.firstDescendant("album")?.text.trimmingCharacters(in: .whitespacesAndNewlines)
-            let artRaw = itemNode.firstDescendant("albumArtURI")?.text ?? ""
-            let resNode = itemNode.firstDescendant("res")
-            let resText = resNode?.text ?? ""
-            let duration = resNode?.attribute("duration").flatMap(clock)
-            let itemIDAttr = itemNode.attribute("id") ?? ""
-            let parsedQueueIndex: Int = {
-                if let slash = itemIDAttr.lastIndex(of: "/"),
-                   let num = Int(itemIDAttr[itemIDAttr.index(after: slash)...]),
-                   num > 0 {
-                    return num
-                }
-                return startingIndex + offset + 1
-            }()
-            let spotify = spotifyTrack(in: resText) ?? spotifyTrack(in: itemIDAttr)
-            return QueueItem(
-                title: title,
-                artist: creator?.nilIfEmpty,
-                album: album?.nilIfEmpty,
-                artworkURL: artwork(artRaw, relativeTo: coordinatorEndpoint),
-                duration: duration,
-                queueNumber: parsedQueueIndex,
-                spotifyURI: spotify
-            )
         }
     }
 

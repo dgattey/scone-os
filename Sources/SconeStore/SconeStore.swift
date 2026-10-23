@@ -97,15 +97,13 @@ public final class SconeStore {
     }
 
     public func refreshSpotifyQueueIfNeeded() {
-        let now = Date()
-        guard inFlightSpotifyRefresh == nil,
-              now.timeIntervalSince(lastSpotifyEnrich) >= 3 else { return }
-        lastSpotifyEnrich = now
+        guard inFlightSpotifyRefresh == nil else { return }
+        lastSpotifyEnrich = Date()
         inFlightSpotifyRefresh = Task { [weak self] in
             guard let self else { return }
             defer { self.inFlightSpotifyRefresh = nil }
             do throws(SpotifyBridgeError) {
-                self.cachedSpotifyContext = try await self.spotify.currentContext()
+                self.cachedSpotifyContext = try await self.spotify.currentContext(forceRefresh: true)
             } catch .nothingPlaying, .notConnected {
                 self.cachedSpotifyContext = nil
             } catch {
@@ -121,20 +119,29 @@ public final class SconeStore {
         }
     }
 
-    public func playQueueItem(_ item: QueueItem, on group: GroupID) {
-        if let queueNumber = item.queueNumber, queueNumber > 0 {
-            send(.seekToQueueTrack(number: queueNumber, group: group))
-        } else if let uri = item.spotifyURI {
-            let metadata = SpotifyTrackMetadata(
-                title: item.title,
-                artist: item.artist ?? "",
-                album: item.album,
-                artworkURL: item.artworkURL,
-                duration: item.duration
-            )
-            send(.enqueueAndPlaySpotify(uri: uri, metadata: metadata, onCoordinator: group))
+    public func setShuffle(_ isOn: Bool) {
+        Task {
+            do throws(SpotifyBridgeError) {
+                try await spotify.setShuffle(isOn)
+            } catch {
+                mutateState { $0.report(.spotify(error)) }
+                return
+            }
+            await inFlightSpotifyRefresh?.value
+            refreshSpotifyQueueIfNeeded()
         }
-        schedulePostTransportSpotifyRefresh()
+    }
+
+    public func playQueueItem(_ item: QueueItem, on group: GroupID) {
+        guard let uri = item.spotifyURI else { return }
+        let metadata = SpotifyTrackMetadata(
+            title: item.title,
+            artist: item.artist ?? "",
+            album: item.album,
+            artworkURL: item.artworkURL,
+            duration: item.duration
+        )
+        send(.enqueueAndPlaySpotify(uri: uri, metadata: metadata, onCoordinator: group))
     }
 
     private func schedulePostTransportSpotifyRefresh() {
@@ -177,7 +184,7 @@ public final class SconeStore {
                 lastEnrichedTrackIdentity = trackIdentity
             }
             do throws(SpotifyBridgeError) {
-                cachedSpotifyContext = try await spotify.currentContext()
+                cachedSpotifyContext = try await spotify.currentContext(forceRefresh: trackChanged)
             } catch .nothingPlaying, .notConnected {
                 cachedSpotifyContext = nil
             } catch {
@@ -238,24 +245,22 @@ public final class SconeStore {
                 } else {
                     track.source ?? .spotify(contextTitle: track.album)
                 }
-                let mergedUpNext = track.upNext.isEmpty ? ctx.upNext : track.upNext
                 let mergedArt = track.artworkURL ?? ctx.metadata.artworkURL
                 enrichedTrack = track.merging(
                     artworkURL: mergedArt,
                     source: mergedSource,
-                    upNext: mergedUpNext,
-                    canSkip: true
+                    upNext: ctx.upNext,
+                    canSkip: true,
+                    isShuffling: ctx.isShuffling
                 )
             }
 
             if let cached = lastKnownTracks[group.id],
                (enrichedTrack.spotifyURI != nil && enrichedTrack.spotifyURI == cached.spotifyURI)
                || (!enrichedTrack.title.isEmpty && enrichedTrack.title == cached.title) {
-                let allowCachedQueue = group.id == primarySpotifyGroupID || !enrichedTrack.isSpotifyStream
                 enrichedTrack = enrichedTrack.merging(
                     artworkURL: enrichedTrack.artworkURL ?? cached.artworkURL,
                     source: enrichedTrack.source ?? cached.source,
-                    upNext: (allowCachedQueue && enrichedTrack.upNext.isEmpty) ? cached.upNext : enrichedTrack.upNext,
                     canSkip: enrichedTrack.canSkip || cached.canSkip
                 )
             }
@@ -298,7 +303,7 @@ public final class SconeStore {
             return
         }
         switch command {
-        case .nextTrack, .previousTrack, .playPause, .seekToQueueTrack, .enqueueAndPlaySpotify:
+        case .nextTrack, .previousTrack, .playPause, .enqueueAndPlaySpotify:
             schedulePostTransportSpotifyRefresh()
         default:
             break
@@ -659,6 +664,7 @@ public final class SconeStore {
             deviceName: group.coordinator.roomName,
             deviceType: "Speaker",
             isPlaying: true,
+            isShuffling: context.isShuffling,
             upNext: context.upNext
         )
         cachedSpotifyContext = transferredContext
@@ -672,7 +678,8 @@ public final class SconeStore {
             spotifyURI: context.uri,
             source: .spotify(contextTitle: context.contextTitle ?? context.metadata.album),
             upNext: context.upNext,
-            canSkip: true
+            canSkip: true,
+            isShuffling: context.isShuffling
         )
         lastKnownTracks[group.id] = track
         preferredActiveGroupIDs.insert(group.id)

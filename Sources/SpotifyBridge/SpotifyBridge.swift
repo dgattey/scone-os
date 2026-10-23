@@ -187,6 +187,17 @@ public final class SpotifyBridge {
         return ok
     }
 
+    public func setShuffle(_ isOn: Bool) async throws(SpotifyBridgeError) {
+        guard let token = try await validAccessToken() else { throw .notConnected }
+        do throws(SpotifyBridgeError) {
+            try await WebAPI.setShuffle(isOn, accessToken: token)
+        } catch .authorizationFailed {
+            guard let refreshed = try await forceRefreshAccessToken() else { throw .notConnected }
+            try await WebAPI.setShuffle(isOn, accessToken: refreshed)
+        }
+        await SpotifyAPIClient.shared.invalidateShortCache()
+    }
+
     public func playOnSonosGroup(
         coordinatorRoomName: String,
         memberRoomNames: [String],

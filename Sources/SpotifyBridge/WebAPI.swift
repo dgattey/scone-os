@@ -502,11 +502,13 @@ private struct SpotifyCurrentlyPlayingPayload: Decodable, Sendable {
     let context: Context?
     let device: SpotifyDevicesPayload.Device?
     let isPlaying: Bool?
+    let shuffleState: Bool?
     let progressMs: Int?
 
     enum CodingKeys: String, CodingKey {
         case item, context, device
         case isPlaying = "is_playing"
+        case shuffleState = "shuffle_state"
         case progressMs = "progress_ms"
     }
 }
@@ -516,9 +518,6 @@ actor SpotifyAPIClient {
 
     private var contextTitleCache: [String: String?] = [:]
     private var inFlightContextTitleTasks: [String: Task<String?, Never>] = [:]
-    private var cachedQueueTrackURI: SpotifyURI?
-    private var cachedQueueItems: [QueueItem] = []
-    private var cachedQueueFetchedAt: Date = .distantPast
     private var contextByURI: [SpotifyURI: SpotifyTrackContext] = [:]
     private var lastContext: SpotifyTrackContext?
     private var lastContextFetchedAt: Date = .distantPast
@@ -568,7 +567,6 @@ actor SpotifyAPIClient {
 
     func invalidateShortCache() {
         lastContextFetchedAt = .distantPast
-        cachedQueueFetchedAt = .distantPast
     }
 
     private func performCurrentlyPlaying(accessToken: String) async throws(SpotifyBridgeError) -> SpotifyTrackContext? {
@@ -592,13 +590,7 @@ actor SpotifyAPIClient {
         let base = try WebAPI.parseCurrentlyPlaying(data)
         guard let base else { return nil }
 
-        let now = Date()
-        let needFreshQueue = (cachedQueueTrackURI != base.uri)
-            || now.timeIntervalSince(cachedQueueFetchedAt) >= 30
-
-        async let fetchedQueue: [QueueItem] = needFreshQueue
-            ? fetchQueue(accessToken: accessToken)
-            : cachedQueueItems
+        async let fetchedQueue = fetchQueue(accessToken: accessToken)
         async let fetchedContextTitle = resolveContextTitle(
             contextURI: base.contextURI,
             fallbackAlbum: base.metadata.album,
@@ -606,11 +598,6 @@ actor SpotifyAPIClient {
         )
 
         let upNext = await fetchedQueue
-        if needFreshQueue {
-            cachedQueueTrackURI = base.uri
-            cachedQueueItems = upNext
-            cachedQueueFetchedAt = Date()
-        }
         let contextTitle = await fetchedContextTitle
         return SpotifyTrackContext(
             uri: base.uri,
@@ -622,13 +609,14 @@ actor SpotifyAPIClient {
             deviceName: base.deviceName,
             deviceType: base.deviceType,
             isPlaying: base.isPlaying,
+            isShuffling: base.isShuffling,
             upNext: upNext
         )
     }
 
     func fetchQueue(accessToken: String) async -> [QueueItem] {
         if Date() < rateLimitedUntil {
-            return cachedQueueItems
+            return []
         }
         if let existing = inFlightQueueTask {
             return await existing.value
@@ -640,14 +628,14 @@ actor SpotifyAPIClient {
                 token: accessToken,
                 body: nil
             ) else {
-                return self.cachedQueueItems
+                return []
             }
             if status == 429 {
                 self.setRateLimited(retryAfter: retryAfter)
-                return self.cachedQueueItems
+                return []
             }
             guard (200..<300).contains(status) else {
-                return self.cachedQueueItems
+                return []
             }
             self.consecutiveRateLimits = 0
             return WebAPI.parseQueueData(data)
@@ -863,7 +851,6 @@ package enum WebAPI {
                         album: albumName,
                         artworkURL: artwork,
                         duration: duration,
-                        queueNumber: nil,
                         spotifyURI: spotifyURI
                     )
                 )
@@ -878,6 +865,15 @@ package enum WebAPI {
         request.timeoutInterval = 15
         request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
         _ = try? await URLSession.boundedShared.data(for: request)
+    }
+
+    static func setShuffle(_ isOn: Bool, accessToken: String) async throws(SpotifyBridgeError) {
+        var components = URLComponents(string: "https://api.spotify.com/v1/me/player/shuffle")!
+        components.queryItems = [URLQueryItem(name: "state", value: isOn ? "true" : "false")]
+        guard let url = components.url else { throw .network("shuffle URL") }
+        let (_, status, _) = try await loadWithHeaders(url: url, method: "PUT", token: accessToken, body: nil)
+        if status == 401 { throw .authorizationFailed("401") }
+        guard (200..<300).contains(status) else { throw .network("shuffle HTTP \(status)") }
     }
 
     package static func encodeResumePayload(
@@ -1096,6 +1092,7 @@ package enum WebAPI {
             deviceName: payload.device?.name,
             deviceType: payload.device?.type,
             isPlaying: payload.isPlaying ?? false,
+            isShuffling: payload.shuffleState,
             upNext: []
         )
     }

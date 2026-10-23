@@ -26,7 +26,8 @@ struct OfflineSpeakerDetail: View {
                 .padding(16)
                 .midnightGlass(radius: 18)
             }
-            .padding(28)
+            .padding(.vertical, 28)
+            .padding(.horizontal, MidnightGlass.pageInset)
             .frame(maxWidth: 880, alignment: .leading)
             .frame(maxWidth: .infinity, alignment: .leading)
         }

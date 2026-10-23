@@ -1018,7 +1018,6 @@ struct PlaybackTests {
                     album: "RENAISSANCE",
                     artworkURL: URL(string: "https://i.scdn.co/image/ab67616d0000b27369a3c061676c2020adfe8315"),
                     duration: .seconds(368),
-                    queueNumber: nil,
                     spotifyURI: SpotifyURI("spotify:track:0FlfN5cbUUpIHCRH8X1M44")
                 ),
             ]
@@ -1059,28 +1058,6 @@ struct PlaybackTests {
         #expect(relTrack.artworkURL?.absoluteString == "http://192.168.68.90:1400/getaa?s=1&u=x-sonos-spotify%3Aspotify%3Atrack%3A2mqTtvbKxH7SoEQ2oGAnsA%3Fsid%3D12%26flags%3D8224%26sn%3D3")
         #expect(relTrack.source == PlaybackSource.spotify(contextTitle: "26"))
         #expect(relTrack.queuePosition == 2)
-    }
-
-    @Test func parsesSonosQueueBrowseResponseWithDIDLLiteItems() throws {
-        let endpoint = URL(string: "http://192.168.68.90:1400/xml/device_description.xml")!
-        let soapResponse = try XMLNode.parse(Data("""
-        <BrowseResponse xmlns:u="urn:schemas-sonos-com:service:Queue:1">
-          <Result>&lt;DIDL-Lite xmlns:dc=&quot;http://purl.org/dc/elements/1.1/&quot; xmlns:upnp=&quot;urn:schemas-upnp-org:metadata-1-0/upnp/&quot; xmlns=&quot;urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/&quot;&gt;&lt;item id=&quot;Q:0/1&quot; parentID=&quot;Q:0&quot; restricted=&quot;true&quot;&gt;&lt;res duration=&quot;0:03:44&quot;&gt;x-sonos-spotify:spotify:track:2mqTtvbKxH7SoEQ2oGAnsA?sid=12&amp;amp;flags=8224&amp;amp;sn=3&lt;/res&gt;&lt;upnp:albumArtURI&gt;/getaa?s=1&amp;amp;u=x-sonos-spotify%3Aspotify%3Atrack%3A2mqTtvbKxH7SoEQ2oGAnsA&lt;/upnp:albumArtURI&gt;&lt;dc:title&gt;CHURCH GIRL&lt;/dc:title&gt;&lt;dc:creator&gt;Beyoncé&lt;/dc:creator&gt;&lt;upnp:album&gt;RENAISSANCE&lt;/upnp:album&gt;&lt;/item&gt;&lt;item id=&quot;Q:0/2&quot; parentID=&quot;Q:0&quot; restricted=&quot;true&quot;&gt;&lt;res duration=&quot;0:06:08&quot;&gt;x-sonos-spotify:spotify:track:0FlfN5cbUUpIHCRH8X1M44?sid=12&amp;amp;flags=8224&amp;amp;sn=3&lt;/res&gt;&lt;upnp:albumArtURI&gt;https://i.scdn.co/image/ab67616d0000b27369a3c061676c2020adfe8315&lt;/upnp:albumArtURI&gt;&lt;dc:title&gt;VIRGO&amp;apos;S GROOVE&lt;/dc:title&gt;&lt;dc:creator&gt;Beyoncé&lt;/dc:creator&gt;&lt;upnp:album&gt;RENAISSANCE&lt;/upnp:album&gt;&lt;/item&gt;&lt;/DIDL-Lite&gt;</Result>
-          <NumberReturned>2</NumberReturned>
-          <TotalMatches>2</TotalMatches>
-          <UpdateID>1</UpdateID>
-        </BrowseResponse>
-        """.utf8))
-        let items = TransportService.parseQueueBrowseResponse(soapResponse, startingIndex: 0, coordinatorEndpoint: endpoint)
-        #expect(items.count == 2)
-        #expect(items[0].queueNumber == 1)
-        #expect(items[0].title == "CHURCH GIRL")
-        #expect(items[0].artworkURL?.absoluteString == "http://192.168.68.90:1400/getaa?s=1&u=x-sonos-spotify%3Aspotify%3Atrack%3A2mqTtvbKxH7SoEQ2oGAnsA")
-        #expect(items[0].spotifyURI?.description == "spotify:track:2mqTtvbKxH7SoEQ2oGAnsA")
-        #expect(items[1].queueNumber == 2)
-        #expect(items[1].title == "VIRGO'S GROOVE")
-        #expect(items[1].duration == .seconds(368))
-        #expect(items[1].artworkURL?.absoluteString == "https://i.scdn.co/image/ab67616d0000b27369a3c061676c2020adfe8315")
     }
 }
 
@@ -1810,7 +1787,8 @@ struct SconeFileTests {
             duration: .seconds(210),
             queuePosition: 1,
             spotifyURI: SpotifyURI("spotify:track:2mqTtvbKxH7SoEQ2oGAnsA"),
-            source: .spotify(contextTitle: nil)
+            source: .spotify(contextTitle: nil),
+            upNext: [QueueItem(title: "Test My Luck", artist: "Purple Disco Machine")]
         )
         let livingGroup = GroupID(coordinator: House.living)
         let bedroomGroup = GroupID(coordinator: House.bedroom)
@@ -1859,6 +1837,7 @@ struct SconeFileTests {
                     contextTitle: "Playlist \"Collect\"",
                     contextURI: "spotify:playlist:123",
                     deviceName: "Living Room",
+                    isShuffling: true,
                     upNext: [
                         QueueItem(
                             id: "1",
@@ -1893,7 +1872,8 @@ struct SconeFileTests {
             return
         }
         #expect(enrichedLiving.source == .spotify(contextTitle: "Playlist \"Collect\""))
-        #expect(enrichedLiving.upNext.count == 1)
+        #expect(enrichedLiving.upNext.map(\.title) == ["Next Track"])
+        #expect(enrichedLiving.isShuffling == true)
 
         // 3. Even when Spotify throws .nothingPlaying, SconeStore respects the 30s TTL
         // and does NOT hammer Spotify on every 2s poll tick.
@@ -1930,6 +1910,36 @@ struct SconeFileTests {
         #expect(setVolCommands.last == .v45)
     }
 
+
+    @Test @MainActor func setShuffleAsksSpotifyThenRefetchesItsState() async throws {
+        let directory = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let spotify = CountingSpotify(response: .failure(.nothingPlaying))
+        let store = SconeStore(
+            loaded: LoadedFiles(cache: nil, positions: nil, quarantined: []),
+            files: SconeFiles(directory: directory),
+            sonos: ScriptedSonos(yielded: []),
+            spotify: spotify
+        )
+
+        store.setShuffle(false)
+        for _ in 0..<50 where spotify.callCount == 0 {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+
+        #expect(spotify.shuffleRequests == [false])
+        #expect(spotify.callCount == 1)
+    }
+
+    @Test func spotifyPlayerStateCarriesShuffleState() throws {
+        let data = Data("""
+        {"is_playing": true, "shuffle_state": true, "progress_ms": 1000,
+         "item": {"type": "track", "uri": "spotify:track:2mqTtvbKxH7SoEQ2oGAnsA", "name": "Disparate Youth",
+                  "artists": [{"name": "Santigold"}], "album": {"name": "Master of My Make-Believe"}}}
+        """.utf8)
+        let context = try #require(try WebAPI.parseCurrentlyPlaying(data))
+        #expect(context.isShuffling == true)
+    }
     @Test @MainActor func spotifyDeviceMatcherAndPlayHandOffAndCoordinatorPreservation() async throws {
         // 1. SpotifyDeviceMatcher normalizes "+ N" group suffixes and room speaker suffixes
         #expect(SpotifyDeviceMatcher.matches(deviceName: "Bedroom Speaker + 4", roomName: "Bedroom Speaker"))
@@ -2315,6 +2325,7 @@ private final class CountingSpotify: SpotifySource {
     let playOnSonosGroupResult: Bool
     var callCount = 0
     var pauseCount = 0
+    var shuffleRequests: [Bool] = []
     var transferredRooms: [(coordinator: String, members: [String])] = []
 
     init(
@@ -2338,6 +2349,10 @@ private final class CountingSpotify: SpotifySource {
     }
 
     func resumeSourcePlayback() async -> Bool { false }
+
+    func setShuffle(_ isOn: Bool) async throws(SpotifyBridgeError) {
+        shuffleRequests.append(isOn)
+    }
 
     func playOnSonosGroup(
         coordinatorRoomName: String,

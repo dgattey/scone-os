@@ -23,19 +23,33 @@ struct NowPlayingDock: View {
     }
 
     var body: some View {
-        ZStack(alignment: .bottomTrailing) {
-            if isCompactFloatingPill {
-                spotifyFloatingPill
-            } else {
-                ViewThatFits(in: .horizontal) {
-                    wideLayout
-                    compactLayout
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 10)
-                .midnightGlass(glowing: true, radius: 18)
+        bar
+            // Overlaid so an open popover never grows the dock's safe-area inset and shrinks the page.
+            .overlay(alignment: .bottomTrailing) {
+                popovers
+                    .fixedSize(horizontal: false, vertical: true)
             }
+            .animation(.snappy(duration: 0.2), value: showingQueuePopover)
+            .animation(.snappy(duration: 0.2), value: showingVolumePopover)
+    }
 
+    @ViewBuilder
+    private var bar: some View {
+        if isCompactFloatingPill {
+            spotifyFloatingPill
+        } else {
+            ViewThatFits(in: .horizontal) {
+                wideLayout
+                compactLayout
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .midnightGlass(glowing: true, radius: 18)
+        }
+    }
+
+    private var popovers: some View {
+        ZStack(alignment: .bottomTrailing) {
             if showingVolumePopover && isCompactFloatingPill {
                 floatingVolumeCard
                     .offset(y: -66)
@@ -62,8 +76,6 @@ struct NowPlayingDock: View {
                 .zIndex(50)
             }
         }
-        .animation(.snappy(duration: 0.2), value: showingQueuePopover)
-        .animation(.snappy(duration: 0.2), value: showingVolumePopover)
     }
 
     private var spotifyFloatingPill: some View {
@@ -118,6 +130,7 @@ struct NowPlayingDock: View {
                 .buttonStyle(PressableStyle())
                 .accessibilityLabel("Volume \(group.volume.percent) percent")
 
+                shuffleButton
                 queuePopoverButton
 
                 if externalSpotify != nil {
@@ -315,28 +328,36 @@ struct NowPlayingDock: View {
                     store.refreshSpotifyQueueIfNeeded()
                 }
             } label: {
-                Image(systemName: "list.bullet")
-                    .font(.system(size: 11, weight: .bold))
-                    .foregroundStyle(showingQueuePopover ? MidnightGlass.gold : MidnightGlass.primaryText)
-                    .frame(width: 28, height: 28)
-                    .background(
-                        Circle().fill(
-                            showingQueuePopover
-                                ? MidnightGlass.gold.opacity(0.18)
-                                : MidnightGlass.subtleFill
-                        )
-                    )
-                    .overlay(
-                        Circle().strokeBorder(
-                            showingQueuePopover ? MidnightGlass.gold.opacity(0.65) : MidnightGlass.cardBorder,
-                            lineWidth: 1
-                        )
-                    )
+                dockToggleLabel("list.bullet", isOn: showingQueuePopover)
             }
             .buttonStyle(PressableStyle())
             .help("Up Next Queue")
             .accessibilityLabel("Up Next Queue")
         }
+    }
+
+    @ViewBuilder
+    private var shuffleButton: some View {
+        if let isShuffling {
+            Button {
+                store.setShuffle(!isShuffling)
+            } label: {
+                dockToggleLabel("shuffle", isOn: isShuffling)
+            }
+            .buttonStyle(PressableStyle())
+            .help(isShuffling ? "Turn Shuffle Off" : "Turn Shuffle On")
+            .accessibilityLabel("Shuffle")
+            .accessibilityValue(isShuffling ? "On" : "Off")
+        }
+    }
+
+    private func dockToggleLabel(_ system: String, isOn: Bool) -> some View {
+        Image(systemName: system)
+            .font(.system(size: 11, weight: .bold))
+            .foregroundStyle(isOn ? MidnightGlass.gold : MidnightGlass.primaryText)
+            .frame(width: 28, height: 28)
+            .background(Circle().fill(isOn ? MidnightGlass.gold.opacity(0.18) : MidnightGlass.subtleFill))
+            .overlay(Circle().strokeBorder(isOn ? MidnightGlass.gold.opacity(0.65) : MidnightGlass.cardBorder, lineWidth: 1))
     }
 
     private var groupSwitcherMenu: some View {
@@ -374,6 +395,7 @@ struct NowPlayingDock: View {
 
     private var transportButtons: some View {
         HStack(spacing: 8) {
+            shuffleButton
             queuePopoverButton
             if externalSpotify != nil {
                 playHereButton(height: 34, horizontalPadding: 13, fontSize: 12.5)
@@ -433,6 +455,13 @@ struct NowPlayingDock: View {
     private var externalSpotify: SpotifyTrackContext? {
         guard group.playback.nowPlaying == nil else { return nil }
         return store.state.externalSpotify
+    }
+
+    private var isShuffling: Bool? {
+        if case .track(let track) = group.playback.nowPlaying {
+            return track.isShuffling
+        }
+        return externalSpotify?.isShuffling
     }
 
     private var effectiveQueueTrack: NowPlayingTrack? {

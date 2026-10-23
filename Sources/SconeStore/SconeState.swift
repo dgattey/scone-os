@@ -438,7 +438,7 @@ extension HouseholdSnapshot {
                 status: (group, GroupStatus(playback: playback, volume: current.volume)),
                 externalSpotify: .some(nil)
             )
-        case .nextTrack, .previousTrack, .seekToQueueTrack, .savePresets, .setSystemName:
+        case .nextTrack, .previousTrack, .savePresets, .setSystemName:
             return self
         }
     }

@@ -44,9 +44,6 @@ public actor SonosHousehold {
     private var unreachableSince: Date?
     private var householdPresets: [PresetPill]?
     private var householdNetworkName: String?
-    private var cachedQueueKey: [SpeakerUUID: String] = [:]
-    private var cachedQueueAt: [SpeakerUUID: Date] = [:]
-    private var cachedQueueItems: [SpeakerUUID: [QueueItem]] = [:]
 
     private static let presetsVariableName = "Sconeos_Presets_v1"
     private static let systemNameVariableName = "Sconeos_SystemName"
@@ -245,9 +242,6 @@ public actor SonosHousehold {
             householdPresets = nil
             householdNetworkName = nil
             spotifyAccount = nil
-            cachedQueueKey = [:]
-            cachedQueueAt = [:]
-            cachedQueueItems = [:]
         }
         addressBook.absorb(parsed)
         lastParsed = parsed
@@ -555,8 +549,6 @@ public actor SonosHousehold {
             return try await skipNext(group)
         case .previousTrack(let group):
             return try await skipPrevious(group)
-        case .seekToQueueTrack(let number, let group):
-            return try await seekToQueueTrack(number, group: group)
         case .enqueueAndPlaySpotify(let uri, let metadata, let group, let startingAt, let contextURI, let upNext):
             return try await enqueueSpotify(
                 uri,
@@ -821,17 +813,6 @@ public actor SonosHousehold {
         return .applied
     }
 
-    private func seekToQueueTrack(_ number: Int, group: GroupID) async throws(SonosCommandError) -> CommandOutcome {
-        let coordinator = group.coordinator
-        _ = try await callWithEndpointRefresh(TransportService.seek(toTrack: max(1, number)), on: coordinator)
-        _ = try? await callWithEndpointRefresh(TransportService.transport(.play), on: coordinator)
-        if let currentEndpoint = addressBook.endpoint(for: coordinator) {
-            playback[coordinator] = (try? await playbackState(of: coordinator, at: currentEndpoint)) ?? .stopped
-        }
-        publishAssembled()
-        return .applied
-    }
-
     private func enqueueSpotify(
         _ uri: SpotifyURI,
         metadata: SpotifyTrackMetadata,
@@ -853,18 +834,6 @@ public actor SonosHousehold {
         if case .playing(.track(let track), _, _) = state, track.spotifyURI == uri {
             publishAssembled()
             return .alreadySatisfied
-        }
-        if alreadyQueued,
-           case .paused(.track(let track), _) = state,
-           track.spotifyURI == uri,
-           !track.upNext.isEmpty {
-            _ = try await callWithEndpointRefresh(TransportService.transport(.play), on: coordinator)
-            if let startingAt, startingAt > .seconds(1) {
-                _ = try? await client.call(TransportService.seek(to: startingAt), on: coordinator, at: endpoint)
-            }
-            playback[coordinator] = (try? await playbackState(of: coordinator, at: endpoint)) ?? state
-            publishAssembled()
-            return .applied
         }
 
         let account = try await spotifyAccount(for: coordinator, at: endpoint)
@@ -960,8 +929,6 @@ public actor SonosHousehold {
             _ = try? await client.call(appendContainer, on: coordinator, at: endpoint)
         }
 
-        cachedQueueKey[coordinator] = nil
-        cachedQueueItems[coordinator] = nil
         playback[coordinator] = (try? await playbackState(of: coordinator, at: endpoint)) ?? state
         publishAssembled()
         return .applied
@@ -1026,44 +993,10 @@ public actor SonosHousehold {
         } catch {
             throw .speakerUnreachable(speaker)
         }
-        let currentURI = media.value("CurrentURI")
-        let transportState = transport.value("CurrentTransportState")
-        let isStopped = transportState != "PLAYING"
-            && transportState != "TRANSITIONING"
-            && transportState != "PAUSED_PLAYBACK"
-        let trackNumber = Int(position.value("Track")) ?? 0
-        var queueItems: [QueueItem] = []
-        if !isStopped, currentURI.hasPrefix("x-rincon-queue:") {
-            let now = Date()
-            let browseKey = "\(currentURI)|\(trackNumber)"
-            let ttl: TimeInterval = (transportState == "PAUSED_PLAYBACK") ? 120 : 30
-            if cachedQueueKey[speaker] == browseKey,
-               let lastAt = cachedQueueAt[speaker],
-               now.timeIntervalSince(lastAt) < ttl,
-               let existing = cachedQueueItems[speaker] {
-                queueItems = existing
-            } else {
-                let startIdx = max(0, trackNumber)
-                if let qNode = try? await client.call(TransportService.browseQueue(startingAt: startIdx, count: 25), on: speaker, at: endpoint) {
-                    queueItems = TransportService.parseQueueBrowseResponse(qNode, startingIndex: startIdx, coordinatorEndpoint: endpoint)
-                }
-                if queueItems.isEmpty,
-                   let cdNode = try? await client.call(TransportService.browseContentDirectoryQueue(startingAt: startIdx, count: 25), on: speaker, at: endpoint) {
-                    queueItems = TransportService.parseQueueBrowseResponse(cdNode, startingIndex: startIdx, coordinatorEndpoint: endpoint)
-                }
-                cachedQueueKey[speaker] = browseKey
-                cachedQueueAt[speaker] = now
-                cachedQueueItems[speaker] = queueItems
-            }
-        } else if isStopped || !currentURI.hasPrefix("x-rincon-queue:") {
-            cachedQueueKey[speaker] = nil
-            cachedQueueItems[speaker] = nil
-        }
         let parsed = TransportService.parsePlayback(
             transportInfo: transport,
             positionInfo: position,
             mediaInfo: media,
-            queueItems: queueItems,
             coordinatorEndpoint: endpoint,
             sampledAt: Date()
         )
@@ -1086,7 +1019,7 @@ public actor SonosHousehold {
         switch command {
         case .setVolume(_, .speaker(let speaker)): speaker
         case .setVolume(_, .group(let group)): group.coordinator
-        case .playPause(_, let group), .nextTrack(let group), .previousTrack(let group), .seekToQueueTrack(_, let group): group.coordinator
+        case .playPause(_, let group), .nextTrack(let group), .previousTrack(let group): group.coordinator
         case .enqueueAndPlaySpotify(_, _, let group, _, _, _): group.coordinator
         case .group(let member, _), .ungroup(let member): member
         case .applyPreset(let preset): preset.coordinatorUUID
