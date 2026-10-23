@@ -5,6 +5,11 @@ import SpotifyBridge
 public protocol SonosControl: Sendable {
     func snapshots() -> AsyncStream<HouseholdSnapshot>
     func send(_ command: SonosCommand) async throws(SonosCommandError) -> CommandOutcome
+    func canShuffle(group: GroupID) async -> Bool
+}
+
+public extension SonosControl {
+    func canShuffle(group: GroupID) async -> Bool { false }
 }
 
 extension SonosHousehold: SonosControl {}

@@ -1958,13 +1958,113 @@ struct SconeFileTests {
             spotify: spotify
         )
 
-        store.setShuffle(false)
+        store.setShuffle(false, for: GroupID(coordinator: House.living))
         for _ in 0..<50 where spotify.callCount == 0 {
             try? await Task.sleep(for: .milliseconds(10))
         }
 
         #expect(spotify.shuffleRequests == [false])
         #expect(spotify.callCount == 1)
+    }
+
+    @Test @MainActor func shuffleOnSpotifyConnectRoomGoesThroughSonosAndShowsSpotifysState() async throws {
+        let livingGroup = GroupID(coordinator: House.living)
+        let trackURI = SpotifyURI("spotify:track:4HCOHRCSQelz2GPX8iTamO")!
+        func connectRoom(canShuffle: Bool) async throws -> (SconeStore, RecordingSonos, CountingSpotify) {
+            let directory = try makeDirectory()
+            let track = NowPlayingTrack(
+                title: "Flower In A Hurricane",
+                artist: "Tame Impala",
+                album: nil,
+                artworkURL: nil,
+                duration: .seconds(224),
+                queuePosition: nil,
+                spotifyURI: trackURI,
+                isSpotifyConnect: true
+            )
+            let sonos = RecordingSonos(
+                yielded: [snapshot(
+                    [speaker(House.living, room: "Living Room")],
+                    coordinatorOf: [House.living: House.living],
+                    status: [livingGroup: GroupStatus(
+                        playback: .playing(.track(track), elapsed: .seconds(90), sampledAt: Date()),
+                        volume: .v25
+                    )]
+                )],
+                canShuffle: canShuffle
+            )
+            let spotify = CountingSpotify(response: .success(SpotifyTrackContext(
+                uri: trackURI,
+                metadata: SpotifyTrackMetadata(title: "Flower In A Hurricane", artist: "Tame Impala", album: nil, artworkURL: nil, duration: .seconds(224)),
+                position: .seconds(90),
+                deviceName: "Living Room",
+                isPlaying: true,
+                isShuffling: false
+            )))
+            let store = SconeStore(
+                loaded: LoadedFiles(cache: nil, positions: nil, quarantined: []),
+                files: SconeFiles(directory: directory),
+                sonos: sonos,
+                spotify: spotify
+            )
+            await store.run()
+            try? FileManager.default.removeItem(at: directory)
+            return (store, sonos, spotify)
+        }
+        func shuffleState(_ store: SconeStore) -> Bool? {
+            guard case .track(let track) = store.state.groups.first(where: { $0.id == livingGroup })?.playback.nowPlaying else {
+                return nil
+            }
+            return track.isShuffling
+        }
+
+        // Spotify DJ: Sonos reports canShuffle false, so the toggle stays hidden.
+        let (djStore, _, _) = try await connectRoom(canShuffle: false)
+        try? await Task.sleep(for: .milliseconds(100))
+        #expect(shuffleState(djStore) == nil)
+
+        let (store, sonos, spotify) = try await connectRoom(canShuffle: true)
+        for _ in 0..<50 where shuffleState(store) == nil {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(shuffleState(store) == false)
+
+        store.setShuffle(true, for: livingGroup)
+        for _ in 0..<50 where !sonos.commands.contains(.setShuffle(true, group: livingGroup)) {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(sonos.commands == [.setShuffle(true, group: livingGroup)])
+        #expect(shuffleState(store) == true)
+        #expect(spotify.shuffleRequests.isEmpty)
+    }
+
+    @Test func sonosLocalAPIShuffleMessagesMatchTheLiveProbe() throws {
+        let info = Data(#"{"householdId":"Sonos_bgrL","groupId":"RINCON_542A1B95A13A01400:1010363542","playerId":"RINCON_542A1B95A13A01400"}"#.utf8)
+        let group = try #require(SonosMuseClient.parsePlayerGroup(info))
+        #expect(group.householdId == "Sonos_bgrL")
+        #expect(group.groupId == "RINCON_542A1B95A13A01400:1010363542")
+        #expect(SonosMuseClient.parsePlayerGroup(Data(#"{"householdId":"Sonos_bgrL"}"#.utf8)) == nil)
+
+        let setShuffle = try #require(SonosMuseClient.encodeSetShuffle(true, householdId: group.householdId, groupId: group.groupId))
+        let setShuffleJSON = try #require(JSONSerialization.jsonObject(with: Data(setShuffle.utf8)) as? [[String: Any]])
+        #expect(setShuffleJSON.count == 2)
+        #expect(setShuffleJSON[0]["namespace"] as? String == "playback:1")
+        #expect(setShuffleJSON[0]["command"] as? String == "setPlayModes")
+        #expect(setShuffleJSON[0]["householdId"] as? String == "Sonos_bgrL")
+        #expect(setShuffleJSON[0]["groupId"] as? String == "RINCON_542A1B95A13A01400:1010363542")
+        #expect((setShuffleJSON[1]["playModes"] as? [String: Any])?["shuffle"] as? Bool == true)
+
+        let getStatus = try #require(SonosMuseClient.encodeGetPlaybackStatus(householdId: "Sonos_bgrL", groupId: "g"))
+        #expect(getStatus.contains(#""command":"getPlaybackStatus""#))
+
+        let status = #"[{"namespace":"playback:1","groupId":"g","response":"getPlaybackStatus","success":true,"type":"playbackStatus","cmdId":"1"},{"playbackState":"PLAYBACK_STATE_PLAYING","positionMillis":195000,"playModes":{"repeat":false,"repeatOne":false,"shuffle":true,"crossfade":false},"availablePlaybackActions":{"canRepeat":true,"canShuffle":true}}]"#
+        #expect(SonosMuseClient.parseCanShuffle(status) == true)
+        #expect(SonosMuseClient.parseCanShuffle(status.replacingOccurrences(of: #""canShuffle":true"#, with: #""canShuffle":false"#)) == false)
+
+        let applied = #"[{"namespace":"playback:1","householdId":"Sonos_bgrL","groupId":"g","response":"setPlayModes","success":true,"type":"none","cmdId":"1"},{}]"#
+        #expect(SonosMuseClient.parseSetPlayModesSucceeded(applied) == true)
+        #expect(SonosMuseClient.parseCanShuffle(applied) == nil)
+        #expect(SonosMuseClient.parseSetPlayModesSucceeded(status) == nil)
     }
 
     @Test @MainActor func playOnPausedSpotifyConnectRoomResumesOverUPnPWithoutEnqueueing() async throws {
@@ -2539,12 +2639,16 @@ private final class CountingSpotify: SpotifySource {
 private final class RecordingSonos: SonosControl {
     let yielded: [HouseholdSnapshot]
     let spotifyConnectGroups: Set<GroupID>
+    let canShuffleResult: Bool
     var commands: [SonosCommand] = []
 
-    init(yielded: [HouseholdSnapshot], spotifyConnectGroups: Set<GroupID> = []) {
+    init(yielded: [HouseholdSnapshot], spotifyConnectGroups: Set<GroupID> = [], canShuffle: Bool = false) {
         self.yielded = yielded
         self.spotifyConnectGroups = spotifyConnectGroups
+        self.canShuffleResult = canShuffle
     }
+
+    func canShuffle(group: GroupID) async -> Bool { canShuffleResult }
 
     nonisolated func snapshots() -> AsyncStream<HouseholdSnapshot> {
         let items = yielded

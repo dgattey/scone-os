@@ -340,7 +340,7 @@ struct NowPlayingDock: View {
     private var shuffleButton: some View {
         if let isShuffling {
             Button {
-                store.setShuffle(!isShuffling)
+                store.setShuffle(!isShuffling, for: group.id)
             } label: {
                 dockToggleLabel("shuffle", isOn: isShuffling)
             }
@@ -457,9 +457,11 @@ struct NowPlayingDock: View {
         return store.state.externalSpotify
     }
 
-    /// Spotify rejects shuffle on Sonos rooms (403 "Restricted device"), so only an external Spotify device gets the toggle.
     private var isShuffling: Bool? {
-        externalSpotify?.isShuffling
+        if case .track(let track) = group.playback.nowPlaying {
+            return track.isShuffling
+        }
+        return externalSpotify?.isShuffling
     }
 
     private var effectiveQueueTrack: NowPlayingTrack? {

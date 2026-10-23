@@ -20,6 +20,8 @@ public final class SconeStore {
     @ObservationIgnored private var cachedSpotifyContext: SpotifyTrackContext?
     @ObservationIgnored private var inFlightSpotifyRefresh: Task<Void, Never>?
     @ObservationIgnored private var lastKnownTracks: [GroupID: NowPlayingTrack] = [:]
+    @ObservationIgnored private var shuffleCapability: [GroupID: (track: String, canShuffle: Bool)] = [:]
+    @ObservationIgnored private var pendingShuffle: (group: GroupID, isOn: Bool, until: Date)?
     @ObservationIgnored private var preferredActiveGroupIDs: Set<GroupID> = []
     @ObservationIgnored private var pendingVolumes: [VolumeTarget: DiscreteVolume] = [:]
     @ObservationIgnored private var activeVolumeTasks: [VolumeTarget: Task<Void, Never>] = [:]
@@ -110,16 +112,37 @@ public final class SconeStore {
                 // Keep cachedSpotifyContext on transient network failures
             }
             self.lastSpotifyEnrich = Date()
-            if let live = self.state.live {
-                let enriched = await self.enrichWithSpotifyIfNeeded(live)
-                if !live.isSemanticallyEquivalent(to: enriched) {
-                    self.mutateState { $0.absorb(enriched) }
-                }
-            }
+            await self.reenrichLiveSnapshot()
         }
     }
 
-    public func setShuffle(_ isOn: Bool) {
+    private func reenrichLiveSnapshot() async {
+        guard let live = state.live else { return }
+        let enriched = await enrichWithSpotifyIfNeeded(live)
+        if !live.isSemanticallyEquivalent(to: enriched) {
+            mutateState { $0.absorb(enriched) }
+        }
+    }
+
+    /// A Sonos room on Spotify Connect toggles shuffle through the Sonos local API, because Spotify's Web API
+    /// rejects Sonos rooms. Any other session is Spotify playing on an external device, which the Web API controls.
+    public func setShuffle(_ isOn: Bool, for groupID: GroupID) {
+        if case .track(let track) = state.groups.first(where: { $0.id == groupID })?.playback.nowPlaying,
+           track.isSpotifyConnect {
+            pendingShuffle = (groupID, isOn, Date().addingTimeInterval(8))
+            Task {
+                await reenrichLiveSnapshot()
+                if case .failure = await perform(.setShuffle(isOn, group: groupID)) {
+                    pendingShuffle = nil
+                    await reenrichLiveSnapshot()
+                    return
+                }
+                // Spotify reports the new shuffle_state about 3 seconds after Sonos applies it.
+                try? await Task.sleep(for: .seconds(3))
+                refreshSpotifyQueueIfNeeded()
+            }
+            return
+        }
         Task {
             do throws(SpotifyBridgeError) {
                 try await spotify.setShuffle(isOn)
@@ -264,7 +287,8 @@ public final class SconeStore {
                     artworkURL: mergedArt,
                     source: mergedSource,
                     upNext: ctx.upNext,
-                    canSkip: true
+                    canSkip: true,
+                    isShuffling: connectShuffleState(group: group.id, track: track, spotifyValue: ctx.isShuffling)
                 )
             }
 
@@ -654,6 +678,27 @@ public final class SconeStore {
             _ = await perform(.playPause(.play, group: group.id))
             schedulePostTransportSpotifyRefresh()
         }
+    }
+
+    /// Spotify's shuffle state for a Connect room whose Sonos local API can toggle it, or nil to hide the toggle.
+    /// A just-requested value wins until Spotify reports it or the request goes stale.
+    private func connectShuffleState(group: GroupID, track: NowPlayingTrack, spotifyValue: Bool?) -> Bool? {
+        guard track.isSpotifyConnect else { return nil }
+        let trackKey = track.spotifyURI?.description ?? track.title
+        if shuffleCapability[group]?.track != trackKey {
+            shuffleCapability[group] = (trackKey, false)
+            Task {
+                guard await sonos.canShuffle(group: group), shuffleCapability[group]?.track == trackKey else { return }
+                shuffleCapability[group] = (trackKey, true)
+                await reenrichLiveSnapshot()
+            }
+        }
+        guard shuffleCapability[group]?.canShuffle == true else { return nil }
+        if let pending = pendingShuffle, pending.group == group {
+            if pending.isOn != spotifyValue, Date() < pending.until { return pending.isOn }
+            pendingShuffle = nil
+        }
+        return spotifyValue
     }
 
     private func applyOptimisticSpotifyTransfer(_ context: SpotifyTrackContext, onto group: SonosGroup) {

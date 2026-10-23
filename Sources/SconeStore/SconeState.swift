@@ -24,8 +24,8 @@ public struct GroupingOutcome: Hashable, Sendable {
         case .group: changed = .grouped
         case .ungroup: changed = .ungrouped
         case .applyPreset(let preset): changed = preset.memberUUIDs.isEmpty ? .ungrouped : .grouped
-        case .setVolume, .playPause, .nextTrack, .previousTrack, .resumeSpotifyConnect, .enqueueAndPlaySpotify,
-             .savePresets, .setSystemName:
+        case .setVolume, .playPause, .nextTrack, .previousTrack, .resumeSpotifyConnect, .setShuffle,
+             .enqueueAndPlaySpotify, .savePresets, .setSystemName:
             return nil
         }
         switch result {
@@ -473,7 +473,7 @@ extension HouseholdSnapshot {
                 status: (group, GroupStatus(playback: playback, volume: current.volume)),
                 externalSpotify: .some(nil)
             )
-        case .nextTrack, .previousTrack, .resumeSpotifyConnect, .savePresets, .setSystemName:
+        case .nextTrack, .previousTrack, .resumeSpotifyConnect, .setShuffle, .savePresets, .setSystemName:
             return self
         }
     }
