@@ -5,6 +5,11 @@ import SpotifyBridge
 public protocol SonosControl: Sendable {
     func snapshots() -> AsyncStream<HouseholdSnapshot>
     func send(_ command: SonosCommand) async throws(SonosCommandError) -> CommandOutcome
+    func canShuffle(group: GroupID) async -> Bool
+}
+
+public extension SonosControl {
+    func canShuffle(group: GroupID) async -> Bool { false }
 }
 
 extension SonosHousehold: SonosControl {}
@@ -15,6 +20,7 @@ public protocol SpotifySource: AnyObject {
     func currentContext(forceRefresh: Bool) async throws(SpotifyBridgeError) -> SpotifyTrackContext
     func pauseSourcePlayback() async
     func resumeSourcePlayback() async -> Bool
+    func setShuffle(_ isOn: Bool) async throws(SpotifyBridgeError)
     func playOnSonosGroup(
         coordinatorRoomName: String,
         memberRoomNames: [String],
@@ -33,6 +39,10 @@ public extension SpotifySource {
         context: SpotifyTrackContext?
     ) async -> Bool {
         false
+    }
+
+    func setShuffle(_ isOn: Bool) async throws(SpotifyBridgeError) {
+        throw .notConnected
     }
 }
 

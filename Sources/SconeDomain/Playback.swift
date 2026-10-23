@@ -64,7 +64,6 @@ public struct QueueItem: Identifiable, Hashable, Sendable, Codable {
     public let album: String?
     public let artworkURL: URL?
     public let duration: Duration?
-    public let queueNumber: Int?
     public let spotifyURI: SpotifyURI?
 
     public init(
@@ -74,16 +73,14 @@ public struct QueueItem: Identifiable, Hashable, Sendable, Codable {
         album: String? = nil,
         artworkURL: URL? = nil,
         duration: Duration? = nil,
-        queueNumber: Int? = nil,
         spotifyURI: SpotifyURI? = nil
     ) {
-        self.id = id ?? "\(queueNumber ?? 0):\(spotifyURI?.description ?? title):\(artist ?? "")"
+        self.id = id ?? "\(spotifyURI?.description ?? title):\(artist ?? "")"
         self.title = title
         self.artist = artist
         self.album = album
         self.artworkURL = artworkURL
         self.duration = duration
-        self.queueNumber = queueNumber
         self.spotifyURI = spotifyURI
     }
 }
@@ -178,6 +175,10 @@ public struct NowPlayingTrack: Hashable, Sendable {
     public let source: PlaybackSource?
     public let upNext: [QueueItem]
     public let canSkip: Bool
+    /// Spotify's live shuffle state, set only when Sconeos can toggle shuffle for this session.
+    public let isShuffling: Bool?
+    /// The room's transport is a Spotify Connect session (`x-sonos-vli:`), not a Sonos queue.
+    public let isSpotifyConnect: Bool
 
     public init(
         title: String,
@@ -189,7 +190,9 @@ public struct NowPlayingTrack: Hashable, Sendable {
         spotifyURI: SpotifyURI?,
         source: PlaybackSource? = nil,
         upNext: [QueueItem] = [],
-        canSkip: Bool? = nil
+        canSkip: Bool? = nil,
+        isShuffling: Bool? = nil,
+        isSpotifyConnect: Bool = false
     ) {
         self.title = title
         self.artist = artist
@@ -201,13 +204,16 @@ public struct NowPlayingTrack: Hashable, Sendable {
         self.source = source ?? (spotifyURI != nil ? .spotify() : (queuePosition != nil ? .sonosQueue : nil))
         self.upNext = upNext
         self.canSkip = canSkip ?? (queuePosition != nil || spotifyURI != nil)
+        self.isShuffling = isShuffling
+        self.isSpotifyConnect = isSpotifyConnect
     }
 
     public func merging(
         artworkURL: URL? = nil,
         source: PlaybackSource? = nil,
         upNext: [QueueItem]? = nil,
-        canSkip: Bool? = nil
+        canSkip: Bool? = nil,
+        isShuffling: Bool? = nil
     ) -> NowPlayingTrack {
         NowPlayingTrack(
             title: title,
@@ -219,7 +225,9 @@ public struct NowPlayingTrack: Hashable, Sendable {
             spotifyURI: spotifyURI,
             source: source ?? self.source,
             upNext: upNext ?? self.upNext,
-            canSkip: canSkip ?? self.canSkip
+            canSkip: canSkip ?? self.canSkip,
+            isShuffling: isShuffling ?? self.isShuffling,
+            isSpotifyConnect: isSpotifyConnect
         )
     }
 

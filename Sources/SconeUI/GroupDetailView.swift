@@ -79,7 +79,8 @@ struct GroupDetailView: View {
 
                 speakersSection
             }
-            .padding(28)
+            .padding(.vertical, 28)
+            .padding(.horizontal, MidnightGlass.pageInset)
             .frame(maxWidth: 880, alignment: .leading)
             .frame(maxWidth: .infinity, alignment: .leading)
         }

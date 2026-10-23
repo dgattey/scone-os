@@ -56,6 +56,9 @@ enum MidnightGlass {
     static let roomEnclosureFill = Color(light: .srgb(255, 252, 245, 0.86), dark: .srgb(44, 35, 27, 0.66))
     static let roomEnclosureBorder = Color(light: .srgb(216, 192, 154, 0.85), dark: .srgb(229, 169, 60, 0.24))
     static let badgeBackground = Color(light: .srgb(250, 243, 230, 0.96), dark: .srgb(24, 19, 15, 0.94))
+
+    /// Horizontal inset from the detail edges to page content and the Now Playing bar.
+    static let pageInset: CGFloat = 36
 }
 
 struct MidnightBackground: View {

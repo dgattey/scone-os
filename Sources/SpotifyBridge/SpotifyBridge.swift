@@ -187,6 +187,17 @@ public final class SpotifyBridge {
         return ok
     }
 
+    public func setShuffle(_ isOn: Bool) async throws(SpotifyBridgeError) {
+        guard let token = try await validAccessToken() else { throw .notConnected }
+        do throws(SpotifyBridgeError) {
+            try await WebAPI.setShuffle(isOn, accessToken: token)
+        } catch .authorizationFailed {
+            guard let refreshed = try await forceRefreshAccessToken() else { throw .notConnected }
+            try await WebAPI.setShuffle(isOn, accessToken: refreshed)
+        }
+        await SpotifyAPIClient.shared.invalidateShortCache()
+    }
+
     public func playOnSonosGroup(
         coordinatorRoomName: String,
         memberRoomNames: [String],
@@ -196,7 +207,9 @@ public final class SpotifyBridge {
         let candidateRoomNames = [coordinatorRoomName] + memberRoomNames.filter { $0 != coordinatorRoomName }
 
         // 1. If Spotify's active device already matches this group's coordinator (or a member room), resume directly.
-        if SpotifyDeviceMatcher.matchesAny(deviceName: context?.deviceName, roomNames: candidateRoomNames) {
+        // Sonos rooms report a null id and reject Web API playback with 403 "Restricted device".
+        if context?.deviceID != nil,
+           SpotifyDeviceMatcher.matchesAny(deviceName: context?.deviceName, roomNames: candidateRoomNames) {
             if await WebAPI.resume(accessToken: token, deviceID: context?.deviceID) {
                 await SpotifyAPIClient.shared.invalidateShortCache()
                 return true

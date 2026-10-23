@@ -532,15 +532,6 @@ public struct SconeRootView: View {
     }
 
     @ViewBuilder private var detail: some View {
-        let isShowingHome: Bool = switch selection {
-        case .home, nil:
-            true
-        case .group(let id):
-            !store.state.groups.contains(where: { $0.id == id })
-        case .speaker(let id):
-            !store.state.speakers.contains(where: { $0.id == id })
-        }
-
         ZStack {
             MidnightBackground()
             Group {
@@ -578,21 +569,19 @@ public struct SconeRootView: View {
                         selection = .group(group.id)
                     }
                 )
-                .padding(.horizontal, 20)
+                .padding(.horizontal, MidnightGlass.pageInset)
                 .padding(.bottom, 14)
             }
         }
         .toolbar {
-            if isShowingHome {
-                if #available(macOS 26.0, iOS 26.0, *) {
-                    ToolbarItem(placement: .navigation) {
-                        PresetPillsBar(inToolbar: true)
-                    }
-                    .sharedBackgroundVisibility(.hidden)
-                } else {
-                    ToolbarItem(placement: .navigation) {
-                        PresetPillsBar(inToolbar: true)
-                    }
+            if #available(macOS 26.0, iOS 26.0, *) {
+                ToolbarItem(placement: .navigation) {
+                    PresetPillsBar(inToolbar: true)
+                }
+                .sharedBackgroundVisibility(.hidden)
+            } else {
+                ToolbarItem(placement: .navigation) {
+                    PresetPillsBar(inToolbar: true)
                 }
             }
         }

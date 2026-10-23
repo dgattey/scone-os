@@ -254,6 +254,7 @@ struct SpeakerBatteryBadge: View {
         .padding(.vertical, 2)
         .background(Capsule().fill(MidnightGlass.subtleFill))
         .overlay(Capsule().strokeBorder(MidnightGlass.cardBorder, lineWidth: 1))
+        .fixedSize()
         .help(battery.isOnCharger ? "Battery \(battery.levelPercent)% (Charging)" : "Battery \(battery.levelPercent)%")
     }
 }

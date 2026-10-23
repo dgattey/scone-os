@@ -76,6 +76,8 @@ public struct SpotifyTrackContext: Hashable, Sendable {
     public let deviceName: String?
     public let deviceType: String?
     public let isPlaying: Bool
+    /// Spotify's `shuffle_state`, or nil when the player didn't report one.
+    public let isShuffling: Bool?
     public let upNext: [QueueItem]
 
     public init(
@@ -88,6 +90,7 @@ public struct SpotifyTrackContext: Hashable, Sendable {
         deviceName: String? = nil,
         deviceType: String? = nil,
         isPlaying: Bool = false,
+        isShuffling: Bool? = nil,
         upNext: [QueueItem] = []
     ) {
         self.uri = uri
@@ -99,6 +102,7 @@ public struct SpotifyTrackContext: Hashable, Sendable {
         self.deviceName = deviceName
         self.deviceType = deviceType
         self.isPlaying = isPlaying
+        self.isShuffling = isShuffling
         self.upNext = upNext
     }
 

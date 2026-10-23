@@ -81,6 +81,7 @@ struct FloorplanMapView: View {
                     selected: $selected,
                     onSelectGroup: onSelectGroup
                 )
+                .padding(.horizontal, 12)
             } else {
                 let hubGroups = activeHubGroups(from: groups)
                 let geometry = memoizedGeometry(
@@ -88,7 +89,7 @@ struct FloorplanMapView: View {
                     hubGroups: hubGroups,
                     viewportSize: geo.size
                 )
-                let plot = CGRect(origin: .zero, size: geometry.canvasSize).insetBy(dx: 24, dy: 16)
+                let plot = CGRect(origin: .zero, size: geometry.canvasSize).insetBy(dx: MidnightGlass.pageInset, dy: 16)
                 let bands = geometry.bands
                 let hubLocations = geometry.hubLocations
 
@@ -167,7 +168,6 @@ struct FloorplanMapView: View {
                 .scrollBounceBehavior(.basedOnSize)
             }
         }
-        .padding(.horizontal, 12)
         .padding(.vertical, 6)
     }
 
@@ -207,7 +207,7 @@ struct FloorplanMapView: View {
                 }
             }
 
-            let initialPlot = CGRect(origin: .zero, size: viewportSize).insetBy(dx: 24, dy: 16)
+            let initialPlot = CGRect(origin: .zero, size: viewportSize).insetBy(dx: MidnightGlass.pageInset, dy: 16)
             let bands = FloorBandLayout.compute(
                 nodes: nodes,
                 in: initialPlot,
@@ -216,7 +216,7 @@ struct FloorplanMapView: View {
             let maxBandBottom = bands.map(\.frame.maxY).max() ?? initialPlot.maxY
             let requiredHeight = max(viewportSize.height, maxBandBottom + 16)
             let canvasSize = CGSize(width: viewportSize.width, height: requiredHeight)
-            let plot = CGRect(origin: .zero, size: canvasSize).insetBy(dx: 24, dy: 16)
+            let plot = CGRect(origin: .zero, size: canvasSize).insetBy(dx: MidnightGlass.pageInset, dy: 16)
 
             var hubLocations = computeHubLocations(
                 hubGroups: hubGroups,
