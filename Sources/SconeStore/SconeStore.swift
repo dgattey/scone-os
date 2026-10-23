@@ -534,13 +534,17 @@ public final class SconeStore {
         switch group.playback {
         case .playing:
             send(.playPause(.pause, group: group.id))
-        case .paused(let nowPlaying, let elapsed):
+        case .paused(let nowPlaying, _):
+            // UPnP Play resumes a Spotify Connect transport in place; Spotify's Web API rejects Sonos rooms.
+            if case .track(let track) = nowPlaying, track.isSpotifyConnect {
+                send(.playPause(.play, group: group.id))
+                return
+            }
             Task {
                 if nowPlaying.isSpotifyOrStreaming {
                     await startOrResumeSpotifyPlayback(
                         on: group,
                         fallbackNowPlaying: nowPlaying,
-                        fallbackElapsed: elapsed,
                         reportIfNotConnected: false
                     )
                     return
@@ -551,7 +555,6 @@ public final class SconeStore {
                     await startOrResumeSpotifyPlayback(
                         on: group,
                         fallbackNowPlaying: nowPlaying,
-                        fallbackElapsed: elapsed,
                         reportIfNotConnected: false
                     )
                 }
@@ -561,7 +564,6 @@ public final class SconeStore {
                 await startOrResumeSpotifyPlayback(
                     on: group,
                     fallbackNowPlaying: lastKnownTracks[group.id].map(NowPlaying.track),
-                    fallbackElapsed: nil,
                     reportIfNotConnected: true
                 )
             }
@@ -571,7 +573,6 @@ public final class SconeStore {
     private func startOrResumeSpotifyPlayback(
         on group: SonosGroup,
         fallbackNowPlaying: NowPlaying? = nil,
-        fallbackElapsed: Duration? = nil,
         reportIfNotConnected: Bool
     ) async {
         var fetchedError: SpotifyBridgeError?
@@ -598,8 +599,9 @@ public final class SconeStore {
             return
         }
 
-        // 2. If Spotify returned a current track context, enqueue that track + upNext queue on Sonos.
-        if let context = liveContext {
+        // 2. Cold start: the room isn't on Spotify Connect and Spotify can't target it, so enqueue
+        // Spotify's live track + queue on Sonos.
+        if fetchedError == nil, let context = liveContext {
             let shouldPauseExternalSource = context.isPlaying && !isHouseholdSonosDevice(context.deviceName)
             let result = await perform(
                 .enqueueAndPlaySpotify(
@@ -617,28 +619,6 @@ public final class SconeStore {
                 }
                 applyOptimisticSpotifyTransfer(context, onto: group)
             }
-            schedulePostTransportSpotifyRefresh()
-            return
-        }
-
-        // 3. Fallback to any known Spotify track on the group before attempting raw UPnP Play.
-        if case .track(let track) = fallbackNowPlaying, let uri = track.spotifyURI {
-            let metadata = SpotifyTrackMetadata(
-                title: track.title,
-                artist: track.artist ?? "",
-                album: track.album,
-                artworkURL: track.artworkURL,
-                duration: track.duration
-            )
-            _ = await perform(
-                .enqueueAndPlaySpotify(
-                    uri: uri,
-                    metadata: metadata,
-                    onCoordinator: group.id,
-                    startingAt: fallbackElapsed,
-                    upNext: track.upNext
-                )
-            )
             schedulePostTransportSpotifyRefresh()
             return
         }

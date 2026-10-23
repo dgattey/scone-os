@@ -1005,6 +1005,7 @@ struct PlaybackTests {
         #expect(track.spotifyURI?.description == "spotify:track:2mqTtvbKxH7SoEQ2oGAnsA")
         #expect(track.source == PlaybackSource.spotify(contextTitle: nil))
         #expect(track.canSkip == true)
+        #expect(track.isSpotifyConnect)
         #expect(elapsed == .seconds(107))
 
         let enriched = track.merging(
@@ -1058,6 +1059,7 @@ struct PlaybackTests {
         #expect(relTrack.artworkURL?.absoluteString == "http://192.168.68.90:1400/getaa?s=1&u=x-sonos-spotify%3Aspotify%3Atrack%3A2mqTtvbKxH7SoEQ2oGAnsA%3Fsid%3D12%26flags%3D8224%26sn%3D3")
         #expect(relTrack.source == PlaybackSource.spotify(contextTitle: "26"))
         #expect(relTrack.queuePosition == 2)
+        #expect(!relTrack.isSpotifyConnect)
     }
 }
 
@@ -1929,6 +1931,46 @@ struct SconeFileTests {
 
         #expect(spotify.shuffleRequests == [false])
         #expect(spotify.callCount == 1)
+    }
+
+    @Test @MainActor func playOnPausedSpotifyConnectRoomResumesOverUPnPWithoutEnqueueing() async throws {
+        let directory = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let connectTrack = NowPlayingTrack(
+            title: "Disparate Youth",
+            artist: "Santigold",
+            album: nil,
+            artworkURL: nil,
+            duration: .seconds(245),
+            queuePosition: nil,
+            spotifyURI: SpotifyURI("spotify:track:2mqTtvbKxH7SoEQ2oGAnsA"),
+            isSpotifyConnect: true
+        )
+        let livingGroup = GroupID(coordinator: House.living)
+        let sonos = RecordingSonos(yielded: [snapshot(
+            [speaker(House.living, room: "Living Room")],
+            coordinatorOf: [House.living: House.living],
+            status: [livingGroup: GroupStatus(playback: .paused(.track(connectTrack), elapsed: .seconds(30)), volume: .v25)]
+        )])
+        let spotify = CountingSpotify(response: .failure(.nothingPlaying))
+        let store = SconeStore(
+            loaded: LoadedFiles(cache: nil, positions: nil, quarantined: []),
+            files: SconeFiles(directory: directory),
+            sonos: sonos,
+            spotify: spotify
+        )
+        await store.run()
+        let callsBeforePlay = spotify.callCount
+
+        let group = try #require(store.state.groups.first { $0.id == livingGroup })
+        store.togglePlayOrHandOffSpotify(for: group)
+        for _ in 0..<50 where sonos.commands.isEmpty {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+
+        #expect(sonos.commands == [.playPause(.play, group: livingGroup)])
+        #expect(spotify.transferredRooms.isEmpty)
+        #expect(spotify.callCount == callsBeforePlay)
     }
 
     @Test func spotifyPlayerStateCarriesShuffleState() throws {

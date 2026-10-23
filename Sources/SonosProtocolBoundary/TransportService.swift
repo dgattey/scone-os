@@ -72,7 +72,8 @@ enum TransportService {
                 queuePosition: resolvedQueuePosition,
                 spotifyURI: spotify,
                 source: source,
-                canSkip: queued || isSpotifyOrigin
+                canSkip: queued || isSpotifyOrigin,
+                isSpotifyConnect: isSpotifyOrigin && currentURI.lowercased().hasPrefix("x-sonos-vli:")
             ))
         } else {
             now = .stream(title: facts.title.nilIfEmpty ?? facts.streamContent.nilIfEmpty)
