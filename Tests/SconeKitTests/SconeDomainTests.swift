@@ -1973,6 +1973,66 @@ struct SconeFileTests {
         #expect(spotify.callCount == callsBeforePlay)
     }
 
+    @Test @MainActor func upNextTapOnSpotifyConnectRoomSkipsForwardInsteadOfEnqueueing() async throws {
+        let directory = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let trackURI = SpotifyURI("spotify:track:2mqTtvbKxH7SoEQ2oGAnsA")!
+        let connectTrack = NowPlayingTrack(
+            title: "Crown",
+            artist: "Stormzy",
+            album: nil,
+            artworkURL: nil,
+            duration: .seconds(240),
+            queuePosition: nil,
+            spotifyURI: trackURI,
+            isSpotifyConnect: true
+        )
+        let upNext = ["Days Like This", "Karma Tax", "Helpless"].enumerated().map { index, title in
+            QueueItem(id: "\(index)", title: title, artist: nil, spotifyURI: SpotifyURI("spotify:track:0FlfN5cbUUpIHCRH8X1M4\(index)"))
+        }
+        let livingGroup = GroupID(coordinator: House.living)
+        let sonos = RecordingSonos(yielded: [snapshot(
+            [speaker(House.living, room: "Living Room")],
+            coordinatorOf: [House.living: House.living],
+            status: [livingGroup: GroupStatus(
+                playback: .playing(.track(connectTrack), elapsed: .seconds(30), sampledAt: Date()),
+                volume: .v25
+            )]
+        )])
+        let spotify = CountingSpotify(response: .success(SpotifyTrackContext(
+            uri: trackURI,
+            metadata: SpotifyTrackMetadata(title: "Crown", artist: "Stormzy", album: nil, artworkURL: nil, duration: .seconds(240)),
+            position: .seconds(30),
+            deviceName: "Living Room",
+            isPlaying: true,
+            upNext: upNext
+        )))
+        let store = SconeStore(
+            loaded: LoadedFiles(cache: nil, positions: nil, quarantined: []),
+            files: SconeFiles(directory: directory),
+            sonos: sonos,
+            spotify: spotify
+        )
+        await store.run()
+        guard case .track(let enriched) = store.state.groups.first(where: { $0.id == livingGroup })?.playback.nowPlaying else {
+            Issue.record("expected the Living Room track")
+            return
+        }
+        #expect(enriched.upNext == upNext)
+
+        store.playQueueItem(upNext[2], on: livingGroup)
+        for _ in 0..<50 where sonos.commands.count < 4 {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+
+        #expect(sonos.commands == [
+            .nextTrack(group: livingGroup),
+            .nextTrack(group: livingGroup),
+            .nextTrack(group: livingGroup),
+            .playPause(.play, group: livingGroup),
+        ])
+    }
+
     @Test @MainActor func playOnDormantSpotifyConnectRoomRevivesItWithoutEnqueueing() async throws {
         let directory = try makeDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }

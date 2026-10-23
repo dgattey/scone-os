@@ -133,6 +133,20 @@ public final class SconeStore {
     }
 
     public func playQueueItem(_ item: QueueItem, on group: GroupID) {
+        if case .track(let track) = state.groups.first(where: { $0.id == group })?.playback.nowPlaying,
+           track.isSpotifyConnect {
+            // Spotify rejects Web API playback on Sonos rooms and rebuilding the Sonos queue would drop
+            // Connect, so skip forward in place: each UPnP Next pops one Up Next item.
+            guard let index = track.upNext.firstIndex(of: item) else { return }
+            Task {
+                for _ in 0...index {
+                    guard case .success = await perform(.nextTrack(group: group)) else { return }
+                }
+                _ = await perform(.playPause(.play, group: group))
+                schedulePostTransportSpotifyRefresh()
+            }
+            return
+        }
         guard let uri = item.spotifyURI else { return }
         let metadata = SpotifyTrackMetadata(
             title: item.title,
