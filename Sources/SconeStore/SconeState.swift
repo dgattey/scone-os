@@ -24,7 +24,7 @@ public struct GroupingOutcome: Hashable, Sendable {
         case .group: changed = .grouped
         case .ungroup: changed = .ungrouped
         case .applyPreset(let preset): changed = preset.memberUUIDs.isEmpty ? .ungrouped : .grouped
-        case .setVolume, .playPause, .nextTrack, .previousTrack, .seekToQueueTrack, .enqueueAndPlaySpotify,
+        case .setVolume, .playPause, .nextTrack, .previousTrack, .resumeSpotifyConnect, .enqueueAndPlaySpotify,
              .savePresets, .setSystemName:
             return nil
         }
