@@ -21,6 +21,7 @@ public final class SconeStore {
     @ObservationIgnored private var inFlightSpotifyRefresh: Task<Void, Never>?
     @ObservationIgnored private var lastKnownTracks: [GroupID: NowPlayingTrack] = [:]
     @ObservationIgnored private var shuffleCapability: [GroupID: (track: String, canShuffle: Bool)] = [:]
+    @ObservationIgnored private var shuffleCapabilityRevision = 0
     @ObservationIgnored private var pendingShuffle: (group: GroupID, isOn: Bool, until: Date)?
     @ObservationIgnored private var preferredActiveGroupIDs: Set<GroupID> = []
     @ObservationIgnored private var pendingVolumes: [VolumeTarget: DiscreteVolume] = [:]
@@ -78,6 +79,7 @@ public final class SconeStore {
         defer { isRunningLoop = false }
 
         for await snapshot in sonos.snapshots() {
+            let capabilityRevision = shuffleCapabilityRevision
             let enriched = await enrichWithSpotifyIfNeeded(snapshot)
             if let currentLive = state.live,
                currentLive.isSemanticallyEquivalent(to: enriched),
@@ -94,6 +96,9 @@ public final class SconeStore {
                 }.value
             }
             mutateState { $0.absorb(enriched, precomputedLayout: precomputedLayout) }
+            if shuffleCapabilityRevision != capabilityRevision {
+                await reenrichLiveSnapshot()
+            }
             await persistChangedSlicesAsync()
         }
     }
@@ -690,6 +695,7 @@ public final class SconeStore {
             Task {
                 guard await sonos.canShuffle(group: group), shuffleCapability[group]?.track == trackKey else { return }
                 shuffleCapability[group] = (trackKey, true)
+                shuffleCapabilityRevision += 1
                 await reenrichLiveSnapshot()
             }
         }
