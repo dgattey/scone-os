@@ -6,6 +6,7 @@ import SpotifyBridge
 
 @MainActor
 func joinedSpeaker(from items: [String], onto target: SpeakerUUID, store: SconeStore) -> Bool {
+    SpeakerDragSource.dropped()
     guard let raw = items.first, let member = SpeakerUUID(rawValue: raw), member != target else { return false }
     store.group(member: member, onto: target)
     return true

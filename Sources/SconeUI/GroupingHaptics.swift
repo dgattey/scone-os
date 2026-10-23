@@ -12,6 +12,10 @@ enum SpeakerDragSource {
         current = speaker
         return speaker.rawValue
     }
+
+    static func dropped() {
+        current = nil
+    }
 }
 
 extension SconeState {
