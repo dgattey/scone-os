@@ -1499,6 +1499,41 @@ struct SconeStateTests {
         #expect(state.groups.map(\.playback) == [.stopped])
     }
 
+    @Test func groupingOutcomeRecordsOnlyFinishedRegroupsThisAppSent() {
+        var state = SconeState(loaded: LoadedFiles(cache: nil, positions: nil, quarantined: []))
+        let kitchen = GroupID(coordinator: House.kitchen)
+        func finish(_ command: SonosCommand, _ result: Result<CommandOutcome, SonosCommandError>) -> GroupingOutcome? {
+            let ticket = state.begin(command)
+            state.finish(ticket, with: result)
+            return state.lastGroupingOutcome
+        }
+
+        let joined = finish(.group(member: House.dining, intoCoordinator: kitchen), .success(.applied))
+        #expect(joined?.kind == .grouped)
+        let joinedAgain = finish(.group(member: House.living, intoCoordinator: kitchen), .success(.applied))
+        #expect(joinedAgain?.kind == .grouped)
+        #expect(joinedAgain != joined)
+
+        let left = finish(.ungroup(member: House.dining), .success(.applied))
+        #expect(left?.kind == .ungrouped)
+        let dissolve = PresetPill(name: "Kitchen", coordinatorUUID: House.kitchen, memberUUIDs: [])
+        let dissolved = finish(.applyPreset(dissolve), .success(.applied))
+        #expect(dissolved?.kind == .ungrouped)
+        let everywhere = PresetPill(name: "Everywhere", coordinatorUUID: House.kitchen, memberUUIDs: [House.dining])
+        let regrouped = finish(.applyPreset(everywhere), .success(.applied))
+        #expect(regrouped?.kind == .grouped)
+
+        let unchanged = finish(.ungroup(member: House.bedroom), .success(.alreadySatisfied))
+        #expect(unchanged == regrouped)
+        let transport = finish(.playPause(.play, group: kitchen), .failure(.speakerUnreachable(House.kitchen)))
+        #expect(transport == regrouped)
+
+        let timedOut = finish(.ungroup(member: House.dining), .failure(.notConverged(after: .seconds(8))))
+        #expect(timedOut?.kind == .failed)
+        let partial = finish(.applyPreset(everywhere), .success(.partiallyApplied(unreachable: [House.dining])))
+        #expect(partial?.kind == .failed)
+    }
+
     @Test func optimisticVolumeSuppressesIncomingPollUpdatesUntilWindowExpires() {
         var state = SconeState(loaded: LoadedFiles(cache: nil, positions: nil, quarantined: []))
         let initialTime = Date()
