@@ -15,79 +15,74 @@
 <section data-sparkle-version="43">
 <h3 style="margin: 0 0 6px 0; font-size: 13px;">1.2.1</h3>
 <ul>
-  <li style="margin-bottom: 6px; line-height: 1.45;">Grouping haptics are stronger and follow a clear order, from a light tick while dragging, to a firm snap when you drop or pick a menu item, to a strong two-beat confirmation when Sonos finishes.</li>
-  <li style="margin-bottom: 6px; line-height: 1.45;">Picking up a speaker on the Home Map, setting a room down, and every menu, button and preset that groups or ungroups rooms now play a haptic.</li>
-  <li style="margin-bottom: 6px; line-height: 1.45;">On Mac, a failed group or ungroup now plays an error pattern on the trackpad.</li>
+  <li style="margin-bottom: 6px; line-height: 1.45;">Grouping haptics build up clearly: a light tick while dragging, a firm snap when you drop or pick a menu item, and a strong double tap when Sonos finishes (#25).</li>
+  <li style="margin-bottom: 6px; line-height: 1.45;">Picking up or setting down a speaker on the Home Map, and every menu, button and preset that groups or ungroups rooms, now plays a haptic (#25).</li>
+  <li style="margin-bottom: 6px; line-height: 1.45;">On Mac, a failed group or ungroup plays an error pattern on the trackpad (#25).</li>
 </ul>
 </section>
 <section data-sparkle-version="41">
 <h3 style="margin: 14px 0 6px 0; font-size: 13px; opacity: 0.75;">1.2.0</h3>
 <ul>
-  <li style="margin-bottom: 6px; line-height: 1.45;">The battery pill on a speaker row stays on one line; long room names truncate instead.</li>
-  <li style="margin-bottom: 6px; line-height: 1.45;">Opening Up Next no longer shrinks or clips the Home map.</li>
-  <li style="margin-bottom: 6px; line-height: 1.45;">Up Next always shows Spotify's live queue.</li>
-  <li style="margin-bottom: 6px; line-height: 1.45;">Pressing Play on a Spotify Connect room resumes it in place instead of rebuilding a Sonos queue, including a room whose Connect session has gone dormant.</li>
-  <li style="margin-bottom: 6px; line-height: 1.45;">Tapping a song in Up Next on a Spotify Connect room skips forward to it and keeps the room on Spotify Connect.</li>
-  <li style="margin-bottom: 6px; line-height: 1.45;">Preset pills sit in the toolbar on every page.</li>
-  <li style="margin-bottom: 6px; line-height: 1.45;">The Now Playing bar lines up with the map's floor plates and page content.</li>
-  <li style="margin-bottom: 6px; line-height: 1.45;">Turn shuffle on and off from the Now Playing bar when Spotify is playing on a Sonos room over Spotify Connect, or on another device such as a phone or computer.</li>
+  <li style="margin-bottom: 6px; line-height: 1.45;">Turn shuffle on and off from the Now Playing bar while Spotify is playing (#24).</li>
+  <li style="margin-bottom: 6px; line-height: 1.45;">Spotify Connect rooms behave better: Play resumes in place, tapping a song in Up Next skips to it, and Up Next always shows Spotify's live queue (#24).</li>
+  <li style="margin-bottom: 6px; line-height: 1.45;">Layout fixes across the Home Map, toolbar, Now Playing bar and speaker rows, including preset pills in the toolbar on every page (#24).</li>
 </ul>
 </section>
 <section data-sparkle-version="39">
 <h3 style="margin: 14px 0 6px 0; font-size: 13px; opacity: 0.75;">1.1.3</h3>
 <ul>
-  <li style="margin-bottom: 6px; line-height: 1.45;">Dragging a speaker onto a room or group it can join gives a light tick on the trackpad or iPhone.</li>
-  <li style="margin-bottom: 6px; line-height: 1.45;">Grouping and ungrouping speakers now confirm with a haptic once Sonos finishes the change. On iPhone, a failed regroup plays an error haptic.</li>
+  <li style="margin-bottom: 6px; line-height: 1.45;">Dragging a speaker onto a room or group it can join gives a light tick on the trackpad or iPhone (#23).</li>
+  <li style="margin-bottom: 6px; line-height: 1.45;">Grouping and ungrouping confirm with a haptic once Sonos finishes, and on iPhone a failed regroup plays an error haptic (#23).</li>
 </ul>
 </section>
 <section data-sparkle-version="37">
 <h3 style="margin: 14px 0 6px 0; font-size: 13px; opacity: 0.75;">1.1.2</h3>
 <ul>
-  <li style="margin-bottom: 6px; line-height: 1.45;">Speakers from another Sonos system (say, the office) no longer show up as offline rooms at home. Each network keeps its own rooms, and they come back when you return to that network.</li>
+  <li style="margin-bottom: 6px; line-height: 1.45;">Speakers from another Sonos system, like the office, no longer show up as offline rooms at home. Each network keeps its own rooms, and they come back when you return (#21).</li>
 </ul>
 </section>
 <section data-sparkle-version="34">
 <h3 style="margin: 14px 0 6px 0; font-size: 13px; opacity: 0.75;">1.1.1</h3>
 <ul>
-  <li style="margin-bottom: 6px; line-height: 1.45;">No user-facing changes. DylKit now ships from its own repository.</li>
+  <li style="margin-bottom: 6px; line-height: 1.45;">Internal build and release pipeline cleanup (#18, #19).</li>
 </ul>
 </section>
 <section data-sparkle-version="31">
 <h3 style="margin: 14px 0 6px 0; font-size: 13px; opacity: 0.75;">1.1.0</h3>
 <ul>
-  <li style="margin-bottom: 6px; line-height: 1.45;">Sconeos has a Settings window (⌘,) with automatic update checks and an About page.</li>
-  <li style="margin-bottom: 6px; line-height: 1.45;">When an update is found at launch, its dialog now comes forward instead of hiding behind other windows.</li>
-  <li style="margin-bottom: 6px; line-height: 1.45;">The update dialog lists only the versions newer than the one you're running.</li>
-  <li style="margin-bottom: 6px; line-height: 1.45;">The download site's install help now covers Macs where "Open Anyway" fails.</li>
+  <li style="margin-bottom: 6px; line-height: 1.45;">Sconeos has a Settings window (⌘,) with automatic update checks and an About page (#14).</li>
+  <li style="margin-bottom: 6px; line-height: 1.45;">Update dialogs come forward at launch and list only the versions newer than yours (#14).</li>
+  <li style="margin-bottom: 6px; line-height: 1.45;">The download site's install help now covers Macs where "Open Anyway" fails (#14).</li>
 </ul>
 </section>
 <section data-sparkle-version="29">
 <h3 style="margin: 14px 0 6px 0; font-size: 13px; opacity: 0.75;">1.0.11</h3>
 <ul>
-  <li style="margin-bottom: 6px; line-height: 1.45;">When there's no Sonos system on the network you're on, Sconeos shows one "No Sonos system on this network" card. It no longer shows a wall of Offline rooms from home.</li>
-  <li style="margin-bottom: 6px; line-height: 1.45;">On a network with a different Sonos system, Sconeos connects to that system and shows its rooms. The rooms saved from the last network don't come along.</li>
-  <li style="margin-bottom: 6px; line-height: 1.45;">Battery speakers like Move and Roam show Offline on the map when they can't be reached. Before, they showed a battery badge and looked online.</li>
+  <li style="margin-bottom: 6px; line-height: 1.45;">When there's no Sonos system on your network, Sconeos shows one "No Sonos system on this network" card instead of a wall of offline rooms (#16).</li>
+  <li style="margin-bottom: 6px; line-height: 1.45;">On a network with a different Sonos system, Sconeos connects to it and shows its rooms instead of the ones from your last network (#16).</li>
+  <li style="margin-bottom: 6px; line-height: 1.45;">Battery speakers like Move and Roam show Offline on the map when they can't be reached (#16).</li>
 </ul>
 </section>
 <section data-sparkle-version="27">
 <h3 style="margin: 14px 0 6px 0; font-size: 13px; opacity: 0.75;">1.0.10</h3>
 <ul>
-  <li style="margin-bottom: 6px; line-height: 1.45;">Sconeos no longer stalls the window at launch while it restores the Spotify session and reads saved room positions.</li>
-  <li style="margin-bottom: 6px; line-height: 1.45;">Moving or resetting a room pin no longer blocks the map while the change is written to disk.</li>
+  <li style="margin-bottom: 6px; line-height: 1.45;">Sconeos no longer stalls at launch while it restores your Spotify sign-in and saved room positions (#13).</li>
+  <li style="margin-bottom: 6px; line-height: 1.45;">Moving or resetting a room pin no longer freezes the map (#13).</li>
+  <li style="margin-bottom: 6px; line-height: 1.45;">The Dock icon looks the same whether Sconeos is open or closed (#12).</li>
 </ul>
 </section>
 <section data-sparkle-version="24">
 <h3 style="margin: 14px 0 6px 0; font-size: 13px; opacity: 0.75;">1.0.9</h3>
 <ul>
-  <li style="margin-bottom: 6px; line-height: 1.45;"><strong>Catch up on skipped updates:</strong> If you skipped versions, the update dialog now lists what changed in each one since, newest first (up to the last 10 versions).</li>
-  <li style="margin-bottom: 6px; line-height: 1.45;"><strong>Full version history link:</strong> The update dialog links to the complete release history on GitHub.</li>
+  <li style="margin-bottom: 6px; line-height: 1.45;">If you skipped versions, the update dialog lists what changed in each one, newest first, up to the last 10 (#11).</li>
+  <li style="margin-bottom: 6px; line-height: 1.45;">The update dialog links to the full release history (#11).</li>
 </ul>
 </section>
 <section data-sparkle-version="22">
 <h3 style="margin: 14px 0 6px 0; font-size: 13px; opacity: 0.75;">1.0.8</h3>
 <ul>
-  <li style="margin-bottom: 6px; line-height: 1.45;">Replaced the waveform icon with the new "Scone Cone" icon (a baked scone wedge speaker cone with honey-glass sound arcs) across macOS, iOS, the web landing icon, and the in-app sidebar emblem.</li>
-  <li style="margin-bottom: 6px; line-height: 1.45;">Fixed light, dark, and tinted app icon switching across macOS 26 and iOS 26 so the app icon and in-app emblem dynamically match the active appearance.</li>
+  <li style="margin-bottom: 6px; line-height: 1.45;">Sconeos has a new Scone Cone icon on Mac, iPhone and the website (#10).</li>
+  <li style="margin-bottom: 6px; line-height: 1.45;">The app icon now follows light, dark and tinted appearances on macOS 26 and iOS 26 (#10).</li>
 </ul>
 </section>
 ]]></description>
