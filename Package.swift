@@ -36,6 +36,6 @@ let package = Package(
                 .product(name: "DylUpdates", package: "dyl-kit"),
             ]
         ),
-        .testTarget(name: "SconeKitTests", dependencies: ["SconeDomain", "SonosProtocolBoundary", "SpotifyBridge", "SconeStore"]),
+        .testTarget(name: "SconeKitTests", dependencies: ["SconeDomain", "SonosProtocolBoundary", "SpotifyBridge", "SconeStore", "SconeUI"]),
     ]
 )

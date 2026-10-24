@@ -6,10 +6,11 @@ public struct CommandTicket: Hashable, Sendable {
     fileprivate let value: Int
 }
 
-/// A regroup this app sent that Sonos has finished. Each one carries its own ticket, so two
-/// identical outcomes in a row still compare unequal.
-public struct GroupingOutcome: Hashable, Sendable {
+/// A regroup this app sent: once when it goes out, then once when Sonos finishes it. Each command carries its
+/// own ticket, so two identical events in a row still compare unequal.
+public struct GroupingCommandEvent: Hashable, Sendable {
     public enum Kind: Hashable, Sendable {
+        case sent
         case grouped
         case ungrouped
         case failed
@@ -17,23 +18,19 @@ public struct GroupingOutcome: Hashable, Sendable {
 
     public let kind: Kind
     let ticket: CommandTicket
+}
 
-    init?(_ command: SonosCommand, _ result: Result<CommandOutcome, SonosCommandError>, ticket: CommandTicket) {
-        let changed: Kind
-        switch command {
-        case .group: changed = .grouped
-        case .ungroup: changed = .ungrouped
-        case .applyPreset(let preset): changed = preset.memberUUIDs.isEmpty ? .ungrouped : .grouped
+private extension SonosCommand {
+    /// What a regroup does once Sonos applies it, or nil for commands that don't regroup.
+    var regroupKind: GroupingCommandEvent.Kind? {
+        switch self {
+        case .group: .grouped
+        case .ungroup: .ungrouped
+        case .applyPreset(let preset): preset.memberUUIDs.isEmpty ? .ungrouped : .grouped
         case .setVolume, .playPause, .nextTrack, .previousTrack, .resumeSpotifyConnect, .setShuffle,
              .enqueueAndPlaySpotify, .savePresets, .setSystemName:
-            return nil
+            nil
         }
-        switch result {
-        case .success(.applied): kind = changed
-        case .success(.alreadySatisfied): return nil
-        case .success(.partiallyApplied), .failure: kind = .failed
-        }
-        self.ticket = ticket
     }
 }
 
@@ -82,7 +79,7 @@ public struct SconeState: Equatable, Sendable {
     public private(set) var networkName: String?
     public private(set) var pins: [SpeakerUUID: RoomCoordinate]
     public private(set) var alert: SconeAlert?
-    public private(set) var lastGroupingOutcome: GroupingOutcome?
+    public private(set) var lastGroupingCommandEvent: GroupingCommandEvent?
     private var inFlight: [InFlight] = []
     private var volumeOverrides: [VolumeTarget: VolumeOverride] = [:]
     private var nextTicket = 0
@@ -229,6 +226,9 @@ public struct SconeState: Equatable, Sendable {
         let ticket = CommandTicket(value: nextTicket)
         nextTicket += 1
         inFlight.append(InFlight(ticket: ticket, command: command))
+        if command.regroupKind != nil {
+            lastGroupingCommandEvent = GroupingCommandEvent(kind: .sent, ticket: ticket)
+        }
         recomputeDerivedState()
         return ticket
     }
@@ -241,8 +241,13 @@ public struct SconeState: Equatable, Sendable {
         case .success(.partiallyApplied(let unreachable)): alert = .partiallyApplied(command, unreachable: unreachable)
         case .failure(let error): alert = .commandFailed(command, error)
         }
-        if let outcome = GroupingOutcome(command, result, ticket: ticket) {
-            lastGroupingOutcome = outcome
+        if let regrouped = command.regroupKind {
+            switch result {
+            case .success(.applied): lastGroupingCommandEvent = GroupingCommandEvent(kind: regrouped, ticket: ticket)
+            case .success(.alreadySatisfied): break
+            case .success(.partiallyApplied), .failure:
+                lastGroupingCommandEvent = GroupingCommandEvent(kind: .failed, ticket: ticket)
+            }
         }
         recomputeDerivedState()
     }
