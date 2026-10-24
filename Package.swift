@@ -16,7 +16,7 @@ let package = Package(
         .executable(name: "Sconeos", targets: ["SconeosApp"]),
     ],
     dependencies: [
-        .package(url: "https://github.com/dgattey/dyl-kit", from: "0.3.4"),
+        .package(url: "https://github.com/dgattey/dyl-kit", from: "0.3.5"),
     ],
     targets: [
         .target(name: "SconeDomain"),

@@ -1,13 +1,13 @@
 {
-  "originHash" : "84247e61aed2ddec319c74ac5fd02142ecf6a9a1f732e8a6c71a7a231624ac5d",
+  "originHash" : "f8806d85c2f327c6d8fbd21c1c7d50d4c971cb94f3eb4b337a0b78faa97d2f0b",
   "pins" : [
     {
       "identity" : "dyl-kit",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/dgattey/dyl-kit",
       "state" : {
-        "revision" : "cede6b41d81a654f2c90f484d25e355ca1400e42",
-        "version" : "0.3.4"
+        "revision" : "edabfb543097c01a43c95c3db2a8fb0ca941284d",
+        "version" : "0.3.5"
       }
     },
     {
