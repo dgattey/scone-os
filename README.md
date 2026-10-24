@@ -20,7 +20,7 @@ Sconeos is structured as a single Swift Package (`SconeKit`) with strict module 
 
 ## Building and running
 
-Sconeos builds with [DylKit](https://github.com/dgattey/dyl-kit), Dylan's shared app framework. `DylApp.toml` configures the app, and the `./run` shim runs DylKit's `devkit` and `release-kit` tools. Setup, building, tests, background launches, screenshots and the iOS Simulator are in DylKit's [`apple-dev-loop`](https://github.com/dgattey/dyl-kit/blob/main/skills/apple-dev-loop/SKILL.md) skill. Releasing is in [`apple-release`](https://github.com/dgattey/dyl-kit/blob/main/skills/apple-release/SKILL.md). Both ship in the DylKit Cursor plugin.
+Sconeos builds with [DylKit](https://github.com/dgattey/dyl-kit), Dylan's shared app framework. `DylApp.toml` configures the app, and `swift run devkit`, `swift run release-kit` and `swift run dyl-lint` run DylKit's tools. Setup, building, tests, background launches, screenshots and the iOS Simulator are in DylKit's [`apple-dev-loop`](https://github.com/dgattey/dyl-kit/blob/main/skills/apple-dev-loop/SKILL.md) skill. Releasing is in [`apple-release`](https://github.com/dgattey/dyl-kit/blob/main/skills/apple-release/SKILL.md). Both ship in the DylKit Cursor plugin.
 
 ## Code signing and Sparkle updates
 
@@ -32,4 +32,4 @@ To rotate or generate a Sparkle EdDSA keypair (storing the private key in the ma
 ./scripts/generate-sparkle-key.sh
 ```
 
-The download site in `server/` is a thin [`@dylkit/web`](https://github.com/dgattey/dyl-kit/tree/main/web) app that reads `DylApp.toml` and `server/public/appcast.xml`. CI for the site is the `site` workflow in `.github/workflows/site.yml`.
+The download site in `server/` is a thin [`@dylkit/web`](https://github.com/dgattey/dyl-kit/tree/main/web) app that reads `DylApp.toml` and serves the latest release from the Blob store `[release] assets` names. CI for the site is the `site` workflow in `.github/workflows/site.yml`.

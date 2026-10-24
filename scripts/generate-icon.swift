@@ -53,18 +53,6 @@ do {
     try iosLightData.write(to: iosLightPreview)
     try iosDarkData.write(to: iosDarkPreview)
 
-    let serverPublicIcon = root.appending(path: "server/public/app-icon.png")
-    if FileManager.default.fileExists(atPath: serverPublicIcon.deletingLastPathComponent().path) {
-        try darkData.write(to: serverPublicIcon)
-        // iOS masks home-screen icons itself, so the touch icon is opaque and full bleed.
-        guard let touchIcon = render(size: 180, appearance: .light, surface: .fullBleed),
-              let touchData = png(touchIcon, size: 180) else {
-            fputs("Could not draw the touch icon\n", stderr)
-            exit(1)
-        }
-        try touchData.write(to: serverPublicIcon.deletingLastPathComponent().appending(path: "apple-icon.png"))
-    }
-
     // 1. Write Icon Composer AppIcon.icon bundle (compiled by actool into multi-appearance Assets.car for macOS 26 & iOS 26)
     let iconBundle = build.appending(path: "AppIcon.icon", directoryHint: .isDirectory)
     try? FileManager.default.removeItem(at: iconBundle)

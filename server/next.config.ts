@@ -1,7 +1,3 @@
-import type { NextConfig } from "next";
+import { withDylKit } from "@dylkit/web/config";
 
-const nextConfig: NextConfig = {
-  transpilePackages: ["@dylkit/web"],
-};
-
-export default nextConfig;
+export default withDylKit({});

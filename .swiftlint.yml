@@ -1,4 +1,3 @@
-parent_config: .build/checkouts/dyl-kit/lint/swiftlint.yml
 included:
   - Sources
   - Tests
