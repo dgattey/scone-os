@@ -478,7 +478,10 @@ struct FloorplanMapView: View {
         return DragGesture(minimumDistance: 4, coordinateSpace: .named("house"))
             .onChanged { value in
                 if selected != nil { selected = nil }
-                if dragging != node.id { dragging = node.id }
+                if dragging != node.id {
+                    dragging = node.id
+                    GroupingHaptics.shared.play(.pickedUp)
+                }
                 let next = nearestTarget(
                     to: value.location,
                     excluding: node.id,
@@ -512,10 +515,13 @@ struct FloorplanMapView: View {
                                 store.group(member: node.id, onto: group.coordinator.id)
                             }
                         }
-                    } else if let band = geometry.bands.first(where: { $0.level == node.level }) {
-                        store.moveRoom(node.id, to: band.coordinate(for: value.location, hasSatellites: hasSats))
                     } else {
-                        store.moveRoom(node.id, to: coordinate(at: value.location, plot: plot))
+                        if let band = geometry.bands.first(where: { $0.level == node.level }) {
+                            store.moveRoom(node.id, to: band.coordinate(for: value.location, hasSatellites: hasSats))
+                        } else {
+                            store.moveRoom(node.id, to: coordinate(at: value.location, plot: plot))
+                        }
+                        GroupingHaptics.shared.play(.setDown)
                     }
                 }
                 dragging = nil
