@@ -97,6 +97,8 @@ public enum PlaybackState: Hashable, Sendable {
         }
     }
 
+    public var hasSession: Bool { nowPlaying != nil }
+
     public func elapsed(at now: Date) -> Duration? {
         switch self {
         case .stopped:
@@ -145,9 +147,18 @@ public enum NowPlaying: Hashable, Sendable {
         }
     }
 
+    /// The Sonos account serial of the Spotify account this session streams from, when Sonos reported one.
+    public var spotifyAccountSerial: Int? {
+        if case .track(let track) = self { return track.spotifyAccountSerial }
+        return nil
+    }
+
+    /// Whether two rooms are showing one session. A Spotify account plays in one place at a time, so two
+    /// Spotify sessions on the same account are one session, and sessions on different accounts never are.
     public func matchesSession(of other: NowPlaying) -> Bool {
         switch (self, other) {
         case (.track(let lhs), .track(let rhs)):
+            if lhs.isFromDifferentSpotifyAccount(than: rhs) { return false }
             if lhs.matchesIdentity(of: rhs) { return true }
             if lhs.isSpotifyStream && rhs.isSpotifyStream { return true }
             return false
@@ -179,6 +190,10 @@ public struct NowPlayingTrack: Hashable, Sendable {
     public let isShuffling: Bool?
     /// The room's transport is a Spotify Connect session (`x-sonos-vli:`), not a Sonos queue.
     public let isSpotifyConnect: Bool
+    /// The `sn=` serial Sonos gives each Spotify account linked to the household, or nil when unknown.
+    public let spotifyAccountSerial: Int?
+    /// The track streams from a Spotify account other than the one connected to Sconeos.
+    public let isAnotherSpotifyAccount: Bool
 
     public init(
         title: String,
@@ -192,7 +207,9 @@ public struct NowPlayingTrack: Hashable, Sendable {
         upNext: [QueueItem] = [],
         canSkip: Bool? = nil,
         isShuffling: Bool? = nil,
-        isSpotifyConnect: Bool = false
+        isSpotifyConnect: Bool = false,
+        spotifyAccountSerial: Int? = nil,
+        isAnotherSpotifyAccount: Bool = false
     ) {
         self.title = title
         self.artist = artist
@@ -206,6 +223,8 @@ public struct NowPlayingTrack: Hashable, Sendable {
         self.canSkip = canSkip ?? (queuePosition != nil || spotifyURI != nil)
         self.isShuffling = isShuffling
         self.isSpotifyConnect = isSpotifyConnect
+        self.spotifyAccountSerial = spotifyAccountSerial
+        self.isAnotherSpotifyAccount = isAnotherSpotifyAccount
     }
 
     public func merging(
@@ -213,7 +232,8 @@ public struct NowPlayingTrack: Hashable, Sendable {
         source: PlaybackSource? = nil,
         upNext: [QueueItem]? = nil,
         canSkip: Bool? = nil,
-        isShuffling: Bool? = nil
+        isShuffling: Bool? = nil,
+        isAnotherSpotifyAccount: Bool? = nil
     ) -> NowPlayingTrack {
         NowPlayingTrack(
             title: title,
@@ -227,12 +247,20 @@ public struct NowPlayingTrack: Hashable, Sendable {
             upNext: upNext ?? self.upNext,
             canSkip: canSkip ?? self.canSkip,
             isShuffling: isShuffling ?? self.isShuffling,
-            isSpotifyConnect: isSpotifyConnect
+            isSpotifyConnect: isSpotifyConnect,
+            spotifyAccountSerial: spotifyAccountSerial,
+            isAnotherSpotifyAccount: isAnotherSpotifyAccount ?? self.isAnotherSpotifyAccount
         )
     }
 
     public var isSpotifyStream: Bool {
         spotifyURI != nil || (source?.isSpotify == true)
+    }
+
+    /// True only when both tracks name their Spotify account and the accounts differ.
+    public func isFromDifferentSpotifyAccount(than other: NowPlayingTrack) -> Bool {
+        guard let lhs = spotifyAccountSerial, let rhs = other.spotifyAccountSerial else { return false }
+        return lhs != rhs
     }
 
     public func matchesIdentity(of other: NowPlayingTrack) -> Bool {

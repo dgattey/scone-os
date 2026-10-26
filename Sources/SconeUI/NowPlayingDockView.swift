@@ -317,7 +317,7 @@ struct NowPlayingDock: View {
 
     @ViewBuilder
     private var queuePopoverButton: some View {
-        if effectiveQueueTrack != nil {
+        if let track = effectiveQueueTrack, !track.isAnotherSpotifyAccount {
             Button {
                 showingVolumePopover = false
                 let willShow = !showingQueuePopover
@@ -536,7 +536,7 @@ struct NowPlayingDock: View {
     private var sourceLine: String? {
         if case .track(let track) = group.playback.nowPlaying,
            let source = track.source {
-            return source.label
+            return track.isAnotherSpotifyAccount ? "Playing from another Spotify account" : source.label
         }
         if let external = externalSpotify {
             if let ctxTitle = external.contextTitle, !ctxTitle.isEmpty {

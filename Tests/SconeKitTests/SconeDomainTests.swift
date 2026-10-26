@@ -4,6 +4,7 @@ import SconeDomain
 @testable import SpotifyBridge
 import Testing
 @testable import SconeStore
+@testable import SconeUI
 
 private enum House {
     static let kitchen = SpeakerUUID(rawValue: "RINCON_F0F6C1AAD22801400")!
@@ -2604,6 +2605,159 @@ struct SconeFileTests {
             Issue.record("expected .enqueueAndPlaySpotify, got \(wakeCmd)")
         }
         #expect(wakeTransferSpotify.pauseCount == 1)
+    }
+}
+
+/// Two Spotify accounts at once, as captured live: Alex's account plays in Bedroom (`sn=4`) while Dylan's own
+/// session sits paused in Guest Room (`sn=3`) and Dining Room keeps a stale copy of it.
+struct MultiAccountNowPlayingTests {
+    private static let bedroomGroup = GroupID(coordinator: House.bedroom)
+    private static let guestGroup = GroupID(coordinator: House.guest)
+    private static let diningGroup = GroupID(coordinator: House.dining)
+    private static let flowerURI = SpotifyURI("spotify:track:4HCOHRCSQelz2GPX8iTamO")!
+
+    private static func connectTrack(_ title: String, artist: String, uri: String, account: Int) -> NowPlayingTrack {
+        NowPlayingTrack(
+            title: title, artist: artist, album: nil, artworkURL: nil, duration: .seconds(220),
+            queuePosition: nil, spotifyURI: SpotifyURI(uri), source: .spotify(), isSpotifyConnect: true,
+            spotifyAccountSerial: account)
+    }
+
+    private static let prettyGirls = connectTrack(
+        "Pretty girls", artist: "Rachel Chinouriri", uri: "spotify:track:7c0oKEgUPN6nQ5dwhzzs3m", account: 4)
+    private static let flower = connectTrack(
+        "Flower In A Hurricane", artist: "Justice", uri: "spotify:track:4HCOHRCSQelz2GPX8iTamO", account: 3)
+
+    private static func liveHouse(
+        bedroom: PlaybackState = .playing(.track(prettyGirls), elapsed: .seconds(190), sampledAt: Date(timeIntervalSinceReferenceDate: 9_000)),
+        guest: PlaybackState = .paused(.track(flower), elapsed: .seconds(93)),
+        dining: PlaybackState = .paused(.track(flower), elapsed: .zero)
+    ) -> HouseholdSnapshot {
+        snapshot(
+            [
+                speaker(House.bedroom, room: "Bedroom Speaker", ip: "192.168.68.73"),
+                speaker(House.guest, room: "Guest Room Speaker", ip: "192.168.68.90"),
+                speaker(House.dining, room: "Dining Room Speaker", ip: "192.168.68.71"),
+            ],
+            coordinatorOf: alone([House.bedroom, House.guest, House.dining]),
+            status: [
+                bedroomGroup: GroupStatus(playback: bedroom, volume: .v25),
+                guestGroup: GroupStatus(playback: guest, volume: .v10),
+                diningGroup: GroupStatus(playback: dining, volume: .v20),
+            ],
+            at: Date(timeIntervalSinceReferenceDate: 9_000))
+    }
+
+    @Test func parsesTheSpotifyAccountSerialOfEachConnectRoom() throws {
+        func parse(state: String, vli: String, res: String, title: String) throws -> NowPlayingTrack? {
+            let didl = "&lt;DIDL-Lite xmlns:dc=&quot;http://purl.org/dc/elements/1.1/&quot; xmlns=&quot;urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/&quot;&gt;&lt;item id=&quot;-1&quot; parentID=&quot;-1&quot;&gt;&lt;res duration=&quot;0:03:36&quot;&gt;\(res)&lt;/res&gt;&lt;dc:title&gt;\(title)&lt;/dc:title&gt;&lt;/item&gt;&lt;/DIDL-Lite&gt;"
+            let parsed = TransportService.parsePlayback(
+                transportInfo: try XMLNode.parse(Data("<r><CurrentTransportState>\(state)</CurrentTransportState></r>".utf8)),
+                positionInfo: try XMLNode.parse(Data("<r><TrackURI>\(vli)</TrackURI><RelTime>0:03:10</RelTime><TrackMetaData>\(didl)</TrackMetaData></r>".utf8)),
+                mediaInfo: try XMLNode.parse(Data("<r><CurrentURI>\(vli)</CurrentURI></r>".utf8)),
+                coordinatorEndpoint: URL(string: "http://192.168.68.73:1400/xml/device_description.xml")!,
+                sampledAt: Date(timeIntervalSinceReferenceDate: 9_000))
+            guard case .track(let track) = parsed.nowPlaying else { return nil }
+            return track
+        }
+        let bedroom = try #require(try parse(
+            state: "PLAYING",
+            vli: "x-sonos-vli:RINCON_542A1B5F088401400:2,spotify:b8e21735ded7af33544a15a35b9743f5",
+            res: "x-sonos-spotify:spotify:track:7c0oKEgUPN6nQ5dwhzzs3m?sid=12&amp;amp;flags=0&amp;amp;sn=4",
+            title: "Pretty girls"))
+        let guest = try #require(try parse(
+            state: "PAUSED_PLAYBACK",
+            vli: "x-sonos-vli:RINCON_542A1B5F08A001400:2,spotify:dceaceb193e10a1c00a5944884f1b1d5",
+            res: "x-sonos-spotify:spotify:track:4HCOHRCSQelz2GPX8iTamO?sid=12&amp;amp;flags=0&amp;amp;sn=3",
+            title: "Flower In A Hurricane"))
+
+        #expect(bedroom.spotifyAccountSerial == 4)
+        #expect(guest.spotifyAccountSerial == 3)
+        #expect(bedroom.isSpotifyConnect && guest.isSpotifyConnect)
+        #expect(!NowPlaying.track(bedroom).matchesSession(of: .track(guest)))
+        #expect(TransportService.spotifyAccountSerial(in: "x-sonos-spotify:spotify%3atrack%3a6T8lWKQZ7UEvYcpK4CX2aj?sid=12&flags=8232&sn=3") == 3)
+        #expect(TransportService.spotifyAccountSerial(in: "x-rincon-queue:RINCON_C4387523117601400#0") == nil)
+    }
+
+    @Test func eachSpotifyAccountKeepsItsOwnSessionWhileAnotherAccountPlays() {
+        let house = Self.liveHouse()
+        #expect(house.status(of: Self.bedroomGroup).playback.nowPlaying == .track(Self.prettyGirls))
+        #expect(house.status(of: Self.guestGroup).playback == .paused(.track(Self.flower), elapsed: .seconds(93)))
+        #expect(house.status(of: Self.diningGroup).playback == .stopped)
+
+        // Spotify naming Dining Room as the active device makes it the one paused session that stays.
+        let diningConnected = house.replacing(connectedSpotifyGroup: .some(Self.diningGroup))
+        #expect(diningConnected.status(of: Self.diningGroup).playback == .paused(.track(Self.flower), elapsed: .zero))
+        #expect(diningConnected.status(of: Self.guestGroup).playback == .stopped)
+        #expect(diningConnected.status(of: Self.bedroomGroup).playback.nowPlaying == .track(Self.prettyGirls))
+
+        let bothPlaying = Self.liveHouse(guest: .playing(.track(Self.flower), elapsed: .seconds(93), sampledAt: Date(timeIntervalSinceReferenceDate: 9_000)))
+        #expect(bothPlaying.status(of: Self.bedroomGroup).playback.nowPlaying == .track(Self.prettyGirls))
+        #expect(bothPlaying.status(of: Self.guestGroup).playback.nowPlaying == .track(Self.flower))
+        #expect(bothPlaying.status(of: Self.diningGroup).playback == .stopped)
+
+        let sameAccountElsewhere = Self.liveHouse(
+            bedroom: .playing(.track(Self.connectTrack("Crown", artist: "Stormzy", uri: "spotify:track:2mqTtvbKxH7SoEQ2oGAnsA", account: 3)),
+                              elapsed: .seconds(10), sampledAt: Date(timeIntervalSinceReferenceDate: 9_000)))
+        #expect(sameAccountElsewhere.status(of: Self.guestGroup).playback == .stopped)
+        #expect(sameAccountElsewhere.status(of: Self.diningGroup).playback == .stopped)
+    }
+
+    @Test @MainActor func storeShowsEachRoomsTrackAndOnlyGivesTheConnectedAccountItsSpotifyContext() async throws {
+        let directory = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let upNext = [QueueItem(id: "0", title: "D.A.N.C.E.", artist: "Justice", spotifyURI: SpotifyURI("spotify:track:1MsHgLc2qMcBd1Eh3bYYDQ"))]
+        let spotify = CountingSpotify(response: .success(SpotifyTrackContext(
+            uri: Self.flowerURI,
+            metadata: SpotifyTrackMetadata(title: "Flower In A Hurricane", artist: "Justice", album: nil, artworkURL: nil, duration: .seconds(225)),
+            position: .seconds(93),
+            contextTitle: "Party",
+            deviceName: "Guest Room Speaker",
+            deviceType: "Speaker",
+            isPlaying: false,
+            isShuffling: true,
+            upNext: upNext
+        )))
+        let store = SconeStore(
+            loaded: LoadedFiles(cache: nil, positions: nil, quarantined: []),
+            files: SconeFiles(directory: directory),
+            sonos: RecordingSonos(yielded: [Self.liveHouse()]),
+            spotify: spotify
+        )
+        await store.run()
+
+        func track(_ group: GroupID) -> NowPlayingTrack? {
+            guard case .track(let track) = store.state.groups.first(where: { $0.id == group })?.playback.nowPlaying else { return nil }
+            return track
+        }
+        let guest = try #require(track(Self.guestGroup))
+        let bedroom = try #require(track(Self.bedroomGroup))
+        #expect(store.state.live?.connectedSpotifyGroup == Self.guestGroup)
+        #expect(guest.title == "Flower In A Hurricane")
+        #expect(guest.upNext == upNext)
+        #expect(guest.source == .spotify(contextTitle: "Party"))
+        #expect(!guest.isAnotherSpotifyAccount)
+        #expect(bedroom.title == "Pretty girls")
+        #expect(bedroom.isAnotherSpotifyAccount)
+        #expect(bedroom.upNext.isEmpty)
+        #expect(bedroom.isShuffling == nil)
+        #expect(track(Self.diningGroup) == nil)
+    }
+
+    @Test func dockFollowsTheControlledRoomThenTheConnectedAccountsSession() {
+        let house = Self.liveHouse().replacing(connectedSpotifyGroup: .some(Self.guestGroup))
+        let groups = house.groups
+        func dock(viewing: GroupID? = nil, selected: GroupID? = nil, connected: GroupID? = Self.guestGroup) -> GroupID? {
+            nowPlayingDockGroup(in: groups, viewing: viewing, dockSelected: selected, connectedSpotifyGroup: connected, isCompactLayout: false)?.id
+        }
+
+        #expect(Set(deduplicatedActiveHubGroups(from: groups).map(\.id)) == [Self.bedroomGroup, Self.guestGroup])
+        #expect(dock(viewing: Self.guestGroup) == Self.guestGroup)
+        #expect(dock(viewing: Self.diningGroup) == Self.diningGroup)
+        #expect(dock(viewing: Self.bedroomGroup) == Self.bedroomGroup)
+        #expect(dock() == Self.guestGroup)
+        #expect(dock(selected: Self.bedroomGroup) == Self.bedroomGroup)
+        #expect(dock(connected: nil) == Self.bedroomGroup)
     }
 }
 
