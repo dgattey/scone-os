@@ -32,6 +32,6 @@ To generate the Sparkle EdDSA keypair (storing the private key in the login Keyc
 ./scripts/generate-sparkle-key.sh
 ```
 
-While `sparkle-public-key.txt` names a key the Keychain account doesn't hold, the script refuses to generate a new one. Import the existing key into the account instead with `generate_keys --account com.sconeos.SconeOS -f <exported key>`.
+While `sparkle-public-key.txt` names a key the Keychain account doesn't hold, the script refuses to generate a new one. Import the existing key into the account instead with `generate_keys --account com.sconeos.SconeOS -f <exported key>`, then delete the exported file. Run locally, `release-kit appcast` signs only with that Keychain account (or a file passed with `--ed-key-file`) and reads no other key files.
 
 The download site in `server/` is a thin [`@dylkit/web`](https://github.com/dgattey/dyl-kit/tree/main/web) app that reads `DylApp.toml` and serves the latest release from the Blob store `[release] assets` names. CI for the site is the `site` workflow in `.github/workflows/site.yml`.

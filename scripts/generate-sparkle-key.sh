@@ -6,8 +6,8 @@
 # The PUBLIC key is written to sparkle-public-key.txt, which IS committed and gets baked
 # into the app's Info.plist (SUPublicEDKey) by release-kit so the updater can verify downloads.
 #
-# Export/back up the private key with:  generate_keys --account com.sconeos.SconeOS -x sparkle_private.key
-# (keep it somewhere safe)
+# Export/back up the private key with:  generate_keys --account com.sconeos.SconeOS -x <backup file>
+# (keep it somewhere safe, outside the repo)
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 OUT="$ROOT/sparkle-public-key.txt"
@@ -23,7 +23,7 @@ fi
 if ! "$GK" --account "$ACCOUNT" -p >/dev/null 2>&1 && [[ -s "$OUT" ]]; then
   echo "generate-sparkle-key: the keychain has no $ACCOUNT key, but $OUT already names one." >&2
   echo "  Import that key instead of generating a new one:" >&2
-  echo "    $GK --account $ACCOUNT -f <exported key, such as .cert/sparkle_ed.key>" >&2
+  echo "    $GK --account $ACCOUNT -f <exported key file>" >&2
   echo "  If it's only in Sparkle's shared ed25519 account, export it first with: $GK -x <file>" >&2
   exit 1
 fi

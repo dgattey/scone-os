@@ -31,6 +31,8 @@ Push the Sparkle EdDSA signing secret:
 ./scripts/export-ci-secrets.sh
 ```
 
+It exports the key from the login Keychain account `com.sconeos.SconeOS`, the only local copy `release-kit` reads, into a temporary file it deletes afterwards. Pass `--sparkle-key-file <file>` to push a key kept elsewhere.
+
 | Secret | Purpose |
 |--------|---------|
 | `SPARKLE_ED_PRIVATE_KEY_BASE64` | Sparkle EdDSA private key for signing release archives in `appcast.xml` |
