@@ -1,0 +1,55 @@
+# One-off, on a throwaway branch that never merges: seeds Sconeos's Blob store before PR 22 merges. It runs on a push
+# without [skip ci], once BLOB_READ_WRITE_TOKEN is a repo secret, then the branch is deleted.
+name: seed-blob-store
+on:
+  push:
+    branches: [dgattey/seed-blob-store-tmp-aff1]
+
+permissions:
+  contents: read
+
+jobs:
+  seed:
+    runs-on: macos-26
+    timeout-minutes: 30
+    env:
+      BLOB_READ_WRITE_TOKEN: ${{ secrets.BLOB_READ_WRITE_TOKEN }}
+      GITHUB_TOKEN: ${{ github.token }}
+      FEED: https://sconeos.gattey.com/appcast.xml
+      STORE: https://zqx1ajofsm9jms6f.public.blob.vercel-storage.com
+    steps:
+      - name: Require the Blob token
+        run: |
+          if [ -z "$BLOB_READ_WRITE_TOKEN" ]; then
+            echo "::error::BLOB_READ_WRITE_TOKEN is not set; nothing was uploaded"
+            exit 1
+          fi
+      - uses: actions/checkout@v7
+        with:
+          # release-kit version counts commits for the build number.
+          fetch-depth: 0
+      - run: sudo xcode-select -s /Applications/Xcode_26.5.app/Contents/Developer
+      - name: Upload the live appcast to the store root
+        run: |
+          curl -fsSL "$FEED" -o appcast.xml
+          curl -fsS -X PUT "https://vercel.com/api/blob/?pathname=appcast.xml" \
+            -H "Authorization: Bearer $BLOB_READ_WRITE_TOKEN" -H "x-api-version: 13" \
+            -H "x-vercel-blob-access: public" -H "x-content-type: application/xml" \
+            -H "x-allow-overwrite: 1" -H "x-add-random-suffix: 0" -H "x-cache-control-max-age: 60" \
+            --data-binary @appcast.xml
+          echo
+          curl -fsSL "$STORE/appcast.xml?run=$GITHUB_RUN_ID" -o store-appcast.xml
+          cmp appcast.xml store-appcast.xml
+          shasum -a 256 appcast.xml store-appcast.xml
+      # 17 is every release through 1.2.1. After PR 22 merges, the published history also holds 1.2.2, so this stops
+      # before --publish could replace that history with an older one.
+      - name: Build history.json
+        run: |
+          swift run release-kit history --appcast "$FEED" --github dgattey/scone-os
+          python3 -c "import json; r = json.load(open('build/release/history.json'))['releases']; print(len(r), 'releases:', ', '.join(e['version'] for e in r)); assert len(r) == 17"
+      - name: Publish history.json
+        run: |
+          swift run release-kit history --publish
+          curl -fsSL "$STORE/history.json?run=$GITHUB_RUN_ID" | python3 -c "import json, sys; r = json.load(sys.stdin)['releases']; print(len(r), 'published'); assert len(r) == 17"
+      - name: Plan the release from the seeded store
+        run: swift run release-kit version --pr 22
