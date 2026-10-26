@@ -17,7 +17,7 @@ permissions:
 
 jobs:
   dylkit:
-    uses: dgattey/dyl-kit/.github/workflows/app.yml@7a1b007e2c074bb818424f8dbd1470aa3cf41c10
+    uses: dgattey/dyl-kit/.github/workflows/app.yml@f4d4d1508e34940a8874c4de34b96ba21480264c
     with:
       release_type: ${{ inputs.release_type || 'auto' }}
     secrets: inherit

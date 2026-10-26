@@ -10,7 +10,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@dylkit/web": "https://frmtw5gxqbom2ooh.public.blob.vercel-storage.com/releases/pr-24/dylkit-web-0.6.1-pr.24.7a1b007.tgz",
+    "@dylkit/web": "https://frmtw5gxqbom2ooh.public.blob.vercel-storage.com/releases/pr-24/dylkit-web-0.6.1-pr.24.f4d4d15.tgz",
     "next": "^15.3.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
