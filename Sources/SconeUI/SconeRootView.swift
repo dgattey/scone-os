@@ -24,6 +24,12 @@ func playbackHasSession(_ playback: PlaybackState) -> Bool {
 }
 
 func playbackStreamKey(_ nowPlaying: NowPlaying?) -> String? {
+    guard let key = sessionKey(nowPlaying) else { return nil }
+    guard let account = nowPlaying?.spotifyAccountSerial else { return key }
+    return "\(key)#sn\(account)"
+}
+
+private func sessionKey(_ nowPlaying: NowPlaying?) -> String? {
     guard let nowPlaying else { return nil }
     switch nowPlaying {
     case .track(let track):
@@ -49,26 +55,14 @@ func playbackStreamKey(_ nowPlaying: NowPlaying?) -> String? {
 
 func isSuppressedPausedDuplicate(_ group: SonosGroup, in allGroups: [SonosGroup]) -> Bool {
     guard case .paused(let pausedNP, _) = group.playback else { return false }
-    let playingGroups = allGroups.filter { $0.id != group.id && playbackIsActive($0.playback) }
-    guard !playingGroups.isEmpty else { return false }
-
-    if let pausedKey = playbackStreamKey(pausedNP) {
-        if playingGroups.contains(where: { playbackStreamKey($0.playback.nowPlaying) == pausedKey }) {
-            return true
-        }
+    let playing = allGroups.compactMap { other -> NowPlaying? in
+        guard other.id != group.id, playbackIsActive(other.playback) else { return nil }
+        return other.playback.nowPlaying
     }
-    if case .track(let pausedTrack) = pausedNP,
-       (pausedTrack.source?.isSpotify == true || pausedTrack.spotifyURI != nil) {
-        if playingGroups.contains(where: {
-            if case .track(let activeTrack) = $0.playback.nowPlaying {
-                return activeTrack.source?.isSpotify == true || activeTrack.spotifyURI != nil
-            }
-            return false
-        }) {
-            return true
-        }
+    if let pausedKey = playbackStreamKey(pausedNP), playing.contains(where: { playbackStreamKey($0) == pausedKey }) {
+        return true
     }
-    return false
+    return playing.contains { $0.matchesSession(of: pausedNP) }
 }
 
 func deduplicatedActiveHubGroups(from groups: [SonosGroup]) -> [SonosGroup] {
@@ -79,7 +73,7 @@ func deduplicatedActiveHubGroups(from groups: [SonosGroup]) -> [SonosGroup] {
     }
 
     var seenKeys = Set<String>()
-    var seenSpotifyAccount = false
+    var seenSpotifySessions: [NowPlaying] = []
     var result: [SonosGroup] = []
 
     let prioritized = candidates.sorted { lhs, rhs in
@@ -100,18 +94,60 @@ func deduplicatedActiveHubGroups(from groups: [SonosGroup]) -> [SonosGroup] {
                 seenKeys.insert(key)
             }
         }
-        if case .track(let track) = group.playback.nowPlaying,
-           (track.source?.isSpotify == true || track.spotifyURI != nil) {
-            if seenSpotifyAccount && !playbackIsActive(group.playback) && group.speakers.count <= 1 {
+        if let nowPlaying = group.playback.nowPlaying, case .track(let track) = nowPlaying, track.isSpotifyStream {
+            if seenSpotifySessions.contains(where: { $0.matchesSession(of: nowPlaying) })
+                && !playbackIsActive(group.playback) && group.speakers.count <= 1 {
                 continue
             }
-            seenSpotifyAccount = true
+            seenSpotifySessions.append(nowPlaying)
         }
         result.append(group)
     }
 
     let keptIDs = Set(result.map(\.id))
     return groups.filter { keptIDs.contains($0.id) }
+}
+
+/// The group the now-playing dock shows: the room being controlled, else the dock's chosen group, else the
+/// connected Spotify account's room, else whatever plays. Another account's stream never outranks the
+/// connected account's own session.
+func nowPlayingDockGroup(
+    in groups: [SonosGroup],
+    viewing viewedID: GroupID?,
+    dockSelected dockSelectedID: GroupID?,
+    connectedSpotifyGroup connectedID: GroupID?,
+    isCompactLayout: Bool
+) -> SonosGroup? {
+    if let viewedID, let viewed = groups.first(where: { $0.id == viewedID }) {
+        return viewed
+    }
+    let eligible = deduplicatedActiveHubGroups(from: groups)
+    if !eligible.isEmpty {
+        if let dockSelectedID, let matched = eligible.first(where: { $0.id == dockSelectedID }) {
+            return matched
+        }
+        if let connectedID,
+           let connected = eligible.first(where: { $0.id == connectedID && playbackHasSession($0.playback) }) {
+            return connected
+        }
+        if let playing = eligible.first(where: { playbackIsActive($0.playback) }) {
+            return playing
+        }
+        if let pausedWithTrack = eligible.first(where: { playbackHasSession($0.playback) }) {
+            return pausedWithTrack
+        }
+        return eligible.first
+    }
+    if isCompactLayout {
+        if let dockSelectedID, let matched = groups.first(where: { $0.id == dockSelectedID }) {
+            return matched
+        }
+        return groups.first(where: { $0.playback.nowPlaying != nil })
+            ?? groups.first(where: { $0.speakers.count > 1 })
+            ?? groups.first(where: { $0.speakers.contains { !$0.bondedSatellites.isEmpty } })
+            ?? groups.first
+    }
+    return nil
 }
 
 /// Sconeos's launch flags for screenshots and agent runs, read through DylKit's `LaunchOverrides`.
@@ -170,36 +206,14 @@ public struct SconeRootView: View {
     }
 
     private var activeDockGroup: SonosGroup? {
-        if case .group(let viewedID) = selection,
-           let viewedGroup = store.state.groups.first(where: { $0.id == viewedID }),
-           (playbackIsActive(viewedGroup.playback)
-            || (playbackHasSession(viewedGroup.playback) && !isSuppressedPausedDuplicate(viewedGroup, in: store.state.groups))
-            || viewedGroup.speakers.count > 1) {
-            return viewedGroup
-        }
-        let eligible = dockEligibleGroups
-        if !eligible.isEmpty {
-            if let dockSelectedGroupID, let matched = eligible.first(where: { $0.id == dockSelectedGroupID }) {
-                return matched
-            }
-            if let playing = eligible.first(where: { playbackIsActive($0.playback) }) {
-                return playing
-            }
-            if let pausedWithTrack = eligible.first(where: { playbackHasSession($0.playback) }) {
-                return pausedWithTrack
-            }
-            return eligible.first
-        }
-        if isCompactLayout {
-            if let dockSelectedGroupID, let matched = store.state.groups.first(where: { $0.id == dockSelectedGroupID }) {
-                return matched
-            }
-            return store.state.groups.first(where: { $0.playback.nowPlaying != nil })
-                ?? store.state.groups.first(where: { $0.speakers.count > 1 })
-                ?? store.state.groups.first(where: { $0.speakers.contains { !$0.bondedSatellites.isEmpty } })
-                ?? store.state.groups.first
-        }
-        return nil
+        let viewedID: GroupID? = if case .group(let id) = selection { id } else { nil }
+        return nowPlayingDockGroup(
+            in: store.state.groups,
+            viewing: viewedID,
+            dockSelected: dockSelectedGroupID,
+            connectedSpotifyGroup: store.state.live?.connectedSpotifyGroup,
+            isCompactLayout: isCompactLayout
+        )
     }
 
     private var isCompactLayout: Bool {

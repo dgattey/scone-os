@@ -18,6 +18,8 @@ public final class SconeStore {
     @ObservationIgnored private var lastSpotifyEnrich: Date = .distantPast
     @ObservationIgnored private var lastEnrichedTrackIdentity: String?
     @ObservationIgnored private var cachedSpotifyContext: SpotifyTrackContext?
+    /// The Sonos serial of the connected Spotify account, learned from the room Spotify says it plays on.
+    @ObservationIgnored private var connectedSpotifyAccountSerial: Int?
     @ObservationIgnored private var inFlightSpotifyRefresh: Task<Void, Never>?
     @ObservationIgnored private var lastKnownTracks: [GroupID: NowPlayingTrack] = [:]
     @ObservationIgnored private var shuffleCapability: [GroupID: (track: String, canShuffle: Bool)] = [:]
@@ -194,29 +196,18 @@ public final class SconeStore {
     }
 
     private func enrichWithSpotifyIfNeeded(_ rawSnapshot: HouseholdSnapshot) async -> HouseholdSnapshot {
-        let snapshot = rawSnapshot.sanitizingPlaybackSessions(preferredGroupIDs: preferredActiveGroupIDs)
-
-        let activeGroupIDs = Set(snapshot.groups.compactMap { group -> GroupID? in
-            if case .stopped = group.playback { return nil }
-            return group.id
-        })
-        preferredActiveGroupIDs = activeGroupIDs
-
-        for groupID in Array(lastKnownTracks.keys) where !activeGroupIDs.contains(groupID) {
-            lastKnownTracks.removeValue(forKey: groupID)
-        }
-
-        let activeGroups = snapshot.groups.filter { activeGroupIDs.contains($0.id) }
-        let trackIdentity = activeGroups.compactMap { group -> String? in
+        let provisional = rawSnapshot.sanitizingPlaybackSessions(preferredGroupIDs: preferredActiveGroupIDs)
+        let provisionalActiveGroups = provisional.groups.filter(\.playback.hasSession)
+        let trackIdentity = provisionalActiveGroups.compactMap { group -> String? in
             guard case .track(let track) = group.playback.nowPlaying else { return nil }
             return track.spotifyURI?.description ?? track.title
         }.joined(separator: "|")
 
-        let isAnyPlaying = activeGroups.contains {
+        let isAnyPlaying = provisionalActiveGroups.contains {
             if case .playing = $0.playback { return true }
             return false
         }
-        let refreshInterval: TimeInterval = isAnyPlaying ? 30 : (activeGroups.isEmpty ? 10 : 60)
+        let refreshInterval: TimeInterval = isAnyPlaying ? 30 : (provisionalActiveGroups.isEmpty ? 10 : 60)
         let trackChanged = !trackIdentity.isEmpty && trackIdentity != lastEnrichedTrackIdentity
         let now = Date()
 
@@ -227,25 +218,58 @@ public final class SconeStore {
             }
             do throws(SpotifyBridgeError) {
                 cachedSpotifyContext = try await spotify.currentContext(forceRefresh: trackChanged)
-            } catch .nothingPlaying, .notConnected {
+            } catch .nothingPlaying {
                 cachedSpotifyContext = nil
+            } catch .notConnected {
+                cachedSpotifyContext = nil
+                connectedSpotifyAccountSerial = nil
             } catch {
                 // Keep cachedSpotifyContext on transient network errors
             }
         }
 
-        let householdRoomNames = snapshot.speakers.values.map(\.roomName)
+        let householdRoomNames = rawSnapshot.speakers.values.map(\.roomName)
         let isExternalSpotifySession: Bool = if let ctx = cachedSpotifyContext {
             !SpotifyDeviceMatcher.matchesAny(deviceName: ctx.deviceName, roomNames: householdRoomNames)
         } else {
             false
         }
+        let connectedGroupID: GroupID? = if let ctx = cachedSpotifyContext, !isExternalSpotifySession {
+            rawSnapshot.groups.first { group in
+                SpotifyDeviceMatcher.matchesAny(deviceName: ctx.deviceName, roomNames: group.speakers.map(\.roomName))
+            }?.id
+        } else {
+            nil
+        }
 
-        // Determine the single primary active group eligible to receive SpotifyTrackContext + upNext queue
+        let snapshot = rawSnapshot
+            .replacing(connectedSpotifyGroup: .some(connectedGroupID))
+            .sanitizingPlaybackSessions(preferredGroupIDs: preferredActiveGroupIDs)
+        let activeGroups = snapshot.groups.filter(\.playback.hasSession)
+        let activeGroupIDs = Set(activeGroups.map(\.id))
+        preferredActiveGroupIDs = activeGroupIDs
+
+        for groupID in Array(lastKnownTracks.keys) where !activeGroupIDs.contains(groupID) {
+            lastKnownTracks.removeValue(forKey: groupID)
+        }
+
+        if let serial = activeGroups.first(where: { $0.id == connectedGroupID })?.playback.nowPlaying?.spotifyAccountSerial {
+            connectedSpotifyAccountSerial = serial
+        }
+        let connectedSerial = connectedSpotifyAccountSerial
+        func isAnotherAccount(_ track: NowPlayingTrack) -> Bool {
+            guard let connectedSerial, let serial = track.spotifyAccountSerial else { return false }
+            return serial != connectedSerial
+        }
+
+        // The one active group that receives the connected account's SpotifyTrackContext and Up Next queue.
+        // Spotify names the room it plays on, so that room wins over any title or URI match elsewhere.
         var primarySpotifyGroupID: GroupID?
-        if let ctx = cachedSpotifyContext, !isExternalSpotifySession || !ctx.isPlaying {
+        if let connectedGroupID, activeGroupIDs.contains(connectedGroupID) {
+            primarySpotifyGroupID = connectedGroupID
+        } else if let ctx = cachedSpotifyContext, !isExternalSpotifySession || !ctx.isPlaying {
             let matchingGroups = activeGroups.filter { group in
-                guard case .track(let track) = group.playback.nowPlaying else { return false }
+                guard case .track(let track) = group.playback.nowPlaying, !isAnotherAccount(track) else { return false }
                 let sameURI = (track.spotifyURI != nil && track.spotifyURI == ctx.uri)
                 let sameTitle = !track.title.isEmpty && track.title.caseInsensitiveCompare(ctx.metadata.title) == .orderedSame
                 let sameDevice = SpotifyDeviceMatcher.matches(deviceName: ctx.deviceName, roomName: group.coordinator.roomName)
@@ -271,7 +295,8 @@ public final class SconeStore {
                let ctx = cachedSpotifyContext,
                ctx.isPlaying,
                isExternalSpotifySession,
-               track.isSpotifyStream {
+               track.isSpotifyStream,
+               !isAnotherAccount(track) {
                 lastKnownTracks.removeValue(forKey: group.id)
                 updated = updated.replacing(
                     status: (group.id, GroupStatus(playback: .stopped, volume: group.volume))
@@ -307,6 +332,7 @@ public final class SconeStore {
                 )
             }
 
+            enrichedTrack = enrichedTrack.merging(isAnotherSpotifyAccount: isAnotherAccount(track))
             lastKnownTracks[group.id] = enrichedTrack
 
             if enrichedTrack != track {

@@ -73,7 +73,10 @@ enum TransportService {
                 spotifyURI: spotify,
                 source: source,
                 canSkip: queued || isSpotifyOrigin,
-                isSpotifyConnect: isSpotifyConnect(currentURI)
+                isSpotifyConnect: isSpotifyConnect(currentURI),
+                spotifyAccountSerial: isSpotifyOrigin
+                    ? spotifyAccountSerial(in: facts.resURI) ?? spotifyAccountSerial(in: trackURI)
+                    : nil
             ))
         } else {
             now = .stream(title: facts.title.nilIfEmpty ?? facts.streamContent.nilIfEmpty)
@@ -208,6 +211,19 @@ enum TransportService {
         return lowered.contains("spotify:")
             || lowered.contains("x-sonos-spotify:")
             || lowered.contains("x-sonos-vli:") && lowered.contains("spotify")
+    }
+
+    /// The `sn=` query value of an `x-sonos-spotify:` URI. Sonos numbers each linked Spotify account, so
+    /// two rooms streaming from different accounts report different serials.
+    static func spotifyAccountSerial(in raw: String) -> Int? {
+        let unescaped = unescapeXML(raw)
+        let decoded = unescaped.removingPercentEncoding ?? unescaped
+        guard decoded.lowercased().contains("x-sonos-spotify:"),
+              let query = decoded.split(separator: "?", maxSplits: 1).dropFirst().first else { return nil }
+        for pair in query.split(separator: "&") where pair.hasPrefix("sn=") {
+            return Int(pair.dropFirst(3))
+        }
+        return nil
     }
 
     private static func spotifyTrack(in raw: String) -> SpotifyURI? {

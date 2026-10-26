@@ -6,11 +6,15 @@ public struct HouseholdSnapshot: Hashable, Sendable {
     public let observedAt: Date
     public let speakers: [SpeakerUUID: Speaker]
     public let topology: Topology
+    /// What each coordinator reported, before stale sessions are cleared. Re-sanitizing starts here.
+    private let reportedStatus: [GroupID: GroupStatus]
     private let groupStatus: [GroupID: GroupStatus]
     public let rf: RFPeerMatrix
     public let presets: [PresetPill]?
     public let networkName: String?
     public let externalSpotify: SpotifyTrackContext?
+    /// The group holding the room Spotify names as the connected account's active device.
+    public let connectedSpotifyGroup: GroupID?
     public let groups: [SonosGroup]
 
     package init(
@@ -19,6 +23,7 @@ public struct HouseholdSnapshot: Hashable, Sendable {
         presets: [PresetPill]? = nil,
         networkName: String? = nil,
         externalSpotify: SpotifyTrackContext? = nil,
+        connectedSpotifyGroup: GroupID? = nil,
         preferredGroupIDs: Set<GroupID> = []
     ) {
         self.household = household
@@ -29,11 +34,14 @@ public struct HouseholdSnapshot: Hashable, Sendable {
         self.presets = presets
         self.networkName = networkName
         self.externalSpotify = externalSpotify
+        self.connectedSpotifyGroup = connectedSpotifyGroup
+        self.reportedStatus = groupStatus
         let sanitizedStatus = Self.sanitizeGroupStatus(
             groupStatus,
             speakers: speakers,
             topology: topology,
-            preferredGroupIDs: preferredGroupIDs
+            preferredGroupIDs: preferredGroupIDs,
+            connectedSpotifyGroup: connectedSpotifyGroup
         )
         self.groupStatus = sanitizedStatus
         self.groups = Self.buildGroups(speakers: speakers, topology: topology, groupStatus: sanitizedStatus)
@@ -51,6 +59,7 @@ public struct HouseholdSnapshot: Hashable, Sendable {
               presets == other.presets,
               networkName == other.networkName,
               externalSpotify == other.externalSpotify,
+              connectedSpotifyGroup == other.connectedSpotifyGroup,
               speakers.count == other.speakers.count else {
             return false
         }
@@ -74,10 +83,11 @@ public struct HouseholdSnapshot: Hashable, Sendable {
 
     public func sanitizingPlaybackSessions(preferredGroupIDs: Set<GroupID> = []) -> HouseholdSnapshot {
         let sanitized = Self.sanitizeGroupStatus(
-            groupStatus,
+            reportedStatus,
             speakers: speakers,
             topology: topology,
-            preferredGroupIDs: preferredGroupIDs
+            preferredGroupIDs: preferredGroupIDs,
+            connectedSpotifyGroup: connectedSpotifyGroup
         )
         guard sanitized != groupStatus else { return self }
         return HouseholdSnapshot(
@@ -85,25 +95,31 @@ public struct HouseholdSnapshot: Hashable, Sendable {
             observedAt: observedAt,
             speakers: speakers,
             topology: topology,
-            groupStatus: sanitized,
+            groupStatus: reportedStatus,
             rf: rf,
             presets: presets,
             networkName: networkName,
             externalSpotify: externalSpotify,
+            connectedSpotifyGroup: connectedSpotifyGroup,
             preferredGroupIDs: preferredGroupIDs
         )
     }
 
+    /// Clears sessions a room still reports but no longer plays. Each Spotify account keeps at most one
+    /// session: a playing one wins, otherwise the best-ranked paused one. Other accounts are left alone.
     private static func sanitizeGroupStatus(
         _ rawStatus: [GroupID: GroupStatus],
         speakers: [SpeakerUUID: Speaker],
         topology: Topology,
-        preferredGroupIDs: Set<GroupID>
+        preferredGroupIDs: Set<GroupID>,
+        connectedSpotifyGroup: GroupID?
     ) -> [GroupID: GroupStatus] {
         let validGroups = Array(topology.groups.keys)
         guard validGroups.count > 1 else { return rawStatus }
 
         func groupPreferenceRank(_ a: GroupID, _ b: GroupID) -> Bool {
+            if (a == connectedSpotifyGroup) != (b == connectedSpotifyGroup) { return a == connectedSpotifyGroup }
+
             let aPreferred = preferredGroupIDs.contains(a)
             let bPreferred = preferredGroupIDs.contains(b)
             if aPreferred != bPreferred { return aPreferred }
@@ -173,22 +189,23 @@ public struct HouseholdSnapshot: Hashable, Sendable {
                 let matchesPlaying = playingGroups.contains { playing in
                     playing.nowPlaying.matchesSession(of: pausedNow)
                 }
+                // A paused session on a Spotify account that no room is playing is that account's
+                // own session, so it stays even while a different account plays elsewhere.
+                let isOwnAccountSession = pausedNow.spotifyAccountSerial != nil
                 let isSpotifyPaused = pausedNow.isSpotifyOrStreaming
                 let isStaleMusicSession: Bool = switch pausedNow {
                 case .track, .stream: anyPlayingMusicOrStream
                 case .tvAudio: false
                 }
-                if matchesPlaying || isSpotifyPaused || isStaleMusicSession {
+                if matchesPlaying || (!isOwnAccountSession && (isSpotifyPaused || isStaleMusicSession)) {
                     clearGroup(groupID)
                 }
             }
-            return updated
         }
 
-        // 2. Deduplicate .paused sessions when NO group is .playing:
-        // When all active groups are .paused, if multiple groups report the same .paused track
-        // (or multiple groups report a .paused Spotify session), only ONE group retains the
-        // .paused session; clear the stale duplicate .paused track from the other rooms.
+        // 2. Deduplicate .paused sessions: if multiple groups report the same .paused track (or .paused
+        // Spotify sessions on one account), only ONE group retains the .paused session; clear the stale
+        // duplicate .paused track from the other rooms.
         var pausedGroups: [(id: GroupID, nowPlaying: NowPlaying)] = []
         for groupID in validGroups {
             if let status = updated[groupID],
@@ -250,9 +267,10 @@ public struct HouseholdSnapshot: Hashable, Sendable {
     package func replacing(
         speakers: [SpeakerUUID: Speaker]? = nil, topology: Topology? = nil,
         status: (GroupID, GroupStatus)? = nil,
-        externalSpotify: SpotifyTrackContext?? = nil
+        externalSpotify: SpotifyTrackContext?? = nil,
+        connectedSpotifyGroup: GroupID?? = nil
     ) -> HouseholdSnapshot {
-        var statuses = groupStatus
+        var statuses = reportedStatus
         if let status { statuses[status.0] = status.1 }
         let resolvedExternal = externalSpotify ?? self.externalSpotify
         return HouseholdSnapshot(
@@ -264,7 +282,8 @@ public struct HouseholdSnapshot: Hashable, Sendable {
             rf: rf,
             presets: presets,
             networkName: networkName,
-            externalSpotify: resolvedExternal)
+            externalSpotify: resolvedExternal,
+            connectedSpotifyGroup: connectedSpotifyGroup ?? self.connectedSpotifyGroup)
     }
 }
 
