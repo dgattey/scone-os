@@ -1,0 +1,6 @@
+# pnpm reads .npmrc for auth and registries only, so these live here.
+engineStrict: true
+saveExact: true
+overrides:
+  postcss: "^8.5.10"
+  undici: "^6.24.0"

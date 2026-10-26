@@ -1,21 +1,19 @@
 {
   "name": "sconeos-server",
   "private": true,
+  "packageManager": "pnpm@12.9.1+sha512.06b055fff5cd20dc12781de173ced3310ce0951bf2ec620211a16045d5444d5c93a663210764ef29a653a610459ba0368f0e74f84d80c54723cf95aae7bc0d6d",
   "scripts": {
+    "preinstall": "npx only-allow pnpm",
     "dev": "next dev --port 3000",
     "build": "next build",
     "start": "next start --port 3000",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@dylkit/web": "https://github.com/dgattey/dyl-kit/releases/download/v0.1.0/dylkit-web-0.1.0.tgz",
+    "@dylkit/web": "https://frmtw5gxqbom2ooh.public.blob.vercel-storage.com/releases/v0.7.1/dylkit-web-0.7.1.tgz",
     "next": "^15.3.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
-  },
-  "overrides": {
-    "postcss": "^8.5.10",
-    "undici": "^6.24.0"
   },
   "devDependencies": {
     "@types/node": "^22.13.0",

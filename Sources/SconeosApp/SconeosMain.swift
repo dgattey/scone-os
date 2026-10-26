@@ -85,7 +85,6 @@ struct SconeosApp: App {
         AppWindow(
             "Sconeos",
             palette: MidnightGlassPalette(),
-            launch: LaunchView.overrides,
             defaultSize: LaunchView.isIOSLayout ? CGSize(width: 402, height: 874) : CGSize(width: 1280, height: 840)
         ) {
             root
@@ -147,9 +146,11 @@ struct SconeosApp: App {
         #if os(macOS)
         SettingsWindow(
             palette: MidnightGlassPalette(),
-            pages: [
-                SettingsPage("General", systemImage: "gearshape") { UpdatesSection() },
-                SettingsPage("About", systemImage: "info.circle") { AboutSection() },
+            sections: [
+                SettingsSection(pages: [
+                    SettingsPage("General", systemImage: "gearshape") { UpdatesSection() },
+                    SettingsPage("About", systemImage: "info.circle") { AboutSection() },
+                ]),
             ]
         )
         #endif

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Push the Sparkle EdDSA private key to GitHub Actions as SPARKLE_ED_PRIVATE_KEY_BASE64 for release.yml.
+# Push the Sparkle EdDSA private key to GitHub Actions as SPARKLE_ED_PRIVATE_KEY_BASE64 for the dylkit workflow.
 # Releases are signed ad-hoc, so no codesigning certificate is exported.
 #
 # Usage:
@@ -10,7 +10,9 @@
 #   ./scripts/export-ci-secrets.sh --repo owner/name
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-CERT_DIR="$ROOT/.cert"
+EXPORT_DIR="$(mktemp -d)"
+EXPORTED_KEY="$EXPORT_DIR/sparkle_ed.key"
+trap 'rm -rf "$EXPORT_DIR"' EXIT
 
 PRINT_ONLY=false
 DRY_RUN=false
@@ -59,19 +61,10 @@ resolve_sparkle_key_file() {
     printf '%s' "$SPARKLE_KEY_FILE"
     return 0
   fi
-  local candidate
-  for candidate in \
-    "$CERT_DIR/sparkle_ed.key" \
-    "$ROOT/sparkle_private.key" \
-    "$HOME/.config/sconeos/sparkle_ed.key"; do
-    if [[ -f "$candidate" ]]; then
-      printf '%s' "$candidate"
-      return 0
-    fi
-  done
   local gk="$ROOT/.build/artifacts/sparkle/Sparkle/bin/generate_keys"
-  if [[ -x "$gk" ]] && "$gk" -x "$CERT_DIR/sparkle_ed.key" 2>/dev/null && [[ -f "$CERT_DIR/sparkle_ed.key" ]]; then
-    printf '%s' "$CERT_DIR/sparkle_ed.key"
+  if [[ -x "$gk" ]] && "$gk" --account com.sconeos.SconeOS -x "$EXPORTED_KEY" 2>/dev/null \
+    && [[ -s "$EXPORTED_KEY" ]]; then
+    printf '%s' "$EXPORTED_KEY"
     return 0
   fi
   return 1

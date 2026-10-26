@@ -1,5 +1,6 @@
 import AuthenticationServices
 import DylCore
+import DylUI
 import SwiftUI
 import SconeDomain
 import SconeStore
@@ -121,13 +122,12 @@ public enum LaunchView {
         case group, living, guest
     }
 
-    public static let overrides = LaunchOverrides(prefix: "SCONEOS")
-    fileprivate static let screen = overrides.initialView.flatMap(Screen.init(rawValue:))
-    public static let isIOSLayout = overrides.value("layout") == "ios"
-    public static let showsQueue = overrides.flag("show-queue")
+    fileprivate static let screen = LaunchOverrides.current.initialView.flatMap(Screen.init(rawValue:))
+    public static let isIOSLayout = LaunchOverrides.current.value("layout") == "ios"
+    public static let showsQueue = LaunchOverrides.current.flag("show-queue")
     /// `--tab`. `spotify` opens Settings. Nil when the flag is unset, so a later apply does not reset the tab.
     fileprivate static let compactTab: AppTab? = {
-        switch overrides.value("tab") {
+        switch LaunchOverrides.current.value("tab") {
         case nil: nil
         case "rooms": .rooms
         case "settings", "spotify": .settings
@@ -757,10 +757,6 @@ struct SconeSettingsView: View {
     @Environment(SconeStore.self) private var store
     var onConnectSpotify: () -> Void
 
-    private var appVersion: String {
-        (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "0.1.2"
-    }
-
     var body: some View {
         List {
             Section {
@@ -790,7 +786,7 @@ struct SconeSettingsView: View {
                     Text("Version")
                         .foregroundStyle(MidnightGlass.primaryText)
                     Spacer()
-                    Text(appVersion)
+                    Text(AppAbout.main.version)
                         .font(.subheadline.monospacedDigit())
                         .foregroundStyle(MidnightGlass.secondaryText)
                 }
