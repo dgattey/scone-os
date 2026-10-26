@@ -26,10 +26,12 @@ Sconeos builds with [DylKit](https://github.com/dgattey/dyl-kit), Dylan's shared
 
 `release-kit` bundles the app, strips build-machine rpaths, embeds `Sparkle.framework`, and signs everything inside-out (`Installer.xpc`, `Downloader.xpc` with its entitlements preserved, `Autoupdate`, `Updater.app`, then `Sconeos.app` with `Sconeos.local.entitlements`). Releases are signed ad-hoc with the designated requirement pinned to the bundle identifier, so Sparkle accepts each build as the same app. Untrusted self-signed certificates get killed by `syspolicyd`/`amfid` on quarantined launches.
 
-To rotate or generate a Sparkle EdDSA keypair (storing the private key in the macOS login Keychain and writing the public key to `sparkle-public-key.txt`):
+To generate the Sparkle EdDSA keypair (storing the private key in the login Keychain account `com.sconeos.SconeOS`, not Sparkle's shared `ed25519` one, and writing the public key to `sparkle-public-key.txt`):
 
 ```bash
 ./scripts/generate-sparkle-key.sh
 ```
+
+While `sparkle-public-key.txt` names a key the Keychain account doesn't hold, the script refuses to generate a new one. Import the existing key into the account instead with `generate_keys --account com.sconeos.SconeOS -f <exported key>`.
 
 The download site in `server/` is a thin [`@dylkit/web`](https://github.com/dgattey/dyl-kit/tree/main/web) app that reads `DylApp.toml` and serves the latest release from the Blob store `[release] assets` names. CI for the site is the `site` workflow in `.github/workflows/site.yml`.

@@ -70,7 +70,8 @@ resolve_sparkle_key_file() {
     fi
   done
   local gk="$ROOT/.build/artifacts/sparkle/Sparkle/bin/generate_keys"
-  if [[ -x "$gk" ]] && "$gk" -x "$CERT_DIR/sparkle_ed.key" 2>/dev/null && [[ -f "$CERT_DIR/sparkle_ed.key" ]]; then
+  if [[ -x "$gk" ]] && "$gk" --account com.sconeos.SconeOS -x "$CERT_DIR/sparkle_ed.key" 2>/dev/null \
+    && [[ -f "$CERT_DIR/sparkle_ed.key" ]]; then
     printf '%s' "$CERT_DIR/sparkle_ed.key"
     return 0
   fi
