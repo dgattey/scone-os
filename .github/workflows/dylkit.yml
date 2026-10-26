@@ -2,7 +2,7 @@ name: dylkit
 
 on:
   pull_request:
-    types: [opened, edited, reopened, synchronize, closed]
+    types: [opened, reopened, synchronize, closed]
   workflow_dispatch:
     inputs:
       release_type:
@@ -17,7 +17,7 @@ permissions:
 
 jobs:
   dylkit:
-    uses: dgattey/dyl-kit/.github/workflows/app.yml@f4d4d1508e34940a8874c4de34b96ba21480264c
+    uses: dgattey/dyl-kit/.github/workflows/app.yml@facb7feb389dee1fd20695d6b2a16099fcdbe8e7
     with:
       release_type: ${{ inputs.release_type || 'auto' }}
     secrets: inherit
