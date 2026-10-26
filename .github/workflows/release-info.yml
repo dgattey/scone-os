@@ -10,4 +10,4 @@ permissions:
 
 jobs:
   dylkit:
-    uses: dgattey/dyl-kit/.github/workflows/release-info.yml@facb7feb389dee1fd20695d6b2a16099fcdbe8e7
+    uses: dgattey/dyl-kit/.github/workflows/release-info.yml@f0c1e619ed78c7a0aec245e9b94450fb5584dc2c

@@ -18,7 +18,7 @@ let package = Package(
     dependencies: [
         .package(
             url: "https://github.com/dgattey/dyl-kit",
-            revision: "facb7feb389dee1fd20695d6b2a16099fcdbe8e7"
+            revision: "f0c1e619ed78c7a0aec245e9b94450fb5584dc2c"
         ),
     ],
     targets: [
