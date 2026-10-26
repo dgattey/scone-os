@@ -171,8 +171,8 @@ importers:
   .:
     dependencies:
       '@dylkit/web':
-        specifier: https://frmtw5gxqbom2ooh.public.blob.vercel-storage.com/releases/pr-22/dylkit-web-0.6.0-pr.22.c91cbaf.tgz
-        version: https://frmtw5gxqbom2ooh.public.blob.vercel-storage.com/releases/pr-22/dylkit-web-0.6.0-pr.22.c91cbaf.tgz(next@15.5.28(@types/node@22.20.5)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(react@19.3.1)
+        specifier: https://frmtw5gxqbom2ooh.public.blob.vercel-storage.com/releases/v0.6.1/dylkit-web-0.6.1.tgz
+        version: https://frmtw5gxqbom2ooh.public.blob.vercel-storage.com/releases/v0.6.1/dylkit-web-0.6.1.tgz(next@15.5.28(@types/node@22.20.5)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(react@19.3.1)
       next:
         specifier: ^15.3.0
         version: 15.5.28(@types/node@22.20.5)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
@@ -195,9 +195,9 @@ importers:
 
 packages:
 
-  '@dylkit/web@https://frmtw5gxqbom2ooh.public.blob.vercel-storage.com/releases/pr-22/dylkit-web-0.6.0-pr.22.c91cbaf.tgz':
-    resolution: {integrity: sha512-J8olCz6lUJ/HTMelvZAlpwhvNNufJhbM/vpxv+GZ8vUty0y4IFfttFl7z2XqO3cIYxMIPShw04lHjRv/JS73fw==, tarball: https://frmtw5gxqbom2ooh.public.blob.vercel-storage.com/releases/pr-22/dylkit-web-0.6.0-pr.22.c91cbaf.tgz}
-    version: 0.6.0-pr.22.c91cbaf
+  '@dylkit/web@https://frmtw5gxqbom2ooh.public.blob.vercel-storage.com/releases/v0.6.1/dylkit-web-0.6.1.tgz':
+    resolution: {integrity: sha512-dUrhWLfAmTRdJgEAsn7FhyE2vNxRVQRtgFAun348tQ/22kSlZemKSuUqRmonFwM2b+a+BRXnre34YBi/dbvYYg==, tarball: https://frmtw5gxqbom2ooh.public.blob.vercel-storage.com/releases/v0.6.1/dylkit-web-0.6.1.tgz}
+    version: 0.6.1
     engines: {node: '>=22.18'}
     peerDependencies:
       next: '>=15.3.0'
@@ -543,7 +543,7 @@ packages:
 
 snapshots:
 
-  '@dylkit/web@https://frmtw5gxqbom2ooh.public.blob.vercel-storage.com/releases/pr-22/dylkit-web-0.6.0-pr.22.c91cbaf.tgz(next@15.5.28(@types/node@22.20.5)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(react@19.3.1)':
+  '@dylkit/web@https://frmtw5gxqbom2ooh.public.blob.vercel-storage.com/releases/v0.6.1/dylkit-web-0.6.1.tgz(next@15.5.28(@types/node@22.20.5)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(react@19.3.1)':
     dependencies:
       smol-toml: 1.9.1
     optionalDependencies:
